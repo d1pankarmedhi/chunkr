@@ -1,0 +1,14 @@
+[package]
+authors = ["Dipankar dipankarmedhi11@gmail.com"]
+edition = "2021"
+license = "MIT"
+name = "chunkr"
+version = "0.1.10"
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+lopdf = {version = "0.32.0", features = ["pom", "pom_parser"]}
+
+[lib]
+name = "chunkr"
+path = "src/lib.rs"
