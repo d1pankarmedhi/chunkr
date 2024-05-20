@@ -2,32 +2,33 @@
 <h1>chunkr</h1>
 <h3>A fast and quick chunking library for 🦀</h3>
 
+[![Latest version](https://img.shields.io/crates/v/chunkr.svg)](https://crates.io/crates/chunkr)
+![License](https://img.shields.io/crates/l/chunkr.svg)
+
+
+
 </div>
 
 
 ## 🚀 Getting Started
 
-### Add to your project
-To add `chunkr` to your project and start chunking, use the **cargo** cli
+To add [`chunkr`](https://crates.io/crates/chunkr) to your project and start chunking, use the **cargo** cli
 ```bash
 cargo add chunkr
 ```
-This will download and add the latest version to your project. Or you can directly add the 'chunkr' in the the `cargo.toml` file and run build command.
-```bash
-cargo build
-```
 
-### Run project locally
+### To checkout code and build it yourself
 
-Clone the repository
+Clone the repository and run one of the *examples* from the `examples` directory. 
+
 ```bash
 git clone https://github.com/d1pankarmedhi/chunkr.git
-
 cd chunkr
 ```
 
 ## 🏗️ Examples
-Check out these examples to get started.
+
+Check out these examples to quickly get started:
 
 ### Chunking
 
