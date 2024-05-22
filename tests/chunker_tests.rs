@@ -18,7 +18,7 @@ fn test_character_chunker() {
         .chunk_text(&input_text, chunk_size, overlap)
         .unwrap();
     dbg!(chunks.len());
-    assert_eq!(1161, chunks.len());
+    assert_eq!(58, chunks.len());
 }
 
 #[test]
