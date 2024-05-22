@@ -35,12 +35,12 @@ Check out these examples to quickly get started:
 These are some chunking strategy examples:
 
 - [Chunking by words](/examples/chunk_by_words.rs) - Chunk your documents/texts by number of words. 
-- [Chunking by characters](/examples/) - Chunk your documents/text by number of characters.
+- [Chunking by characters](/examples/chunk_by_chars.rs) - Chunk your documents/text by number of characters.
 
 Run them using the cargo command like:
 ```bash
-cargo run --example chunk_by_words 5 "Hello there how are you. I am fine, Thank you"
-# ["Hello there how are you.", "I am fine, Thank you"]
+cargo run --example chunk_by_words 5 2 "hello there howw are you I am fine thank you"
+# ["hello there howw are you", "are you I am fine", "am fine thank you"]
 ```
 
 ## 💡 Contributing

@@ -1,3 +1,8 @@
+use std::collections::HashMap;
+
+use serde_json::Value;
+
+use super::super::structures::document::Document;
 use super::base::BaseChunker;
 
 pub struct CharacterChunker {}
@@ -7,21 +12,48 @@ impl CharacterChunker {
     }
 }
 
-impl BaseChunker<Vec<String>> for CharacterChunker {
-    fn chunk_text(&self, text: &str, chunk_size: usize) -> Vec<String> {
-        let mut result: Vec<String> = Vec::new();
+impl BaseChunker<Result<Vec<Document>, String>> for CharacterChunker {
+    fn chunk_text(
+        &self,
+        text: &str,
+        chunk_size: usize,
+        overlap: usize,
+    ) -> Result<Vec<Document>, String> {
+        let mut result: Vec<Document> = Vec::new();
         let mut temp_str = String::new();
-        for char in text.chars() {
-            temp_str.push(char);
-            if temp_str.len() >= chunk_size || char == text.chars().last().unwrap() {
-                result.push(temp_str.clone());
-                temp_str.clear();
-            }
-        }
-        if !temp_str.is_empty() {
-            result.push(temp_str);
+        let mut start = 0;
+
+        let chars: Vec<char> = text.chars().collect();
+
+        if text.trim().is_empty() {
+            return Err("Need to pass text".to_string());
         }
 
-        result
+        while start < text.len() {
+            if (start + chunk_size) >= chars.len() {
+                break;
+            }
+
+            for i in 0..chunk_size {
+                temp_str.push(chars[start + i]);
+            }
+
+            if !temp_str.is_empty() {
+                let mut metadata = HashMap::new();
+                metadata.insert("length".to_string(), Value::from(temp_str.len()));
+                metadata.insert("source".to_string(), Value::from("source"));
+
+                let doc = Document {
+                    content: temp_str.trim_end().to_string(),
+                    metadata: metadata,
+                };
+                result.push(doc);
+                temp_str.clear();
+            }
+
+            start += chunk_size - overlap;
+        }
+
+        Ok(result)
     }
 }
