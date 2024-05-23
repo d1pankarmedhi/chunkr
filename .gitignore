@@ -1,1 +1,7 @@
 /target
+
+# resources 
+.resource
+
+# files
+main.rs 

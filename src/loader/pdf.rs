@@ -17,8 +17,8 @@ impl BaseLoader<Result<String>> for PDFLoader {
         let pages = doc.get_pages();
         for (i, _) in pages.iter().enumerate() {
             let page_number = (i + 1) as u32;
-            let text = doc.extract_text(&[page_number]);
-            content.push_str(text.unwrap().as_str());
+            let text = doc.extract_text(&[page_number]).unwrap();
+            content.push_str(text.as_str());
         }
         Ok(content)
     }

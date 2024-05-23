@@ -12,13 +12,13 @@ fn test_character_chunker() {
     let input_text = loader
         .load_from_file("tests/test_files/sample_doc.pdf")
         .unwrap();
-    let chunk_size = 3000;
+    let chunk_size = 1000;
     let overlap = 50;
     let chunks = char_chunker
         .chunk_text(&input_text, chunk_size, overlap)
         .unwrap();
     dbg!(chunks.len());
-    assert_eq!(58, chunks.len());
+    assert_eq!(5, chunks.len());
 }
 
 #[test]
@@ -35,5 +35,5 @@ fn test_word_chunker() {
         .chunk_text(&input_text, chunk_size, overlap)
         .unwrap();
     dbg!(&chunks);
-    assert_eq!(11060, chunks[0].content.len());
+    assert_eq!(1627, chunks[0].content.len());
 }

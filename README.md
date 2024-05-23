@@ -36,6 +36,7 @@ These are some chunking strategy examples:
 
 - [Chunking by words](/examples/chunk_by_words.rs) - Chunk your documents/texts by number of words. 
 - [Chunking by characters](/examples/chunk_by_chars.rs) - Chunk your documents/text by number of characters.
+- [Chunk PDF document](/examples/chunk_document.rs) - Chunk your pdf documents by words/characters.
 
 Run them using the cargo command like:
 ```bash
