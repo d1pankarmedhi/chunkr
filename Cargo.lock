@@ -72,7 +72,7 @@ dependencies = [
 
 [[package]]
 name = "chunkr"
-version = "0.1.15"
+version = "0.1.17"
 dependencies = [
  "lopdf",
  "serde",
