@@ -17,7 +17,6 @@ fn main() {
     let chunks = word_chunker
         .chunk_text(&input_text, chunk_size, overlap)
         .unwrap();
-    println!("chunks: {:?}", chunks);
     let mut result: Vec<String> = Vec::new();
     for chunk in chunks {
         result.push(chunk.content.to_string());

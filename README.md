@@ -5,10 +5,11 @@
 [![Latest version](https://img.shields.io/crates/v/chunkr.svg)](https://crates.io/crates/chunkr)
 ![License](https://img.shields.io/crates/l/chunkr.svg)
 
-
-
 </div>
 
+The project aims to help Rust developers build text and language-based applications that utilize some kind of documents or text. It is built for developers to chunkify large documents into smaller chunks without using heavy resources.
+
+use `chunkr` to split large *pdf* documents into smaller chunks for LLM training and RAG (Retrieval Augmented Generation) application development. 
 
 ## 🚀 Getting Started
 
@@ -16,6 +17,13 @@ To add [`chunkr`](https://crates.io/crates/chunkr) to your project and start chu
 ```bash
 cargo add chunkr
 ```
+**Chunk by words** 
+
+```python
+use chunkr::chunker::{base::BaseChunker, word::WordChunker};
+
+There are some examples mentioned in the `examples` directory. Checkout those to get started. 
+
 
 ### To checkout code and build it yourself
 
@@ -40,12 +48,12 @@ These are some chunking strategy examples:
 
 Run them using the cargo command like:
 ```bash
-cargo run --example chunk_by_words 5 2 "hello there howw are you I am fine thank you"
-# ["hello there howw are you", "are you I am fine", "am fine thank you"]
+# cargo run --example example-name chunk-size overlap file-path
+cargo run --example chunk_document 1000 20 /home/home/Downloads/clean_code.pdf
 ```
 
 ## 💡 Contributing
-As an open-source project, we are open to all kinds of contribution, be it through code, documentation, issues, bugs, or even feature suggestions. 
+As an open-source project, we are open to all kinds of contributions, be it through code, documentation, issues, bugs, or even feature suggestions. 
 
 Feel free to check out [Contribution](/CONTRIBUTION.md) guide for more details.
 

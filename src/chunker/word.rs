@@ -1,8 +1,8 @@
 use serde_json::Value;
 use std::collections::HashMap;
 
-use super::super::structures::document::Document;
-use super::base::BaseChunker;
+use crate::chunker::base::BaseChunker;
+use crate::structures::document::Document;
 
 pub struct WordChunker {}
 impl WordChunker {
