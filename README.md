@@ -17,10 +17,6 @@ To add [`chunkr`](https://crates.io/crates/chunkr) to your project and start chu
 ```bash
 cargo add chunkr
 ```
-**Chunk by words** 
-
-```python
-use chunkr::chunker::{base::BaseChunker, word::WordChunker};
 
 There are some examples mentioned in the `examples` directory. Checkout those to get started. 
 
