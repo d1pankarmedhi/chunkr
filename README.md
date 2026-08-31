@@ -138,7 +138,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 Pure in-memory Python runtime comparison (`import chunkr` vs. `langchain-text-splitters`):
 
 <p align="center">
-  <img src="assets/benchmark.svg" alt="Chunkr vs LangChain Speed Benchmark" width="100%" />
+  <img src="https://raw.githubusercontent.com/d1pankarmedhi/chunkr/main/assets/benchmark.svg" alt="Chunkr vs LangChain Speed Benchmark" width="100%" />
 </p>
 
 ---
