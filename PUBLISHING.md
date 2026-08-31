@@ -6,13 +6,14 @@
 
 ## 🚀 1. Automated Release via GitHub Actions (Recommended)
 
-When you push a git tag matching `v*` (e.g. `v1.0.0`), GitHub Actions will automatically:
-1. Run all unit and integration tests.
-2. Build multi-platform wheels for Linux (`x86_64`, `aarch64`, `armv7`), Windows (`x86_64`, `x86`), and macOS (`x86_64`, `Apple Silicon aarch64`).
-3. Build the source distribution (`sdist`).
-4. Publish the package directly to PyPI using PyPI Trusted Publishing.
+GitHub Actions will build multi-platform wheels for Linux, Windows, and macOS, compile the sdist, run test suites, and publish to both **PyPI** and **Crates.io** automatically.
 
-### Steps:
+### Setup GitHub Secrets (One-time)
+In your GitHub repo: **Settings → Secrets and variables → Actions → New repository secret**:
+1. `PYPI_API_TOKEN`: Your PyPI API Token (starts with `pypi-...` from [pypi.org/manage/account/token](https://pypi.org/manage/account/token/))
+2. `CARGO_REGISTRY_TOKEN`: Your Crates.io API Token (from [crates.io/settings/tokens](https://crates.io/settings/tokens))
+
+### Release Steps:
 ```bash
 git tag v1.0.0
 git push origin v1.0.0
