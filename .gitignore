@@ -1,7 +1,9 @@
 /target
-
-# resources 
+/dist
+/scripts
+.venv
+__pycache__
+*.pyc
+*.egg-info
 .resource
-
-# files
-main.rs 
+main.rs

@@ -1,0 +1,53 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "chunkr"
+version = "1.0.0"
+description = "Blazingly fast document and text chunking library for LLMs and RAG in Rust and Python"
+authors = [{ name = "Dipankar", email = "dipankarmedhi11@gmail.com" }]
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.8"
+keywords = [
+    "chunking",
+    "rag",
+    "llm",
+    "text-splitter",
+    "embeddings",
+    "retrieval",
+    "vector-database",
+    "markdown",
+    "nlp",
+    "rust",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Text Processing :: Linguistic",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/d1pankarmedhi/chunkr"
+Documentation = "https://github.com/d1pankarmedhi/chunkr#readme"
+Repository = "https://github.com/d1pankarmedhi/chunkr.git"
+Issues = "https://github.com/d1pankarmedhi/chunkr/issues"
+
+[tool.maturin]
+features = ["pyo3/extension-module", "python"]
+module-name = "chunkr"
+include = ["chunkr.pyi"]

@@ -1,0 +1,179 @@
+from typing import Any, Dict, List, Optional, Union
+
+class Document:
+    """A document holding chunked text content and associated metadata."""
+    content: str
+    metadata: Dict[str, Any]
+
+    def __init__(self, content: str, metadata: Optional[Dict[str, str]] = None) -> None: ...
+    def to_dict(self) -> Dict[str, Any]: ...
+    def __len__(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+class RecursiveChunker:
+    """Splits text recursively along natural semantic boundaries (paragraphs, sentences, words)."""
+    def __init__(
+        self,
+        chunk_size: int = 1000,
+        overlap: int = 200,
+        separators: Optional[List[str]] = None,
+    ) -> None: ...
+    def chunk(self, text: str) -> List[Document]: ...
+
+class TokenChunker:
+    """Splits text directly by OpenAI BPE token counts (cl100k_base, o200k_base, p50k_base, r50k_base)."""
+    def __init__(
+        self,
+        chunk_size: int = 512,
+        overlap: int = 50,
+        encoding: str = "cl100k_base",
+    ) -> None: ...
+    def chunk(self, text: str) -> List[Document]: ...
+    def count_tokens(self, text: str) -> int: ...
+
+class SentenceChunker:
+    """Splits text by sentence boundaries while guarding abbreviations, decimals, and ellipses."""
+    def __init__(
+        self,
+        sentences_per_chunk: int = 3,
+        overlap: int = 1,
+        max_characters: Optional[int] = None,
+    ) -> None: ...
+    def chunk(self, text: str) -> List[Document]: ...
+
+class ParagraphChunker:
+    """Splits text across paragraph boundaries."""
+    def __init__(
+        self,
+        paragraphs_per_chunk: int = 2,
+        overlap: int = 0,
+    ) -> None: ...
+    def chunk(self, text: str) -> List[Document]: ...
+
+class SemanticChunker:
+    """Splits text dynamically where cosine distance between sentence embeddings exceeds statistical thresholds."""
+    def __init__(
+        self,
+        percentile: float = 90.0,
+        min_size: int = 100,
+        max_size: int = 2000,
+    ) -> None: ...
+    def chunk(self, text: str) -> List[Document]: ...
+
+class PropositionChunker:
+    """Decomposes sentences into atomic, self-contained factual claims (propositions)."""
+    def __init__(
+        self,
+        propositions_per_chunk: int = 1,
+        overlap: int = 0,
+    ) -> None: ...
+    def chunk(self, text: str) -> List[Document]: ...
+
+class ContextualChunker:
+    """Enriches chunk contents with document-level context and situational prefaces."""
+    def __init__(
+        self,
+        chunk_size: int = 1000,
+        overlap: int = 200,
+        max_context_chars: int = 200,
+    ) -> None: ...
+    def chunk(self, text: str) -> List[Document]: ...
+
+class QueryAwareChunker:
+    """Dynamically adapts chunk sizing and boundary placement based on query keyword density."""
+    def __init__(
+        self,
+        query: str,
+        hotspot_sentences: int = 2,
+        hotspot_overlap: int = 1,
+        context_sentences: int = 5,
+        relevance_threshold: float = 0.1,
+    ) -> None: ...
+    def chunk(self, text: str) -> List[Document]: ...
+
+class AgenticChunker:
+    """Autonomous agent-based sentence evaluation for discourse transitions and topic shifts."""
+    def __init__(
+        self,
+        min_chars: int = 150,
+        max_chars: int = 1200,
+    ) -> None: ...
+    def chunk(self, text: str) -> List[Document]: ...
+
+class HierarchicalChunker:
+    """Multi-tier parent-child hierarchical chunker for Small-to-Big RAG architectures."""
+    def __init__(
+        self,
+        parent_size: int = 2000,
+        parent_overlap: int = 200,
+        child_size: int = 400,
+        child_overlap: int = 50,
+        include_parents: bool = True,
+    ) -> None: ...
+    def chunk(self, text: str) -> List[Document]: ...
+
+class MarkdownChunker:
+    """Structure-aware Markdown chunker with header hierarchy parsing and breadcrumb tracking."""
+    def __init__(
+        self,
+        chunk_size: int = 1000,
+        overlap: int = 150,
+    ) -> None: ...
+    def chunk(self, text: str) -> List[Document]: ...
+
+class CodeChunker:
+    """Language-aware syntax chunker for Rust, Python, JavaScript, TypeScript, Go, C++, SQL, and Markdown."""
+    def __init__(
+        self,
+        language: str = "rust",
+        chunk_size: int = 1500,
+        overlap: int = 200,
+    ) -> None: ...
+    def chunk(self, text: str) -> List[Document]: ...
+
+class JsonChunker:
+    """Structure-aware JSON chunker preserving JSON paths and valid sub-objects."""
+    def __init__(self, max_size: int = 1500) -> None: ...
+    def chunk(self, text: str) -> List[Document]: ...
+
+class HtmlChunker:
+    """Structure-aware HTML chunker splitting across semantic DOM elements."""
+    def __init__(
+        self,
+        chunk_size: int = 1200,
+        overlap: int = 150,
+    ) -> None: ...
+    def chunk(self, text: str) -> List[Document]: ...
+
+class CharacterChunker:
+    """Fixed-size character chunker with configurable overlap."""
+    def __init__(
+        self,
+        chunk_size: int = 1000,
+        overlap: int = 200,
+    ) -> None: ...
+    def chunk(self, text: str) -> List[Document]: ...
+
+class WordChunker:
+    """Word-count chunker with configurable overlap."""
+    def __init__(
+        self,
+        chunk_size: int = 200,
+        overlap: int = 20,
+    ) -> None: ...
+    def chunk(self, text: str) -> List[Document]: ...
+
+class PDFLoader:
+    """High-performance PDF loader extracting raw text, single documents, or page-by-page chunk collections."""
+    def __init__(self) -> None: ...
+    def load(self, path: str) -> str: ...
+    def load_from_file(self, path: str) -> str: ...
+    def load_from_bytes(self, bytes: bytes) -> str: ...
+    def load_document(self, path: str) -> Document: ...
+    def load_document_from_bytes(self, bytes: bytes) -> Document: ...
+    def load_pages(self, path: str) -> List[Document]: ...
+    def load_pages_from_file(self, path: str) -> List[Document]: ...
+    def load_pages_from_bytes(self, bytes: bytes) -> List[Document]: ...
+
+def load_pdf(path: str) -> str: ...
+def load_pdf_pages(path: str) -> List[Document]: ...

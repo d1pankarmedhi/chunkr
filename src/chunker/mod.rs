@@ -1,3 +1,16 @@
+pub mod agentic;
 pub mod base;
 pub mod char;
+pub mod code;
+pub mod contextual;
+pub mod hierarchical;
+pub mod html;
+pub mod json;
+pub mod markdown;
+pub mod proposition;
+pub mod query_aware;
+pub mod recursive;
+pub mod semantic;
+pub mod sentence;
+pub mod token;
 pub mod word;
