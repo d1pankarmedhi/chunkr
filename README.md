@@ -38,22 +38,22 @@ maturin develop --release
 
 ---
 
-## 🚀 Supported Chunking Strategies (12 Strategies)
+## 🚀 Supported Chunking Strategies
 
-| Strategy | Rust Chunker | Python Chunker | Description |
-| :--- | :--- | :--- | :--- |
-| **Recursive** | `RecursiveChunker` | `chunkr.RecursiveChunker` | SIMD-accelerated recursive separator splitting (**~600+ MB/s**) |
-| **Token BPE** | `TokenChunker` | `chunkr.TokenChunker` | OpenAI BPE token splitting (`cl100k_base`, `o200k_base`, etc.) |
-| **Sentence** | `SentenceChunker` | `chunkr.SentenceChunker` | Abbreviation & decimal protected sentence boundary splitting |
-| **Paragraph** | `ParagraphChunker` | `chunkr.ParagraphChunker` | Paragraph grouping across `\n\n` boundaries |
-| **Semantic** | `SemanticChunker` | `chunkr.SemanticChunker` | Distance threshold breakpoint clustering |
-| **Proposition** | `PropositionChunker` | `chunkr.PropositionChunker` | Atomic factual claim extraction with subject propagation |
-| **Contextual** | `ContextualChunker` | `chunkr.ContextualChunker` | Anthropic-style situational document preface injection |
-| **Query-Aware** | `QueryAwareChunker` | `chunkr.QueryAwareChunker` | Search query hotspot detection & adaptive sizing |
-| **Agentic** | `AgenticChunker` | `chunkr.AgenticChunker` | Autonomous discourse transition & topic segmentation |
-| **Hierarchical** | `HierarchicalChunker` | `chunkr.HierarchicalChunker` | Parent-child pairs & multi-level tree generation |
-| **Markdown** | `MarkdownChunker` | `chunkr.MarkdownChunker` | Header hierarchy (`#`–`######`) & breadcrumb paths |
-| **Code** | `CodeChunker` | `chunkr.CodeChunker` | Multi-language syntax chunking (Rust, Python, JS, Go, etc.) |
+| Strategy | Chunker Class | Description |
+| :--- | :--- | :--- |
+| **Recursive** | `RecursiveChunker` | SIMD recursive separator splitting (**~600+ MB/s**) |
+| **Token BPE** | `TokenChunker` | OpenAI BPE token splitting (`cl100k_base`, `o200k_base`) |
+| **Sentence** | `SentenceChunker` | Abbreviation-safe sentence boundary splitting |
+| **Paragraph** | `ParagraphChunker` | Multi-paragraph grouping across `\n\n` |
+| **Semantic** | `SemanticChunker` | Distance threshold breakpoint clustering |
+| **Proposition** | `PropositionChunker` | Atomic factual claim extraction & subject propagation |
+| **Contextual** | `ContextualChunker` | Anthropic-style situational document preface injection |
+| **Query-Aware** | `QueryAwareChunker` | Search query hotspot detection & adaptive sizing |
+| **Agentic** | `AgenticChunker` | Discourse transition & topic segmentation |
+| **Hierarchical** | `HierarchicalChunker` | Parent-child pairs & multi-level tree generation |
+| **Markdown** | `MarkdownChunker` | Header hierarchy (`#`–`######`) & breadcrumb paths |
+| **Code** | `CodeChunker` | Syntax-aware chunking (Rust, Python, JS, Go, etc.) |
 
 ---
 
@@ -137,16 +137,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 Pure in-memory Python runtime comparison (`import chunkr` vs. `langchain-text-splitters`):
 
-| Strategy & Test Case | Document Size | LangChain (ms) | Chunkr (ms) | LangChain Throughput | Chunkr Throughput | Speedup Factor |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Fixed Char (100 KB)** | 100 KB | 9.94 ms | **0.59 ms** | 9.8 MB/s | **166.0 MB/s** | **16.9x Faster** |
-| **Fixed Char (1 MB)** | 1 MB | 128.94 ms | **9.89 ms** | 7.8 MB/s | **101.1 MB/s** | **13.0x Faster** |
-| **Recursive Char (100 KB)** | 100 KB | 0.29 ms | **0.11 ms** | 338.2 MB/s | **864.1 MB/s** | **2.6x Faster** |
-| **Recursive Char (1 MB)** | 1 MB | 3.01 ms | **1.87 ms** | 332.2 MB/s | **534.3 MB/s** | **1.6x Faster** |
-| **Recursive Char (5 MB)** | 5 MB | 23.00 ms | **9.89 ms** | 217.4 MB/s | **505.6 MB/s** | **2.3x Faster** |
-| **Markdown Language Split** | 500 KB | 1.96 ms | **0.81 ms** | 248.9 MB/s | **603.8 MB/s** | **2.4x Faster** |
-| **Markdown Header Parser** | 500 KB | 41.81 ms | **2.57 ms** | 11.7 MB/s | **190.2 MB/s** | **16.3x Faster** |
-| **Python Code Split** | 200 KB | 0.39 ms | **0.18 ms** | 500.8 MB/s | **1087.0 MB/s** | **2.2x Faster** |
+<p align="center">
+  <img src="assets/benchmark.svg" alt="Chunkr vs LangChain Speed Benchmark" width="100%" />
+</p>
 
 ---
 

@@ -1,0 +1,210 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 540" width="100%" height="100%" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <defs>
+    <!-- Background Gradient: Deep Matte Obsidian -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f1015" />
+      <stop offset="50%" stop-color="#090a0d" />
+      <stop offset="100%" stop-color="#040405" />
+    </linearGradient>
+
+    <!-- Ambient Top Glow -->
+    <radialGradient id="topGlow" cx="50%" cy="0%" r="75%">
+      <stop offset="0%" stop-color="#10b981" stop-opacity="0.08" />
+      <stop offset="100%" stop-color="#10b981" stop-opacity="0" />
+    </radialGradient>
+
+    <!-- Chunkr Gradient: Vivid Emerald Neon -->
+    <linearGradient id="chunkrGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#059669" />
+      <stop offset="50%" stop-color="#10b981" />
+      <stop offset="100%" stop-color="#34d399" />
+    </linearGradient>
+
+    <!-- LangChain Gradient: Refined Titanium / Brushed Slate -->
+    <linearGradient id="langchainGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#475569" />
+      <stop offset="100%" stop-color="#64748b" />
+    </linearGradient>
+
+    <!-- Badge Gradient: Deep Forest Obsidian Pill -->
+    <linearGradient id="badgeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#064e3b" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#022c22" stop-opacity="0.9" />
+    </linearGradient>
+
+    <!-- Drop Shadows -->
+    <filter id="barGlow" x="-5%" y="-15%" width="110%" height="130%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#10b981" flood-opacity="0.25"/>
+    </filter>
+    <filter id="lcShadow" x="-5%" y="-15%" width="110%" height="130%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#000000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <!-- Card Outer Surface -->
+  <rect width="920" height="540" rx="14" fill="url(#bgGrad)" stroke="#27272a" stroke-width="1.2" />
+  <rect width="920" height="540" rx="14" fill="url(#topGlow)" />
+
+  <!-- Header Section -->
+  <text x="36" y="42" fill="#fafafa" font-size="18" font-weight="700" letter-spacing="-0.3">⚡ Throughput Benchmark: Chunkr vs. LangChain</text>
+  <text x="36" y="64" fill="#a1a1aa" font-size="12">In-memory throughput in MB/s (higher is better) • Overlapping bar comparison</text>
+
+  <!-- Legend -->
+  <g transform="translate(565, 33)">
+    <!-- Chunkr Legend Item -->
+    <rect x="0" y="3" width="14" height="14" rx="3" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
+    <text x="22" y="15" fill="#f4f4f5" font-size="12" font-weight="600">Chunkr (Rust/SIMD)</text>
+    
+    <!-- LangChain Legend Item -->
+    <rect x="175" y="3" width="14" height="14" rx="3" fill="url(#langchainGrad)"/>
+    <text x="197" y="15" fill="#a1a1aa" font-size="12" font-weight="500">LangChain</text>
+  </g>
+
+  <!-- Divider Line -->
+  <line x1="36" y1="82" x2="884" y2="82" stroke="#27272a" stroke-width="1"/>
+
+  <!-- Axis Grid Lines (0, 250, 500, 750, 1000 MB/s) -->
+  <g opacity="0.4">
+    <line x1="220" y1="92" x2="220" y2="495" stroke="#3f3f46" stroke-width="1" stroke-dasharray="3,3"/>
+    <text x="220" y="516" fill="#71717a" font-size="10" font-weight="500" text-anchor="middle">0</text>
+    
+    <line x1="340.5" y1="92" x2="340.5" y2="495" stroke="#3f3f46" stroke-width="1" stroke-dasharray="3,3"/>
+    <text x="340.5" y="516" fill="#71717a" font-size="10" font-weight="500" text-anchor="middle">250 MB/s</text>
+
+    <line x1="460.9" y1="92" x2="460.9" y2="495" stroke="#3f3f46" stroke-width="1" stroke-dasharray="3,3"/>
+    <text x="460.9" y="516" fill="#71717a" font-size="10" font-weight="500" text-anchor="middle">500 MB/s</text>
+
+    <line x1="581.4" y1="92" x2="581.4" y2="495" stroke="#3f3f46" stroke-width="1" stroke-dasharray="3,3"/>
+    <text x="581.4" y="516" fill="#71717a" font-size="10" font-weight="500" text-anchor="middle">750 MB/s</text>
+
+    <line x1="701.8" y1="92" x2="701.8" y2="495" stroke="#3f3f46" stroke-width="1" stroke-dasharray="3,3"/>
+    <text x="701.8" y="516" fill="#71717a" font-size="10" font-weight="500" text-anchor="middle">1,000 MB/s</text>
+  </g>
+
+  <!-- Benchmark Rows -->
+  
+  <!-- Row 1: Python Code (200 KB) -->
+  <g transform="translate(0, 95)">
+    <text x="205" y="27" fill="#e4e4e7" font-size="12" font-weight="600" text-anchor="end">Python Code (200KB)</text>
+    <!-- Background track -->
+    <rect x="220" y="8" width="530" height="28" rx="6" fill="#18181b" stroke="#27272a" stroke-width="1"/>
+    <!-- Chunkr Bar (Under/Wider) -->
+    <rect x="220" y="8" width="523.7" height="28" rx="6" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
+    <text x="735" y="26" fill="#022c22" font-size="11" font-weight="800" text-anchor="end">1,087.0 MB/s</text>
+    <!-- LangChain Bar (Overlapping) -->
+    <rect x="220" y="12" width="241.3" height="20" rx="4" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
+    <text x="453" y="26" fill="#ffffff" font-size="10" font-weight="700" text-anchor="end">500.8 MB/s</text>
+    <!-- Annotation Badge -->
+    <rect x="765" y="11" width="115" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
+    <text x="822.5" y="26" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">⚡ 2.2x Faster</text>
+  </g>
+
+  <!-- Row 2: Recursive Char (100 KB) -->
+  <g transform="translate(0, 145)">
+    <text x="205" y="27" fill="#e4e4e7" font-size="12" font-weight="600" text-anchor="end">Recursive (100KB)</text>
+    <!-- Background track -->
+    <rect x="220" y="8" width="530" height="28" rx="6" fill="#18181b" stroke="#27272a" stroke-width="1"/>
+    <!-- Chunkr Bar -->
+    <rect x="220" y="8" width="416.3" height="28" rx="6" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
+    <text x="628" y="26" fill="#022c22" font-size="11" font-weight="800" text-anchor="end">864.1 MB/s</text>
+    <!-- LangChain Bar (Overlapping) -->
+    <rect x="220" y="12" width="162.9" height="20" rx="4" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
+    <text x="375" y="26" fill="#ffffff" font-size="10" font-weight="700" text-anchor="end">338.2 MB/s</text>
+    <!-- Annotation Badge -->
+    <rect x="765" y="11" width="115" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
+    <text x="822.5" y="26" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">⚡ 2.6x Faster</text>
+  </g>
+
+  <!-- Row 3: Markdown Split (500 KB) -->
+  <g transform="translate(0, 195)">
+    <text x="205" y="27" fill="#e4e4e7" font-size="12" font-weight="600" text-anchor="end">Markdown Split (500KB)</text>
+    <!-- Background track -->
+    <rect x="220" y="8" width="530" height="28" rx="6" fill="#18181b" stroke="#27272a" stroke-width="1"/>
+    <!-- Chunkr Bar -->
+    <rect x="220" y="8" width="290.9" height="28" rx="6" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
+    <text x="502" y="26" fill="#022c22" font-size="11" font-weight="800" text-anchor="end">603.8 MB/s</text>
+    <!-- LangChain Bar (Overlapping) -->
+    <rect x="220" y="12" width="119.9" height="20" rx="4" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
+    <text x="332" y="26" fill="#ffffff" font-size="10" font-weight="700" text-anchor="end">248.9 MB/s</text>
+    <!-- Annotation Badge -->
+    <rect x="765" y="11" width="115" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
+    <text x="822.5" y="26" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">⚡ 2.4x Faster</text>
+  </g>
+
+  <!-- Row 4: Recursive Char (1 MB) -->
+  <g transform="translate(0, 245)">
+    <text x="205" y="27" fill="#e4e4e7" font-size="12" font-weight="600" text-anchor="end">Recursive (1MB)</text>
+    <!-- Background track -->
+    <rect x="220" y="8" width="530" height="28" rx="6" fill="#18181b" stroke="#27272a" stroke-width="1"/>
+    <!-- Chunkr Bar -->
+    <rect x="220" y="8" width="257.4" height="28" rx="6" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
+    <text x="469" y="26" fill="#022c22" font-size="11" font-weight="800" text-anchor="end">534.3 MB/s</text>
+    <!-- LangChain Bar (Overlapping) -->
+    <rect x="220" y="12" width="160.1" height="20" rx="4" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
+    <text x="372" y="26" fill="#ffffff" font-size="10" font-weight="700" text-anchor="end">332.2 MB/s</text>
+    <!-- Annotation Badge -->
+    <rect x="765" y="11" width="115" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
+    <text x="822.5" y="26" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">⚡ 1.6x Faster</text>
+  </g>
+
+  <!-- Row 5: Recursive Char (5 MB) -->
+  <g transform="translate(0, 295)">
+    <text x="205" y="27" fill="#e4e4e7" font-size="12" font-weight="600" text-anchor="end">Recursive (5MB)</text>
+    <!-- Background track -->
+    <rect x="220" y="8" width="530" height="28" rx="6" fill="#18181b" stroke="#27272a" stroke-width="1"/>
+    <!-- Chunkr Bar -->
+    <rect x="220" y="8" width="243.6" height="28" rx="6" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
+    <text x="455" y="26" fill="#022c22" font-size="11" font-weight="800" text-anchor="end">505.6 MB/s</text>
+    <!-- LangChain Bar (Overlapping) -->
+    <rect x="220" y="12" width="104.7" height="20" rx="4" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
+    <text x="316" y="26" fill="#ffffff" font-size="10" font-weight="700" text-anchor="end">217.4 MB/s</text>
+    <!-- Annotation Badge -->
+    <rect x="765" y="11" width="115" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
+    <text x="822.5" y="26" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">⚡ 2.3x Faster</text>
+  </g>
+
+  <!-- Row 6: Markdown Header (500 KB) -->
+  <g transform="translate(0, 345)">
+    <text x="205" y="27" fill="#e4e4e7" font-size="12" font-weight="600" text-anchor="end">Markdown Header (500KB)</text>
+    <!-- Background track -->
+    <rect x="220" y="8" width="530" height="28" rx="6" fill="#18181b" stroke="#27272a" stroke-width="1"/>
+    <!-- Chunkr Bar -->
+    <rect x="220" y="8" width="91.6" height="28" rx="6" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
+    <text x="320" y="26" fill="#34d399" font-size="11" font-weight="700">190.2 MB/s</text>
+    <!-- LangChain Bar (Overlapping) -->
+    <rect x="220" y="12" width="12" height="20" rx="4" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
+    <!-- Annotation Badge -->
+    <rect x="765" y="11" width="115" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
+    <text x="822.5" y="26" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">⚡ 16.3x Faster</text>
+  </g>
+
+  <!-- Row 7: Fixed Char (100 KB) -->
+  <g transform="translate(0, 395)">
+    <text x="205" y="27" fill="#e4e4e7" font-size="12" font-weight="600" text-anchor="end">Fixed Char (100KB)</text>
+    <!-- Background track -->
+    <rect x="220" y="8" width="530" height="28" rx="6" fill="#18181b" stroke="#27272a" stroke-width="1"/>
+    <!-- Chunkr Bar -->
+    <rect x="220" y="8" width="80.0" height="28" rx="6" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
+    <text x="310" y="26" fill="#34d399" font-size="11" font-weight="700">166.0 MB/s</text>
+    <!-- LangChain Bar (Overlapping) -->
+    <rect x="220" y="12" width="10" height="20" rx="4" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
+    <!-- Annotation Badge -->
+    <rect x="765" y="11" width="115" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
+    <text x="822.5" y="26" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">⚡ 16.9x Faster</text>
+  </g>
+
+  <!-- Row 8: Fixed Char (1 MB) -->
+  <g transform="translate(0, 445)">
+    <text x="205" y="27" fill="#e4e4e7" font-size="12" font-weight="600" text-anchor="end">Fixed Char (1MB)</text>
+    <!-- Background track -->
+    <rect x="220" y="8" width="530" height="28" rx="6" fill="#18181b" stroke="#27272a" stroke-width="1"/>
+    <!-- Chunkr Bar -->
+    <rect x="220" y="8" width="48.7" height="28" rx="6" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
+    <text x="278" y="26" fill="#34d399" font-size="11" font-weight="700">101.1 MB/s</text>
+    <!-- LangChain Bar (Overlapping) -->
+    <rect x="220" y="12" width="8" height="20" rx="4" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
+    <!-- Annotation Badge -->
+    <rect x="765" y="11" width="115" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
+    <text x="822.5" y="26" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">⚡ 13.0x Faster</text>
+  </g>
+</svg>
