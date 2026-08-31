@@ -1,6 +1,8 @@
-# Publishing Guide for `chunkr`
+# Publishing Guide for `chunkr` / `chunkr-rs`
 
-`chunkr` is configured to publish as both a **Rust Crate** on [crates.io](https://crates.io/crates/chunkr) and a **Python Native Extension Wheel** on [PyPI](https://pypi.org/project/chunkr/).
+`chunkr` is configured to publish as:
+- **Rust Crate**: [`chunkr`](https://crates.io/crates/chunkr) on [crates.io](https://crates.io/crates/chunkr)
+- **Python Native Extension Wheel**: [`chunkr-rs`](https://pypi.org/project/chunkr-rs/) on [PyPI](https://pypi.org/project/chunkr-rs/) (imported in Python simply as `import chunkr`)
 
 ---
 
@@ -29,7 +31,7 @@ git push origin v1.0.0
 ```bash
 uv build
 ```
-This produces `dist/chunkr-1.0.0.tar.gz` and `dist/chunkr-1.0.0-...whl`.
+This produces `dist/chunkr_rs-1.0.0.tar.gz` and `dist/chunkr_rs-1.0.0-...whl`.
 
 ### Step 2: Publish to PyPI
 Set your PyPI API token (`pypi-...`) or pass it directly:

@@ -3,7 +3,7 @@
 <h3>⚡ Blazingly Fast Document & Text Chunking for LLMs, Agents and RAG</h3>
 
 [![Crates.io](https://img.shields.io/crates/v/chunkr.svg)](https://crates.io/crates/chunkr)
-[![PyPI](https://img.shields.io/pypi/v/chunkr.svg)](https://pypi.org/project/chunkr/)
+[![PyPI](https://img.shields.io/pypi/v/chunkr-rs.svg)](https://pypi.org/project/chunkr-rs/)
 ![License](https://img.shields.io/crates/l/chunkr.svg)
 
 </div>
@@ -25,10 +25,10 @@ chunkr = "1.0"
 
 ### Python
 
-Install `chunkr` via `pip`:
+Install `chunkr-rs` via `pip`:
 
 ```bash
-pip install chunkr
+pip install chunkr-rs
 ```
 
 Or build from source with `maturin`:
