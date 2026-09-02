@@ -52,6 +52,7 @@ maturin develop --release
 | **Query-Aware** | `QueryAwareChunker` | Search query hotspot detection & adaptive sizing |
 | **Agentic** | `AgenticChunker` | Discourse transition & topic segmentation |
 | **Hierarchical** | `HierarchicalChunker` | Parent-child pairs & multi-level tree generation |
+| **Table** | `TableChunker` | Structure-aware tabular chunking (Markdown, CSV, TSV) with header duplication |
 | **Markdown** | `MarkdownChunker` | Header hierarchy (`#`–`######`) & breadcrumb paths |
 | **Code** | `CodeChunker` | Syntax-aware chunking (Rust, Python, JS, TS, Go, C++, SQL) |
 | **JSON** | `JsonChunker` | Structure-aware JSON chunker preserving valid sub-trees |
@@ -98,12 +99,16 @@ tree = hier_chunker.chunk_tree(sample_text)          # Nested hierarchy tree dic
 md_chunker = chunkr.MarkdownChunker(chunk_size=1000, overlap=100)
 md_docs = md_chunker.chunk("# Title\n## Section\nContent...")
 
-# 7. PDF Document Loading & Chunking
+# 7. Table-Aware Chunking (Markdown / CSV / TSV with repeated headers)
+table_chunker = chunkr.TableChunker(rows_per_chunk=10, overlap_rows=1)
+table_docs = table_chunker.chunk("| Date | Metric | Value |\n|---|---|---|\n| 2024-01 | MRR | $50K |")
+
+# 8. PDF Document Loading & Chunking
 loader = chunkr.PDFLoader()
 pages = loader.load_pages("path/to/document.pdf")
 pdf_chunks = recursive_chunker.chunk_documents(pages)
 
-# 8. Multi-Core Parallel Batch Chunking (Rayon-backed multi-threading)
+# 9. Multi-Core Parallel Batch Chunking (Rayon-backed multi-threading)
 batch_docs = [
     chunkr.Document(f"Document {i} content...", {"doc_id": i, "category": "AI", "score": 0.98})
     for i in range(100)
@@ -138,12 +143,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let hier_chunker = HierarchicalChunker::with_sizes(150, 20, 50, 10)?;
     let tree = hier_chunker.chunk_tree(text)?;
 
-    // 4. PDF Document Loading & Chunking
+    // 4. Table-Aware Chunker
+    let table_chunker = TableChunker::new()
+        .with_rows_per_chunk(Some(5))
+        .with_overlap_rows(1);
+    let table_chunks = table_chunker.chunk("| Col A | Col B |\n|---|---|\n| 1 | 2 |")?;
+
+    // 5. PDF Document Loading & Chunking
     let loader = PDFLoader::new();
     let pdf_pages = loader.load_pages_from_file("tests/test_files/sample_doc.pdf")?;
     let pdf_chunks = recursive_chunker.chunk_documents(&pdf_pages)?;
 
-    // 5. Multi-Threaded Parallel Document Batch Chunking
+    // 6. Multi-Threaded Parallel Document Batch Chunking
     let parallel_chunks = recursive_chunker.par_chunk_documents(&pdf_pages)?;
 
     Ok(())

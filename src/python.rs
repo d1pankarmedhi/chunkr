@@ -808,6 +808,63 @@ impl PyHtmlChunker {
     }
 }
 
+#[pyclass(name = "TableChunker")]
+pub struct PyTableChunker {
+    inner: TableChunker,
+}
+
+#[pymethods]
+impl PyTableChunker {
+    #[new]
+    #[pyo3(signature = (chunk_size=1000, rows_per_chunk=None, overlap_rows=1, format="auto"))]
+    pub fn new(
+        chunk_size: usize,
+        rows_per_chunk: Option<usize>,
+        overlap_rows: usize,
+        format: &str,
+    ) -> PyResult<Self> {
+        let fmt = match format.to_lowercase().as_str() {
+            "auto" => TableFormat::Auto,
+            "markdown" | "md" => TableFormat::Markdown,
+            "csv" => TableFormat::Csv,
+            "tsv" => TableFormat::Tsv,
+            other => {
+                return Err(PyValueError::new_err(format!(
+                    "Unknown table format '{}'. Supported formats: 'auto', 'markdown', 'csv', 'tsv'",
+                    other
+                )));
+            }
+        };
+
+        Ok(Self {
+            inner: TableChunker::new()
+                .with_chunk_size(chunk_size)
+                .with_rows_per_chunk(rows_per_chunk)
+                .with_overlap_rows(overlap_rows)
+                .with_format(fmt),
+        })
+    }
+
+    pub fn chunk(&self, text: &str) -> PyResult<Vec<PyDocument>> {
+        self.inner
+            .chunk(text)
+            .map(wrap_docs)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    pub fn chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        par_chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_texts(&self, texts: Vec<String>) -> PyResult<Vec<Vec<PyDocument>>> {
+        par_chunk_texts_helper(&self.inner, texts)
+    }
+}
+
 // 14. PDF Loader
 #[pyclass(name = "PDFLoader")]
 #[derive(Default)]
@@ -916,6 +973,7 @@ pub fn chunkr(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCodeChunker>()?;
     m.add_class::<PyJsonChunker>()?;
     m.add_class::<PyHtmlChunker>()?;
+    m.add_class::<PyTableChunker>()?;
     m.add_class::<PyCharacterChunker>()?;
     m.add_class::<PyWordChunker>()?;
     m.add_class::<PyPDFLoader>()?;

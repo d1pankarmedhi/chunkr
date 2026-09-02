@@ -1,4 +1,4 @@
-﻿import unittest
+import unittest
 import chunkr
 
 class TestPythonBindings(unittest.TestCase):
@@ -85,6 +85,41 @@ class TestPythonBindings(unittest.TestCase):
         self.assertEqual(len(props), 2)
         self.assertIn("is located in Paris", props[0].content)
         self.assertIn("was constructed in 1889", props[1].content)
+
+    def test_table_chunker(self):
+        md_table = (
+            "| Quarter | Revenue | Profit |\n"
+            "| :--- | :--- | :--- |\n"
+            "| Q1 | $10M | $2M |\n"
+            "| Q2 | $12M | $2.5M |\n"
+            "| Q3 | $14M | $3M |\n"
+            "| Q4 | $16M | $3.5M |"
+        )
+        chunker = chunkr.TableChunker(rows_per_chunk=2, overlap_rows=1)
+        chunks = chunker.chunk(md_table)
+        self.assertGreaterEqual(len(chunks), 2)
+        for chunk in chunks:
+            self.assertIn("| Quarter | Revenue | Profit |", chunk.content)
+            self.assertTrue(chunk.metadata["is_table"])
+            self.assertEqual(chunk.metadata["format"], "markdown")
+            self.assertEqual(chunk.metadata["total_rows"], 4)
+            self.assertEqual(chunk.metadata["columns"], ["Quarter", "Revenue", "Profit"])
+
+        # Test CSV format
+        csv_data = "Item,Qty,Price\nBook,5,10\nPen,20,2\nRuler,15,3\nNotebook,8,5"
+        csv_chunker = chunkr.TableChunker(rows_per_chunk=2, overlap_rows=0, format="csv")
+        csv_chunks = csv_chunker.chunk(csv_data)
+        self.assertEqual(len(csv_chunks), 2)
+        for chunk in csv_chunks:
+            self.assertTrue(chunk.content.startswith("Item,Qty,Price"))
+            self.assertEqual(chunk.metadata["format"], "csv")
+            self.assertEqual(chunk.metadata["columns"], ["Item", "Qty", "Price"])
+
+        # Test chunk_documents
+        doc = chunkr.Document(csv_data, {"source": "inventory.csv"})
+        doc_chunks = csv_chunker.chunk_documents([doc])
+        self.assertEqual(len(doc_chunks), 2)
+        self.assertEqual(doc_chunks[0].metadata["source"], "inventory.csv")
 
 if __name__ == "__main__":
     unittest.main()

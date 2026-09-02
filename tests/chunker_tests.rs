@@ -544,3 +544,105 @@ fn test_proposition_extractor_relative_clause() {
     assert_eq!(props[0], "The Eiffel Tower is located in Paris and welcomes millions of tourists every year.");
     assert_eq!(props[1], "The Eiffel Tower was constructed in 1889.");
 }
+
+#[test]
+fn test_table_chunker_markdown_pure() {
+    let md_table = r#"| Quarter | Revenue | Profit | Margin |
+| :--- | :--- | :--- | :--- |
+| Q1 2023 | $10.5M | $2.1M | 20.0% |
+| Q2 2023 | $12.3M | $2.6M | 21.1% |
+| Q3 2023 | $14.1M | $3.2M | 22.7% |
+| Q4 2023 | $16.8M | $4.0M | 23.8% |
+| Q1 2024 | $18.2M | $4.5M | 24.7% |"#;
+
+    let chunker = TableChunker::new()
+        .with_rows_per_chunk(Some(2))
+        .with_overlap_rows(1);
+
+    let chunks = chunker.chunk(md_table).unwrap();
+    assert!(!chunks.is_empty());
+
+    // Every chunk must contain the table header and separator line
+    for chunk in &chunks {
+        assert!(chunk.content.contains("| Quarter | Revenue | Profit | Margin |"));
+        assert!(chunk.content.contains("| :--- | :--- | :--- | :--- |"));
+        assert_eq!(chunk.metadata.get("is_table").unwrap().as_bool().unwrap(), true);
+        assert_eq!(chunk.metadata.get("format").unwrap().as_str().unwrap(), "markdown");
+        assert_eq!(chunk.metadata.get("total_rows").unwrap().as_u64().unwrap(), 5);
+        let cols = chunk.metadata.get("columns").unwrap().as_array().unwrap();
+        assert_eq!(cols.len(), 4);
+        assert_eq!(cols[0].as_str().unwrap(), "Quarter");
+    }
+
+    // First chunk has Q1 2023 and Q2 2023
+    assert!(chunks[0].content.contains("Q1 2023"));
+    assert!(chunks[0].content.contains("Q2 2023"));
+    assert_eq!(chunks[0].metadata.get("start_row").unwrap().as_u64().unwrap(), 1);
+    assert_eq!(chunks[0].metadata.get("end_row").unwrap().as_u64().unwrap(), 2);
+
+    // Second chunk overlaps Q2 2023 and has Q3 2023
+    assert!(chunks[1].content.contains("Q2 2023"));
+    assert!(chunks[1].content.contains("Q3 2023"));
+    assert_eq!(chunks[1].metadata.get("start_row").unwrap().as_u64().unwrap(), 2);
+    assert_eq!(chunks[1].metadata.get("end_row").unwrap().as_u64().unwrap(), 3);
+}
+
+#[test]
+fn test_table_chunker_csv() {
+    let csv_data = "Product,Category,Price,Stock\nLaptop,Electronics,1200,45\nMouse,Electronics,25,300\nDesk,Furniture,350,15\nChair,Furniture,180,50\nMonitor,Electronics,400,60";
+
+    let chunker = TableChunker::new()
+        .with_format(TableFormat::Csv)
+        .with_rows_per_chunk(Some(2))
+        .with_overlap_rows(0);
+
+    let chunks = chunker.chunk(csv_data).unwrap();
+    assert_eq!(chunks.len(), 3); // 5 rows / 2 per chunk = 3 chunks (2, 2, 1)
+
+    for chunk in &chunks {
+        assert!(chunk.content.starts_with("Product,Category,Price,Stock"));
+        assert_eq!(chunk.metadata.get("is_table").unwrap().as_bool().unwrap(), true);
+        assert_eq!(chunk.metadata.get("format").unwrap().as_str().unwrap(), "csv");
+        assert_eq!(chunk.metadata.get("total_rows").unwrap().as_u64().unwrap(), 5);
+    }
+
+    assert!(chunks[0].content.contains("Laptop"));
+    assert!(chunks[0].content.contains("Mouse"));
+    assert!(chunks[1].content.contains("Desk"));
+    assert!(chunks[1].content.contains("Chair"));
+    assert!(chunks[2].content.contains("Monitor"));
+}
+
+#[test]
+fn test_table_chunker_mixed_document() {
+    let doc = r#"# Financial Overview
+
+This document provides our annual performance breakdown.
+
+| Quarter | Revenue | Profit |
+| --- | --- | --- |
+| Q1 | $10M | $2M |
+| Q2 | $12M | $2.5M |
+| Q3 | $14M | $3M |
+| Q4 | $16M | $3.5M |
+
+In conclusion, all fiscal targets for the fiscal year have been exceeded."#;
+
+    let chunker = TableChunker::new()
+        .with_rows_per_chunk(Some(2))
+        .with_overlap_rows(0);
+
+    let chunks = chunker.chunk(doc).unwrap();
+    assert!(chunks.len() >= 3);
+
+    // Check that prose has is_table: false and table chunks have is_table: true
+    let table_chunks: Vec<_> = chunks.iter().filter(|c| c.metadata.get("is_table").unwrap().as_bool().unwrap()).collect();
+    let prose_chunks: Vec<_> = chunks.iter().filter(|c| !c.metadata.get("is_table").unwrap().as_bool().unwrap()).collect();
+
+    assert_eq!(table_chunks.len(), 2);
+    assert!(!prose_chunks.is_empty());
+
+    for tc in table_chunks {
+        assert!(tc.content.contains("| Quarter | Revenue | Profit |"));
+    }
+}
