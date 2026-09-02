@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 540" width="100%" height="100%" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 920 560" width="100%" height="100%" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
   <defs>
     <!-- Background Gradient: Deep Matte Obsidian -->
     <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -20,7 +20,7 @@
       <stop offset="100%" stop-color="#34d399" />
     </linearGradient>
 
-    <!-- LangChain Gradient: Refined Titanium / Brushed Slate -->
+    <!-- LangChain / PyMuPDF Gradient: Refined Titanium / Brushed Slate -->
     <linearGradient id="langchainGrad" x1="0%" y1="0%" x2="100%" y2="0%">
       <stop offset="0%" stop-color="#475569" />
       <stop offset="100%" stop-color="#64748b" />
@@ -28,8 +28,8 @@
 
     <!-- Badge Gradient: Deep Forest Obsidian Pill -->
     <linearGradient id="badgeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#064e3b" stop-opacity="0.8" />
-      <stop offset="100%" stop-color="#022c22" stop-opacity="0.9" />
+      <stop offset="0%" stop-color="#064e3b" stop-opacity="0.85" />
+      <stop offset="100%" stop-color="#022c22" stop-opacity="0.95" />
     </linearGradient>
 
     <!-- Drop Shadows -->
@@ -42,169 +42,186 @@
   </defs>
 
   <!-- Card Outer Surface -->
-  <rect width="920" height="540" rx="14" fill="url(#bgGrad)" stroke="#27272a" stroke-width="1.2" />
-  <rect width="920" height="540" rx="14" fill="url(#topGlow)" />
+  <rect width="920" height="560" rx="14" fill="url(#bgGrad)" stroke="#27272a" stroke-width="1.2" />
+  <rect width="920" height="560" rx="14" fill="url(#topGlow)" />
 
   <!-- Header Section -->
-  <text x="36" y="42" fill="#fafafa" font-size="18" font-weight="700" letter-spacing="-0.3">⚡ Throughput Benchmark: Chunkr vs. LangChain</text>
-  <text x="36" y="64" fill="#a1a1aa" font-size="12">In-memory throughput in MB/s (higher is better) • Overlapping bar comparison</text>
+  <text x="36" y="38" fill="#fafafa" font-size="17" font-weight="700" letter-spacing="-0.3">⚡ Throughput &amp; Ingestion Benchmark: Chunkr vs. LangChain &amp; PyMuPDF</text>
+  <text x="36" y="58" fill="#a1a1aa" font-size="11.5">In-memory throughput in MB/s &amp; PDF pages/sec (higher is better) • Direct Python runtime comparison</text>
 
   <!-- Legend -->
-  <g transform="translate(565, 33)">
+  <g transform="translate(540, 26)">
     <!-- Chunkr Legend Item -->
-    <rect x="0" y="3" width="14" height="14" rx="3" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
-    <text x="22" y="15" fill="#f4f4f5" font-size="12" font-weight="600">Chunkr (Rust/SIMD)</text>
+    <rect x="0" y="3" width="13" height="13" rx="3" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
+    <text x="20" y="14" fill="#f4f4f5" font-size="11.5" font-weight="600">Chunkr (Rust Engine)</text>
     
-    <!-- LangChain Legend Item -->
-    <rect x="175" y="3" width="14" height="14" rx="3" fill="url(#langchainGrad)"/>
-    <text x="197" y="15" fill="#a1a1aa" font-size="12" font-weight="500">LangChain</text>
+    <!-- LangChain / PyMuPDF Legend Item -->
+    <rect x="180" y="3" width="13" height="13" rx="3" fill="url(#langchainGrad)"/>
+    <text x="200" y="14" fill="#a1a1aa" font-size="11.5" font-weight="500">LangChain / PyMuPDF</text>
   </g>
 
   <!-- Divider Line -->
-  <line x1="36" y1="82" x2="884" y2="82" stroke="#27272a" stroke-width="1"/>
+  <line x1="36" y1="74" x2="884" y2="74" stroke="#27272a" stroke-width="1"/>
 
-  <!-- Axis Grid Lines (0, 250, 500, 750, 1000 MB/s) -->
-  <g opacity="0.4">
-    <line x1="220" y1="92" x2="220" y2="495" stroke="#3f3f46" stroke-width="1" stroke-dasharray="3,3"/>
-    <text x="220" y="516" fill="#71717a" font-size="10" font-weight="500" text-anchor="middle">0</text>
+  <!-- SECTION 1: Text Chunking Throughput Header -->
+  <text x="36" y="93" fill="#71717a" font-size="10.5" font-weight="700" letter-spacing="0.8">TEXT CHUNKING THROUGHPUT (MB/s)</text>
+
+  <!-- Section 1 Axis Grid Lines (0, 250, 500, 750, 1000 MB/s) -->
+  <g opacity="0.35">
+    <line x1="215" y1="100" x2="215" y2="398" stroke="#3f3f46" stroke-width="1" stroke-dasharray="3,3"/>
+    <text x="215" y="412" fill="#71717a" font-size="9.5" font-weight="500" text-anchor="middle">0</text>
     
-    <line x1="340.5" y1="92" x2="340.5" y2="495" stroke="#3f3f46" stroke-width="1" stroke-dasharray="3,3"/>
-    <text x="340.5" y="516" fill="#71717a" font-size="10" font-weight="500" text-anchor="middle">250 MB/s</text>
+    <line x1="334.3" y1="100" x2="334.3" y2="398" stroke="#3f3f46" stroke-width="1" stroke-dasharray="3,3"/>
+    <text x="334.3" y="412" fill="#71717a" font-size="9.5" font-weight="500" text-anchor="middle">250 MB/s</text>
 
-    <line x1="460.9" y1="92" x2="460.9" y2="495" stroke="#3f3f46" stroke-width="1" stroke-dasharray="3,3"/>
-    <text x="460.9" y="516" fill="#71717a" font-size="10" font-weight="500" text-anchor="middle">500 MB/s</text>
+    <line x1="453.6" y1="100" x2="453.6" y2="398" stroke="#3f3f46" stroke-width="1" stroke-dasharray="3,3"/>
+    <text x="453.6" y="412" fill="#71717a" font-size="9.5" font-weight="500" text-anchor="middle">500 MB/s</text>
 
-    <line x1="581.4" y1="92" x2="581.4" y2="495" stroke="#3f3f46" stroke-width="1" stroke-dasharray="3,3"/>
-    <text x="581.4" y="516" fill="#71717a" font-size="10" font-weight="500" text-anchor="middle">750 MB/s</text>
+    <line x1="572.9" y1="100" x2="572.9" y2="398" stroke="#3f3f46" stroke-width="1" stroke-dasharray="3,3"/>
+    <text x="572.9" y="412" fill="#71717a" font-size="9.5" font-weight="500" text-anchor="middle">750 MB/s</text>
 
-    <line x1="701.8" y1="92" x2="701.8" y2="495" stroke="#3f3f46" stroke-width="1" stroke-dasharray="3,3"/>
-    <text x="701.8" y="516" fill="#71717a" font-size="10" font-weight="500" text-anchor="middle">1,000 MB/s</text>
+    <line x1="692.2" y1="100" x2="692.2" y2="398" stroke="#3f3f46" stroke-width="1" stroke-dasharray="3,3"/>
+    <text x="692.2" y="412" fill="#71717a" font-size="9.5" font-weight="500" text-anchor="middle">1,000 MB/s</text>
   </g>
 
-  <!-- Benchmark Rows -->
-  
-  <!-- Row 1: Python Code (200 KB) -->
-  <g transform="translate(0, 95)">
-    <text x="205" y="27" fill="#e4e4e7" font-size="12" font-weight="600" text-anchor="end">Python Code (200KB)</text>
-    <!-- Background track -->
-    <rect x="220" y="8" width="530" height="28" rx="6" fill="#18181b" stroke="#27272a" stroke-width="1"/>
-    <!-- Chunkr Bar (Under/Wider) -->
-    <rect x="220" y="8" width="523.7" height="28" rx="6" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
-    <text x="735" y="26" fill="#022c22" font-size="11" font-weight="800" text-anchor="end">1,087.0 MB/s</text>
-    <!-- LangChain Bar (Overlapping) -->
-    <rect x="220" y="12" width="241.3" height="20" rx="4" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
-    <text x="453" y="26" fill="#ffffff" font-size="10" font-weight="700" text-anchor="end">500.8 MB/s</text>
-    <!-- Annotation Badge -->
-    <rect x="765" y="11" width="115" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
-    <text x="822.5" y="26" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">⚡ 2.2x Faster</text>
+  <!-- Row 1: Recursive Char (100 KB) -->
+  <g transform="translate(0, 100)">
+    <text x="202" y="20" fill="#e4e4e7" font-size="11.5" font-weight="600" text-anchor="end">Recursive (100KB)</text>
+    <rect x="215" y="4" width="530" height="24" rx="5" fill="#18181b" stroke="#27272a" stroke-width="1"/>
+    <rect x="215" y="4" width="507.6" height="24" rx="5" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
+    <text x="714" y="20" fill="#022c22" font-size="10.5" font-weight="800" text-anchor="end">1,064.1 MB/s</text>
+    <rect x="215" y="7" width="171.6" height="18" rx="3.5" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
+    <text x="378" y="20" fill="#ffffff" font-size="9.5" font-weight="700" text-anchor="end">359.8 MB/s</text>
+    <rect x="760" y="5" width="124" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
+    <text x="822" y="20" fill="#34d399" font-size="10.5" font-weight="700" text-anchor="middle">⚡ 3.0x Faster</text>
   </g>
 
-  <!-- Row 2: Recursive Char (100 KB) -->
-  <g transform="translate(0, 145)">
-    <text x="205" y="27" fill="#e4e4e7" font-size="12" font-weight="600" text-anchor="end">Recursive (100KB)</text>
-    <!-- Background track -->
-    <rect x="220" y="8" width="530" height="28" rx="6" fill="#18181b" stroke="#27272a" stroke-width="1"/>
-    <!-- Chunkr Bar -->
-    <rect x="220" y="8" width="416.3" height="28" rx="6" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
-    <text x="628" y="26" fill="#022c22" font-size="11" font-weight="800" text-anchor="end">864.1 MB/s</text>
-    <!-- LangChain Bar (Overlapping) -->
-    <rect x="220" y="12" width="162.9" height="20" rx="4" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
-    <text x="375" y="26" fill="#ffffff" font-size="10" font-weight="700" text-anchor="end">338.2 MB/s</text>
-    <!-- Annotation Badge -->
-    <rect x="765" y="11" width="115" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
-    <text x="822.5" y="26" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">⚡ 2.6x Faster</text>
+  <!-- Row 2: Python Code (200 KB) -->
+  <g transform="translate(0, 137)">
+    <text x="202" y="20" fill="#e4e4e7" font-size="11.5" font-weight="600" text-anchor="end">Python Code (200KB)</text>
+    <rect x="215" y="4" width="530" height="24" rx="5" fill="#18181b" stroke="#27272a" stroke-width="1"/>
+    <rect x="215" y="4" width="507.1" height="24" rx="5" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
+    <text x="714" y="20" fill="#022c22" font-size="10.5" font-weight="800" text-anchor="end">1,063.2 MB/s</text>
+    <rect x="215" y="7" width="212.3" height="18" rx="3.5" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
+    <text x="419" y="20" fill="#ffffff" font-size="9.5" font-weight="700" text-anchor="end">445.1 MB/s</text>
+    <rect x="760" y="5" width="124" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
+    <text x="822" y="20" fill="#34d399" font-size="10.5" font-weight="700" text-anchor="middle">⚡ 2.4x Faster</text>
   </g>
 
   <!-- Row 3: Markdown Split (500 KB) -->
-  <g transform="translate(0, 195)">
-    <text x="205" y="27" fill="#e4e4e7" font-size="12" font-weight="600" text-anchor="end">Markdown Split (500KB)</text>
-    <!-- Background track -->
-    <rect x="220" y="8" width="530" height="28" rx="6" fill="#18181b" stroke="#27272a" stroke-width="1"/>
-    <!-- Chunkr Bar -->
-    <rect x="220" y="8" width="290.9" height="28" rx="6" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
-    <text x="502" y="26" fill="#022c22" font-size="11" font-weight="800" text-anchor="end">603.8 MB/s</text>
-    <!-- LangChain Bar (Overlapping) -->
-    <rect x="220" y="12" width="119.9" height="20" rx="4" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
-    <text x="332" y="26" fill="#ffffff" font-size="10" font-weight="700" text-anchor="end">248.9 MB/s</text>
-    <!-- Annotation Badge -->
-    <rect x="765" y="11" width="115" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
-    <text x="822.5" y="26" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">⚡ 2.4x Faster</text>
+  <g transform="translate(0, 174)">
+    <text x="202" y="20" fill="#e4e4e7" font-size="11.5" font-weight="600" text-anchor="end">Markdown Split (500KB)</text>
+    <rect x="215" y="4" width="530" height="24" rx="5" fill="#18181b" stroke="#27272a" stroke-width="1"/>
+    <rect x="215" y="4" width="312.1" height="24" rx="5" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
+    <text x="519" y="20" fill="#022c22" font-size="10.5" font-weight="800" text-anchor="end">654.3 MB/s</text>
+    <rect x="215" y="7" width="95.8" height="18" rx="3.5" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
+    <text x="303" y="20" fill="#ffffff" font-size="9.5" font-weight="700" text-anchor="end">200.9</text>
+    <rect x="760" y="5" width="124" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
+    <text x="822" y="20" fill="#34d399" font-size="10.5" font-weight="700" text-anchor="middle">⚡ 3.3x Faster</text>
   </g>
 
   <!-- Row 4: Recursive Char (1 MB) -->
-  <g transform="translate(0, 245)">
-    <text x="205" y="27" fill="#e4e4e7" font-size="12" font-weight="600" text-anchor="end">Recursive (1MB)</text>
-    <!-- Background track -->
-    <rect x="220" y="8" width="530" height="28" rx="6" fill="#18181b" stroke="#27272a" stroke-width="1"/>
-    <!-- Chunkr Bar -->
-    <rect x="220" y="8" width="257.4" height="28" rx="6" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
-    <text x="469" y="26" fill="#022c22" font-size="11" font-weight="800" text-anchor="end">534.3 MB/s</text>
-    <!-- LangChain Bar (Overlapping) -->
-    <rect x="220" y="12" width="160.1" height="20" rx="4" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
-    <text x="372" y="26" fill="#ffffff" font-size="10" font-weight="700" text-anchor="end">332.2 MB/s</text>
-    <!-- Annotation Badge -->
-    <rect x="765" y="11" width="115" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
-    <text x="822.5" y="26" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">⚡ 1.6x Faster</text>
+  <g transform="translate(0, 211)">
+    <text x="202" y="20" fill="#e4e4e7" font-size="11.5" font-weight="600" text-anchor="end">Recursive (1MB)</text>
+    <rect x="215" y="4" width="530" height="24" rx="5" fill="#18181b" stroke="#27272a" stroke-width="1"/>
+    <rect x="215" y="4" width="302.9" height="24" rx="5" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
+    <text x="510" y="20" fill="#022c22" font-size="10.5" font-weight="800" text-anchor="end">635.0 MB/s</text>
+    <rect x="215" y="7" width="149.3" height="18" rx="3.5" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
+    <text x="356" y="20" fill="#ffffff" font-size="9.5" font-weight="700" text-anchor="end">312.9 MB/s</text>
+    <rect x="760" y="5" width="124" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
+    <text x="822" y="20" fill="#34d399" font-size="10.5" font-weight="700" text-anchor="middle">⚡ 2.0x Faster</text>
   </g>
 
   <!-- Row 5: Recursive Char (5 MB) -->
-  <g transform="translate(0, 295)">
-    <text x="205" y="27" fill="#e4e4e7" font-size="12" font-weight="600" text-anchor="end">Recursive (5MB)</text>
-    <!-- Background track -->
-    <rect x="220" y="8" width="530" height="28" rx="6" fill="#18181b" stroke="#27272a" stroke-width="1"/>
-    <!-- Chunkr Bar -->
-    <rect x="220" y="8" width="243.6" height="28" rx="6" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
-    <text x="455" y="26" fill="#022c22" font-size="11" font-weight="800" text-anchor="end">505.6 MB/s</text>
-    <!-- LangChain Bar (Overlapping) -->
-    <rect x="220" y="12" width="104.7" height="20" rx="4" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
-    <text x="316" y="26" fill="#ffffff" font-size="10" font-weight="700" text-anchor="end">217.4 MB/s</text>
-    <!-- Annotation Badge -->
-    <rect x="765" y="11" width="115" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
-    <text x="822.5" y="26" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">⚡ 2.3x Faster</text>
+  <g transform="translate(0, 248)">
+    <text x="202" y="20" fill="#e4e4e7" font-size="11.5" font-weight="600" text-anchor="end">Recursive (5MB)</text>
+    <rect x="215" y="4" width="530" height="24" rx="5" fill="#18181b" stroke="#27272a" stroke-width="1"/>
+    <rect x="215" y="4" width="243.7" height="24" rx="5" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
+    <text x="450" y="20" fill="#022c22" font-size="10.5" font-weight="800" text-anchor="end">511.0 MB/s</text>
+    <rect x="215" y="7" width="100.4" height="18" rx="3.5" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
+    <text x="307" y="20" fill="#ffffff" font-size="9.5" font-weight="700" text-anchor="end">210.5</text>
+    <rect x="760" y="5" width="124" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
+    <text x="822" y="20" fill="#34d399" font-size="10.5" font-weight="700" text-anchor="middle">⚡ 2.4x Faster</text>
   </g>
 
   <!-- Row 6: Markdown Header (500 KB) -->
-  <g transform="translate(0, 345)">
-    <text x="205" y="27" fill="#e4e4e7" font-size="12" font-weight="600" text-anchor="end">Markdown Header (500KB)</text>
-    <!-- Background track -->
-    <rect x="220" y="8" width="530" height="28" rx="6" fill="#18181b" stroke="#27272a" stroke-width="1"/>
-    <!-- Chunkr Bar -->
-    <rect x="220" y="8" width="91.6" height="28" rx="6" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
-    <text x="320" y="26" fill="#34d399" font-size="11" font-weight="700">190.2 MB/s</text>
-    <!-- LangChain Bar (Overlapping) -->
-    <rect x="220" y="12" width="12" height="20" rx="4" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
-    <!-- Annotation Badge -->
-    <rect x="765" y="11" width="115" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
-    <text x="822.5" y="26" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">⚡ 16.3x Faster</text>
+  <g transform="translate(0, 285)">
+    <text x="202" y="20" fill="#e4e4e7" font-size="11.5" font-weight="600" text-anchor="end">Markdown Header (500KB)</text>
+    <rect x="215" y="4" width="530" height="24" rx="5" fill="#18181b" stroke="#27272a" stroke-width="1"/>
+    <rect x="215" y="4" width="90.0" height="24" rx="5" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
+    <text x="312" y="20" fill="#34d399" font-size="10.5" font-weight="700">188.6 MB/s</text>
+    <rect x="215" y="7" width="8" height="18" rx="3.5" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
+    <rect x="760" y="5" width="124" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
+    <text x="822" y="20" fill="#34d399" font-size="10.5" font-weight="700" text-anchor="middle">⚡ 13.6x Faster</text>
   </g>
 
   <!-- Row 7: Fixed Char (100 KB) -->
-  <g transform="translate(0, 395)">
-    <text x="205" y="27" fill="#e4e4e7" font-size="12" font-weight="600" text-anchor="end">Fixed Char (100KB)</text>
-    <!-- Background track -->
-    <rect x="220" y="8" width="530" height="28" rx="6" fill="#18181b" stroke="#27272a" stroke-width="1"/>
-    <!-- Chunkr Bar -->
-    <rect x="220" y="8" width="80.0" height="28" rx="6" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
-    <text x="310" y="26" fill="#34d399" font-size="11" font-weight="700">166.0 MB/s</text>
-    <!-- LangChain Bar (Overlapping) -->
-    <rect x="220" y="12" width="10" height="20" rx="4" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
-    <!-- Annotation Badge -->
-    <rect x="765" y="11" width="115" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
-    <text x="822.5" y="26" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">⚡ 16.9x Faster</text>
+  <g transform="translate(0, 322)">
+    <text x="202" y="20" fill="#e4e4e7" font-size="11.5" font-weight="600" text-anchor="end">Fixed Char (100KB)</text>
+    <rect x="215" y="4" width="530" height="24" rx="5" fill="#18181b" stroke="#27272a" stroke-width="1"/>
+    <rect x="215" y="4" width="67.4" height="24" rx="5" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
+    <text x="290" y="20" fill="#34d399" font-size="10.5" font-weight="700">141.3 MB/s</text>
+    <rect x="215" y="7" width="6" height="18" rx="3" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
+    <rect x="760" y="5" width="124" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
+    <text x="822" y="20" fill="#34d399" font-size="10.5" font-weight="700" text-anchor="middle">⚡ 20.5x Faster</text>
   </g>
 
   <!-- Row 8: Fixed Char (1 MB) -->
-  <g transform="translate(0, 445)">
-    <text x="205" y="27" fill="#e4e4e7" font-size="12" font-weight="600" text-anchor="end">Fixed Char (1MB)</text>
-    <!-- Background track -->
-    <rect x="220" y="8" width="530" height="28" rx="6" fill="#18181b" stroke="#27272a" stroke-width="1"/>
-    <!-- Chunkr Bar -->
-    <rect x="220" y="8" width="48.7" height="28" rx="6" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
-    <text x="278" y="26" fill="#34d399" font-size="11" font-weight="700">101.1 MB/s</text>
-    <!-- LangChain Bar (Overlapping) -->
-    <rect x="220" y="12" width="8" height="20" rx="4" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
-    <!-- Annotation Badge -->
-    <rect x="765" y="11" width="115" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
-    <text x="822.5" y="26" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">⚡ 13.0x Faster</text>
+  <g transform="translate(0, 359)">
+    <text x="202" y="20" fill="#e4e4e7" font-size="11.5" font-weight="600" text-anchor="end">Fixed Char (1MB)</text>
+    <rect x="215" y="4" width="530" height="24" rx="5" fill="#18181b" stroke="#27272a" stroke-width="1"/>
+    <rect x="215" y="4" width="50.9" height="24" rx="5" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
+    <text x="274" y="20" fill="#34d399" font-size="10.5" font-weight="700">106.8 MB/s</text>
+    <rect x="215" y="7" width="5" height="18" rx="2.5" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
+    <rect x="760" y="5" width="124" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
+    <text x="822" y="20" fill="#34d399" font-size="10.5" font-weight="700" text-anchor="middle">⚡ 12.1x Faster</text>
+  </g>
+
+  <!-- Section Divider -->
+  <line x1="36" y1="422" x2="884" y2="422" stroke="#27272a" stroke-width="1"/>
+
+  <!-- SECTION 2: PDF Extraction & Pipeline Header -->
+  <text x="36" y="442" fill="#71717a" font-size="10.5" font-weight="700" letter-spacing="0.8">📄 PDF EXTRACTION &amp; END-TO-END INGESTION PIPELINE (Pages / Second)</text>
+
+  <!-- Section 2 Axis Grid Lines (0, 500, 1000, 1500, 2000 pgs/s) -->
+  <g opacity="0.35">
+    <line x1="215" y1="449" x2="215" y2="526" stroke="#3f3f46" stroke-width="1" stroke-dasharray="3,3"/>
+    <text x="215" y="540" fill="#71717a" font-size="9.5" font-weight="500" text-anchor="middle">0</text>
+    
+    <line x1="346.2" y1="449" x2="346.2" y2="526" stroke="#3f3f46" stroke-width="1" stroke-dasharray="3,3"/>
+    <text x="346.2" y="540" fill="#71717a" font-size="9.5" font-weight="500" text-anchor="middle">500 pgs/s</text>
+
+    <line x1="477.5" y1="449" x2="477.5" y2="526" stroke="#3f3f46" stroke-width="1" stroke-dasharray="3,3"/>
+    <text x="477.5" y="540" fill="#71717a" font-size="9.5" font-weight="500" text-anchor="middle">1,000 pgs/s</text>
+
+    <line x1="608.7" y1="449" x2="608.7" y2="526" stroke="#3f3f46" stroke-width="1" stroke-dasharray="3,3"/>
+    <text x="608.7" y="540" fill="#71717a" font-size="9.5" font-weight="500" text-anchor="middle">1,500 pgs/s</text>
+
+    <line x1="740.0" y1="449" x2="740.0" y2="526" stroke="#3f3f46" stroke-width="1" stroke-dasharray="3,3"/>
+    <text x="740.0" y="540" fill="#71717a" font-size="9.5" font-weight="500" text-anchor="middle">2,000 pgs/s</text>
+  </g>
+
+  <!-- Row 9: PDF Text Extraction -->
+  <g transform="translate(0, 451)">
+    <text x="202" y="20" fill="#e4e4e7" font-size="11.5" font-weight="600" text-anchor="end">PDF Text Extraction</text>
+    <rect x="215" y="4" width="530" height="24" rx="5" fill="#18181b" stroke="#27272a" stroke-width="1"/>
+    <rect x="215" y="4" width="476.8" height="24" rx="5" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
+    <text x="684" y="20" fill="#022c22" font-size="10.5" font-weight="800" text-anchor="end">1,816.5 pgs/s</text>
+    <rect x="215" y="7" width="78.2" height="18" rx="3.5" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
+    <text x="286" y="20" fill="#ffffff" font-size="9.5" font-weight="700" text-anchor="end">297.8</text>
+    <rect x="760" y="5" width="124" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
+    <text x="822" y="20" fill="#34d399" font-size="10.5" font-weight="700" text-anchor="middle">⚡ 17.5x Faster</text>
+  </g>
+
+  <!-- Row 10: End-to-End PDF Ingestion -->
+  <g transform="translate(0, 488)">
+    <text x="202" y="20" fill="#e4e4e7" font-size="11.5" font-weight="600" text-anchor="end">End-to-End PDF Pipeline</text>
+    <rect x="215" y="4" width="530" height="24" rx="5" fill="#18181b" stroke="#27272a" stroke-width="1"/>
+    <rect x="215" y="4" width="451.2" height="24" rx="5" fill="url(#chunkrGrad)" filter="url(#barGlow)"/>
+    <text x="658" y="20" fill="#022c22" font-size="10.5" font-weight="800" text-anchor="end">1,718.8 pgs/s</text>
+    <rect x="215" y="7" width="96.0" height="18" rx="3.5" fill="url(#langchainGrad)" filter="url(#lcShadow)"/>
+    <text x="304" y="20" fill="#ffffff" font-size="9.5" font-weight="700" text-anchor="end">365.9</text>
+    <rect x="760" y="5" width="124" height="22" rx="11" fill="url(#badgeGrad)" stroke="#10b981" stroke-width="1"/>
+    <text x="822" y="20" fill="#34d399" font-size="10.5" font-weight="700" text-anchor="middle">⚡ 18.7x Faster</text>
   </g>
 </svg>
