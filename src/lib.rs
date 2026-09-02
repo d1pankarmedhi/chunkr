@@ -23,6 +23,7 @@ pub mod prelude {
     };
     pub use crate::chunker::html::HtmlChunker;
     pub use crate::chunker::json::JsonChunker;
+    pub use crate::chunker::late::LateChunker;
     pub use crate::chunker::markdown::MarkdownChunker;
     pub use crate::chunker::proposition::{
         CustomPropositionExtractor, PropositionChunker, PropositionExtractor,

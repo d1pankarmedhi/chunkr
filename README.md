@@ -52,6 +52,7 @@ maturin develop --release
 | **Query-Aware** | `QueryAwareChunker` | Search query hotspot detection & adaptive sizing |
 | **Agentic** | `AgenticChunker` | Discourse transition & topic segmentation |
 | **Hierarchical** | `HierarchicalChunker` | Parent-child pairs & multi-level tree generation |
+| **Late Chunking** | `LateChunker` | Full-document token span snapping & embedding pooling |
 | **Table** | `TableChunker` | Structure-aware tabular chunking (Markdown, CSV, TSV) with header duplication |
 | **Markdown** | `MarkdownChunker` | Header hierarchy (`#`–`######`) & breadcrumb paths |
 | **Code** | `CodeChunker` | Syntax-aware chunking (Rust, Python, JS, TS, Go, C++, SQL) |
@@ -103,12 +104,18 @@ md_docs = md_chunker.chunk("# Title\n## Section\nContent...")
 table_chunker = chunkr.TableChunker(rows_per_chunk=10, overlap_rows=1)
 table_docs = table_chunker.chunk("| Date | Metric | Value |\n|---|---|---|\n| 2024-01 | MRR | $50K |")
 
-# 8. PDF Document Loading & Chunking
+# 8. Late Chunking (Full-document context with token span snapping & pooling)
+late_chunker = chunkr.LateChunker(chunk_size=300, overlap=30)
+late_docs = late_chunker.chunk(sample_text)
+# Pool token embeddings directly from your transformer model:
+# pooled_embeddings = late_chunker.pool_embeddings(token_embeddings, late_docs)
+
+# 9. PDF Document Loading & Chunking
 loader = chunkr.PDFLoader()
 pages = loader.load_pages("path/to/document.pdf")
 pdf_chunks = recursive_chunker.chunk_documents(pages)
 
-# 9. Multi-Core Parallel Batch Chunking (Rayon-backed multi-threading)
+# 10. Multi-Core Parallel Batch Chunking (Rayon-backed multi-threading)
 batch_docs = [
     chunkr.Document(f"Document {i} content...", {"doc_id": i, "category": "AI", "score": 0.98})
     for i in range(100)
@@ -149,12 +156,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_overlap_rows(1);
     let table_chunks = table_chunker.chunk("| Col A | Col B |\n|---|---|\n| 1 | 2 |")?;
 
-    // 5. PDF Document Loading & Chunking
+    // 5. Late Chunking (Span Snapping & Mean-Pooling)
+    let late_chunker = LateChunker::new();
+    let late_chunks = late_chunker.chunk(text)?;
+
+    // 6. PDF Document Loading & Chunking
     let loader = PDFLoader::new();
     let pdf_pages = loader.load_pages_from_file("tests/test_files/sample_doc.pdf")?;
     let pdf_chunks = recursive_chunker.chunk_documents(&pdf_pages)?;
 
-    // 6. Multi-Threaded Parallel Document Batch Chunking
+    // 7. Multi-Threaded Parallel Document Batch Chunking
     let parallel_chunks = recursive_chunker.par_chunk_documents(&pdf_pages)?;
 
     Ok(())

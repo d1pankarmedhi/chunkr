@@ -865,6 +865,104 @@ impl PyTableChunker {
     }
 }
 
+#[pyclass(name = "LateChunker")]
+pub struct PyLateChunker {
+    inner: LateChunker,
+}
+
+#[pymethods]
+impl PyLateChunker {
+    #[new]
+    #[pyo3(signature = (encoding="cl100k_base", chunk_size=500, overlap=50, normalize=true))]
+    pub fn new(
+        encoding: &str,
+        chunk_size: usize,
+        overlap: usize,
+        normalize: bool,
+    ) -> PyResult<Self> {
+        let enc = match encoding.to_lowercase().as_str() {
+            "cl100k_base" => TokenEncoding::Cl100kBase,
+            "o200k_base" => TokenEncoding::O200kBase,
+            "p50k_base" => TokenEncoding::P50kBase,
+            "r50k_base" => TokenEncoding::R50kBase,
+            other => {
+                return Err(PyValueError::new_err(format!(
+                    "Unsupported encoding '{}'. Supported: cl100k_base, o200k_base, p50k_base, r50k_base",
+                    other
+                )));
+            }
+        };
+
+        let base = RecursiveChunker::new()
+            .with_chunk_size(chunk_size)
+            .with_overlap(overlap);
+
+        let inner = LateChunker::new()
+            .with_encoding(enc)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?
+            .with_base_chunker(base)
+            .with_normalize(normalize);
+
+        Ok(Self { inner })
+    }
+
+    pub fn chunk(&self, text: &str) -> PyResult<Vec<PyDocument>> {
+        self.inner
+            .chunk(text)
+            .map(wrap_docs)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    pub fn chunk_spans(&self, text: &str) -> PyResult<Vec<(PyDocument, (usize, usize))>> {
+        let pairs = self
+            .inner
+            .chunk_spans(text)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(pairs
+            .into_iter()
+            .map(|(doc, span)| (PyDocument::from(doc), span))
+            .collect())
+    }
+
+    pub fn pool_span(
+        &self,
+        token_embeddings: Vec<Vec<f32>>,
+        start: usize,
+        end: usize,
+    ) -> Vec<f32> {
+        LateChunker::pool_span(&token_embeddings, start, end, self.inner.normalize)
+    }
+
+    pub fn pool_embeddings(
+        &self,
+        token_embeddings: Vec<Vec<f32>>,
+        chunks: Vec<PyRef<'_, PyDocument>>,
+    ) -> Vec<Vec<f32>> {
+        let docs: Vec<Document> = chunks.iter().map(|c| c.inner.clone()).collect();
+        self.inner.pool_embeddings(&token_embeddings, &docs)
+    }
+
+    pub fn pool_spans(
+        &self,
+        token_embeddings: Vec<Vec<f32>>,
+        spans: Vec<(usize, usize)>,
+    ) -> Vec<Vec<f32>> {
+        self.inner.pool_spans(&token_embeddings, &spans)
+    }
+
+    pub fn chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        par_chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_texts(&self, texts: Vec<String>) -> PyResult<Vec<Vec<PyDocument>>> {
+        par_chunk_texts_helper(&self.inner, texts)
+    }
+}
+
 // 14. PDF Loader
 #[pyclass(name = "PDFLoader")]
 #[derive(Default)]
@@ -974,6 +1072,7 @@ pub fn chunkr(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyJsonChunker>()?;
     m.add_class::<PyHtmlChunker>()?;
     m.add_class::<PyTableChunker>()?;
+    m.add_class::<PyLateChunker>()?;
     m.add_class::<PyCharacterChunker>()?;
     m.add_class::<PyWordChunker>()?;
     m.add_class::<PyPDFLoader>()?;

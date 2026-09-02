@@ -646,3 +646,69 @@ In conclusion, all fiscal targets for the fiscal year have been exceeded."#;
         assert!(tc.content.contains("| Quarter | Revenue | Profit |"));
     }
 }
+
+#[test]
+fn test_late_chunker_spans() {
+    let text = "Artificial intelligence is transforming society. Deep learning models process complex data. Vector search powers modern information retrieval. RAG combines generation with accurate external knowledge.";
+
+    let base = SentenceChunker::new()
+        .with_sentences_per_chunk(2)
+        .with_sentence_overlap(0);
+
+    let late_chunker = LateChunker::new()
+        .with_base_chunker(base);
+
+    let chunks = late_chunker.chunk(text).unwrap();
+    assert_eq!(chunks.len(), 2);
+
+    for chunk in &chunks {
+        assert!(chunk.metadata.contains_key("token_start"));
+        assert!(chunk.metadata.contains_key("token_end"));
+        assert!(chunk.metadata.contains_key("char_start"));
+        assert!(chunk.metadata.contains_key("char_end"));
+        assert!(chunk.metadata.contains_key("token_count"));
+
+        let start = chunk.metadata.get("token_start").unwrap().as_u64().unwrap();
+        let end = chunk.metadata.get("token_end").unwrap().as_u64().unwrap();
+        assert!(start < end);
+        let count = chunk.metadata.get("token_count").unwrap().as_u64().unwrap();
+        assert_eq!(end - start, count);
+    }
+
+    // Chunk 0 precedes Chunk 1 in token index space
+    let end_0 = chunks[0].metadata.get("token_end").unwrap().as_u64().unwrap();
+    let start_1 = chunks[1].metadata.get("token_start").unwrap().as_u64().unwrap();
+    assert!(end_0 <= start_1);
+}
+
+#[test]
+fn test_late_chunker_pooling() {
+    // Synthetic token embeddings: 4 tokens with dimension 3
+    let token_embs = vec![
+        vec![1.0, 0.0, 0.0],
+        vec![0.0, 1.0, 0.0],
+        vec![0.0, 0.0, 1.0],
+        vec![1.0, 1.0, 0.0],
+    ];
+
+    // Mean-pool span [0, 3): tokens 0, 1, 2
+    // Unnormalized mean: [1/3, 1/3, 1/3]
+    // Normalized: [1/sqrt(3), 1/sqrt(3), 1/sqrt(3)] approx [0.57735, 0.57735, 0.57735]
+    let pooled = LateChunker::pool_span(&token_embs, 0, 3, true);
+    assert_eq!(pooled.len(), 3);
+
+    let expected = 1.0f32 / 3.0f32.sqrt();
+    for val in &pooled {
+        assert!((val - expected).abs() < 1e-4);
+    }
+
+    // Norm must be 1.0
+    let norm_sq: f32 = pooled.iter().map(|x| x * x).sum();
+    assert!((norm_sq.sqrt() - 1.0).abs() < 1e-4);
+
+    // Unnormalized pooling
+    let unnorm = LateChunker::pool_span(&token_embs, 0, 3, false);
+    for val in &unnorm {
+        assert!((val - 1.0 / 3.0).abs() < 1e-4);
+    }
+}

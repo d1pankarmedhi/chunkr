@@ -6,6 +6,7 @@ pub mod contextual;
 pub mod hierarchical;
 pub mod html;
 pub mod json;
+pub mod late;
 pub mod markdown;
 pub mod proposition;
 pub mod query_aware;

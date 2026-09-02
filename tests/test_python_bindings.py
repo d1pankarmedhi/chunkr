@@ -121,5 +121,31 @@ class TestPythonBindings(unittest.TestCase):
         self.assertEqual(len(doc_chunks), 2)
         self.assertEqual(doc_chunks[0].metadata["source"], "inventory.csv")
 
+    def test_late_chunker(self):
+        text = "Deep learning powers modern vision systems. Large language models excel at reasoning. Vector databases enable scalable retrieval."
+        late_chunker = chunkr.LateChunker(chunk_size=50, overlap=10)
+        chunks = late_chunker.chunk(text)
+        self.assertGreaterEqual(len(chunks), 2)
+
+        for chunk in chunks:
+            self.assertIn("token_start", chunk.metadata)
+            self.assertIn("token_end", chunk.metadata)
+            self.assertIn("char_start", chunk.metadata)
+            self.assertIn("char_end", chunk.metadata)
+            self.assertGreater(chunk.metadata["token_end"], chunk.metadata["token_start"])
+
+        # Test pooling
+        # Create synthetic token embeddings
+        num_tokens = max(c.metadata["token_end"] for c in chunks) + 5
+        fake_embs = [[1.0, 0.5, 0.2] for _ in range(num_tokens)]
+
+        pooled = late_chunker.pool_embeddings(fake_embs, chunks)
+        self.assertEqual(len(pooled), len(chunks))
+        self.assertEqual(len(pooled[0]), 3)
+
+        # Norm should be approx 1.0
+        norm = sum(x * x for x in pooled[0]) ** 0.5
+        self.assertAlmostEqual(norm, 1.0, places=3)
+
 if __name__ == "__main__":
     unittest.main()
