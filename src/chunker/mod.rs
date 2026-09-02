@@ -1,4 +1,5 @@
 pub mod agentic;
+pub mod ast_code;
 pub mod base;
 pub mod char;
 pub mod code;
@@ -9,6 +10,7 @@ pub mod html;
 pub mod json;
 pub mod late;
 pub mod markdown;
+pub mod packer;
 pub mod proposition;
 pub mod query_aware;
 pub mod recursive;

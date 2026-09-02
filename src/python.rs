@@ -1169,6 +1169,76 @@ impl PyDirectoryLoader {
     }
 }
 
+// 16. AST Code Chunker
+#[pyclass(name = "AstCodeChunker")]
+pub struct PyAstCodeChunker {
+    inner: AstCodeChunker,
+}
+
+#[pymethods]
+impl PyAstCodeChunker {
+    #[new]
+    #[pyo3(signature = (language="rust", max_chunk_size=1500))]
+    pub fn new(language: &str, max_chunk_size: usize) -> PyResult<Self> {
+        let lang = match language.to_lowercase().as_str() {
+            "rust" | "rs" => AstLanguage::Rust,
+            "python" | "py" => AstLanguage::Python,
+            other => {
+                return Err(PyValueError::new_err(format!(
+                    "Unsupported AST language '{}'. Supported languages are 'rust' and 'python'",
+                    other
+                )))
+            }
+        };
+
+        Ok(Self {
+            inner: AstCodeChunker::new(lang).with_max_chunk_size(max_chunk_size),
+        })
+    }
+
+    pub fn chunk(&self, text: &str) -> PyResult<Vec<PyDocument>> {
+        self.inner
+            .chunk(text)
+            .map(wrap_docs)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    pub fn chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        par_chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_texts(&self, texts: Vec<String>) -> PyResult<Vec<Vec<PyDocument>>> {
+        par_chunk_texts_helper(&self.inner, texts)
+    }
+}
+
+// 17. Chunk Packer
+#[pyclass(name = "ChunkPacker")]
+pub struct PyChunkPacker {
+    inner: ChunkPacker,
+}
+
+#[pymethods]
+impl PyChunkPacker {
+    #[new]
+    #[pyo3(signature = (max_characters=1000, separator="\n\n"))]
+    pub fn new(max_characters: usize, separator: &str) -> Self {
+        Self {
+            inner: ChunkPacker::new(max_characters).with_separator(separator),
+        }
+    }
+
+    pub fn pack(&self, docs: Vec<PyRef<'_, PyDocument>>) -> Vec<PyDocument> {
+        let unwrap_docs: Vec<Document> = docs.iter().map(|d| d.inner.clone()).collect();
+        let packed = self.inner.pack(&unwrap_docs);
+        wrap_docs(packed)
+    }
+}
+
 #[pyfunction]
 #[pyo3(signature = (path))]
 pub fn load_pdf(path: &str) -> PyResult<String> {
@@ -1203,12 +1273,14 @@ pub fn chunkr(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyHierarchicalChunker>()?;
     m.add_class::<PyMarkdownChunker>()?;
     m.add_class::<PyCodeChunker>()?;
+    m.add_class::<PyAstCodeChunker>()?;
     m.add_class::<PyJsonChunker>()?;
     m.add_class::<PyHtmlChunker>()?;
     m.add_class::<PyTableChunker>()?;
     m.add_class::<PyLateChunker>()?;
     m.add_class::<PyCharacterChunker>()?;
     m.add_class::<PyWordChunker>()?;
+    m.add_class::<PyChunkPacker>()?;
     m.add_class::<PyPDFLoader>()?;
     m.add_class::<PyDirectoryLoader>()?;
     m.add_function(wrap_pyfunction!(load_pdf, m)?)?;

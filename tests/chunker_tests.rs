@@ -774,3 +774,104 @@ fn test_hf_token_chunker() {
     assert!(chunks[0].content.contains("Hello"));
     assert!(chunks[0].content.contains("world"));
 }
+
+#[test]
+fn test_ast_code_chunker_rust() {
+    let code = r#"
+use std::collections::HashMap;
+
+/// Calculates fibonacci
+fn fib(n: u64) -> u64 {
+    match n {
+        0 => 0,
+        1 => 1,
+        _ => fib(n - 1) + fib(n - 2),
+    }
+}
+
+pub struct Server {
+    port: u16,
+}
+
+impl Server {
+    pub fn new(port: u16) -> Self {
+        Self { port }
+    }
+}
+"#;
+
+    let chunker = AstCodeChunker::new(AstLanguage::Rust).with_max_chunk_size(1000);
+    let chunks = chunker.chunk(code).unwrap();
+    assert!(!chunks.is_empty());
+
+    let has_func = chunks.iter().any(|c| {
+        c.metadata.get("node_type").and_then(|v| v.as_str()) == Some("function")
+            && c.metadata.get("node_name").and_then(|v| v.as_str()) == Some("fib")
+    });
+    assert!(has_func, "Should contain fib function node");
+
+    let has_struct = chunks.iter().any(|c| {
+        c.metadata.get("node_type").and_then(|v| v.as_str()) == Some("struct")
+            && c.metadata.get("node_name").and_then(|v| v.as_str()) == Some("Server")
+    });
+    assert!(has_struct, "Should contain Server struct node");
+}
+
+#[test]
+fn test_ast_code_chunker_python() {
+    let py_code = r#"
+import os
+import sys
+
+def calculate_mrr(revenue, churn):
+    """Calculate Net MRR."""
+    return revenue - churn
+
+class DatabaseConnection:
+    def __init__(self, host: str, port: int):
+        self.host = host
+        self.port = port
+
+    def connect(self):
+        return True
+"#;
+
+    let chunker = AstCodeChunker::new(AstLanguage::Python).with_max_chunk_size(1000);
+    let chunks = chunker.chunk(py_code).unwrap();
+    assert!(!chunks.is_empty());
+
+    let has_func = chunks.iter().any(|c| {
+        c.metadata.get("node_type").and_then(|v| v.as_str()) == Some("function")
+            && c.metadata.get("node_name").and_then(|v| v.as_str()) == Some("calculate_mrr")
+    });
+    assert!(has_func, "Should contain calculate_mrr function node");
+
+    let has_class = chunks.iter().any(|c| {
+        c.metadata.get("node_type").and_then(|v| v.as_str()) == Some("class")
+            && c.metadata.get("node_name").and_then(|v| v.as_str()) == Some("DatabaseConnection")
+    });
+    assert!(has_class, "Should contain DatabaseConnection class node");
+}
+
+#[test]
+fn test_chunk_packer() {
+    let docs = vec![
+        Document::new("Short heading 1", std::collections::HashMap::new()),
+        Document::new("Sentence A", std::collections::HashMap::new()),
+        Document::new("Sentence B", std::collections::HashMap::new()),
+        Document::new("Another long paragraph that will push past the max characters budget.", std::collections::HashMap::new()),
+    ];
+
+    let packer = ChunkPacker::new(50);
+    let packed = packer.pack(&docs);
+
+    // Initial 3 items: "Short heading 1\n\nSentence A\n\nSentence B" (15 + 2 + 10 + 2 + 10 = 39 <= 50)
+    // Next item is 69 chars > 50 -> goes into next chunk
+    assert_eq!(packed.len(), 2);
+    assert_eq!(
+        packed[0].metadata.get("merged_chunk_count").unwrap().as_u64().unwrap(),
+        3
+    );
+    assert!(packed[0].content.contains("Short heading 1"));
+    assert!(packed[0].content.contains("Sentence B"));
+}

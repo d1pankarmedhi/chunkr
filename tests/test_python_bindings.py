@@ -183,5 +183,33 @@ class TestPythonBindings(unittest.TestCase):
         self.assertGreaterEqual(len(chunks), 2)
         self.assertEqual(chunks[0].metadata["tokenizer"], "huggingface")
 
+    def test_ast_code_chunker(self):
+        py_code = """
+def hello_world():
+    return "Hello World"
+
+class Worker:
+    def work(self):
+        pass
+"""
+        chunker = chunkr.AstCodeChunker(language="python", max_chunk_size=500)
+        chunks = chunker.chunk(py_code)
+        self.assertGreaterEqual(len(chunks), 2)
+        node_types = [c.metadata.get("node_type") for c in chunks]
+        self.assertIn("function", node_types)
+        self.assertIn("class", node_types)
+
+    def test_chunk_packer(self):
+        docs = [
+            chunkr.Document("Short line 1", {}),
+            chunkr.Document("Short line 2", {}),
+            chunkr.Document("Short line 3", {}),
+            chunkr.Document("A much longer sentence that should not fit inside the small limit.", {}),
+        ]
+        packer = chunkr.ChunkPacker(max_characters=40)
+        packed = packer.pack(docs)
+        self.assertEqual(len(packed), 2)
+        self.assertEqual(packed[0].metadata["merged_chunk_count"], 3)
+
 if __name__ == "__main__":
     unittest.main()

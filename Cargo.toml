@@ -15,6 +15,10 @@ name = "chunkr"
 path = "src/lib.rs"
 crate-type = ["cdylib", "rlib"]
 
+[[bin]]
+name = "chunkr"
+path = "src/bin/cli.rs"
+
 [features]
 default = []
 python = ["dep:pyo3", "pyo3/extension-module"]
@@ -29,4 +33,8 @@ memchr = "2.7"
 rayon = "1.10"
 thiserror = "1.0"
 tokenizers = { version = "0.21", default-features = false, features = ["fancy-regex"] }
+tree-sitter = "0.24"
+tree-sitter-rust = "0.23.2"
+tree-sitter-python = "0.23"
+clap = { version = "4.5", features = ["derive"] }
 pyo3 = { version = "0.22", features = ["abi3-py38"], optional = true }

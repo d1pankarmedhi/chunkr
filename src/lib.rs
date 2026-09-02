@@ -11,6 +11,7 @@ pub mod prelude {
         AgenticChunker, AgenticDecision, AgenticDecisionMaker, CustomAgenticDecisionMaker,
         HeuristicAgenticDecisionMaker,
     };
+    pub use crate::chunker::ast_code::{AstCodeChunker, AstLanguage};
     pub use crate::chunker::base::{BaseChunker, Chunker};
     pub use crate::chunker::char::CharacterChunker;
     pub use crate::chunker::code::{CodeChunker, CodeLanguage};
@@ -26,6 +27,7 @@ pub mod prelude {
     pub use crate::chunker::json::JsonChunker;
     pub use crate::chunker::late::LateChunker;
     pub use crate::chunker::markdown::MarkdownChunker;
+    pub use crate::chunker::packer::ChunkPacker;
     pub use crate::chunker::proposition::{
         CustomPropositionExtractor, PropositionChunker, PropositionExtractor,
         SyntacticPropositionExtractor,

@@ -57,6 +57,8 @@ maturin develop --release
 | **Table** | `TableChunker` | Structure-aware tabular chunking (Markdown, CSV, TSV) with header duplication |
 | **Markdown** | `MarkdownChunker` | Header hierarchy (`#`–`######`) & breadcrumb paths |
 | **Code** | `CodeChunker` | Syntax-aware chunking (Rust, Python, JS, TS, Go, C++, SQL) |
+| **AST Code** | `AstCodeChunker` | Tree-sitter AST syntax chunking (Rust & Python) along function/class boundaries |
+| **Chunk Bin-Packing** | `ChunkPacker` | Post-processing optimizer bin-packing small chunks into token budget blocks |
 | **JSON** | `JsonChunker` | Structure-aware JSON chunker preserving valid sub-trees |
 | **HTML** | `HtmlChunker` | DOM element boundary chunking |
 | **Character & Word** | `CharacterChunker`, `WordChunker` | High-throughput fixed character and word-count splitting |
@@ -124,7 +126,15 @@ loader = chunkr.PDFLoader()
 pages = loader.load_pages("path/to/document.pdf")
 pdf_chunks = recursive_chunker.chunk_documents(pages)
 
-# 12. Multi-Core Parallel Batch Chunking (Rayon-backed multi-threading)
+# 12. AST-Based Code Chunking (Tree-sitter syntax boundaries)
+ast_chunker = chunkr.AstCodeChunker(language="python", max_chunk_size=1500)
+code_chunks = ast_chunker.chunk("def calculate():\n    return 42\n\nclass Model:\n    pass")
+
+# 13. Chunk Bin-Packing (Greedily merging small chunks into token budgets)
+packer = chunkr.ChunkPacker(max_characters=1000)
+packed_chunks = packer.pack(recursive_chunker.chunk(sample_text))
+
+# 14. Multi-Core Parallel Batch Chunking (Rayon-backed multi-threading)
 batch_docs = [
     chunkr.Document(f"Document {i} content...", {"doc_id": i, "category": "AI", "score": 0.98})
     for i in range(100)
@@ -169,21 +179,46 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let late_chunker = LateChunker::new();
     let late_chunks = late_chunker.chunk(text)?;
 
-    // 6. Directory Ingestion & Chunker Auto-Routing
+    // 6. Tree-sitter AST Code Chunker
+    let ast_chunker = AstCodeChunker::new(AstLanguage::Rust).with_max_chunk_size(1500);
+    let rust_chunks = ast_chunker.chunk("fn main() { println!(\"Hello\"); }")?;
+
+    // 7. Chunk Bin-Packing
+    let packer = ChunkPacker::new(1000);
+    let packed = packer.pack(&chunks);
+
+    // 8. Directory Ingestion & Chunker Auto-Routing
     let dir_loader = DirectoryLoader::new()
         .with_extensions(vec!["md".into(), "csv".into(), "pdf".into()]);
     let dir_chunks = dir_loader.load_and_chunk("tests/test_files")?;
 
-    // 7. PDF Document Loading & Chunking
+    // 9. PDF Document Loading & Chunking
     let loader = PDFLoader::new();
     let pdf_pages = loader.load_pages_from_file("tests/test_files/sample_doc.pdf")?;
     let pdf_chunks = recursive_chunker.chunk_documents(&pdf_pages)?;
 
-    // 8. Multi-Threaded Parallel Document Batch Chunking
+    // 10. Multi-Threaded Parallel Document Batch Chunking
     let parallel_chunks = recursive_chunker.par_chunk_documents(&pdf_pages)?;
 
     Ok(())
 }
+```
+
+---
+
+## ⚡ Command-Line Interface (`chunkr-cli`)
+
+Install or run the standalone `chunkr` CLI binary for fast batch processing or UNIX piping:
+
+```powershell
+# Chunk any file using Markdown strategy to JSONL format
+cargo run --bin chunkr -- README.md -s markdown -c 500 -f jsonl
+
+# Pipe from STDIN with optional bin-packing
+cat document.txt | chunkr -s recursive --chunk-size 800 --pack 1200 > output.jsonl
+
+# Ingest and auto-route an entire directory
+chunkr ./docs -s dir --format jsonl --out-file chunks.jsonl
 ```
 
 ---
