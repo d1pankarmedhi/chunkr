@@ -204,8 +204,13 @@ impl RecursiveChunker {
                     docs.push(trimmed.to_string());
                 }
 
+                let old_start = start_idx;
                 while start_idx < i && current_len > self.overlap {
                     current_len -= piece_lens[start_idx];
+                    start_idx += 1;
+                }
+                if start_idx == old_start && start_idx < i {
+                    current_len = current_len.saturating_sub(piece_lens[start_idx]);
                     start_idx += 1;
                 }
             }

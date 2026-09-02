@@ -506,3 +506,41 @@ fn test_pdf_chunking_pipeline() {
     assert!(chunks[0].metadata.contains_key("doc_index"));
     assert!(chunks[0].metadata.contains_key("chunk_index"));
 }
+
+#[test]
+fn test_sentence_chunker_utf8_multibyte_safety() {
+    let text = "C'est un été très chaud avec des journées ensoleillées. 🦀 快適なプログラミング言語Rustが大好きです！ Another short sentence.";
+    let chunker = SentenceChunker::new()
+        .with_sentences_per_chunk(1)
+        .with_sentence_overlap(0)
+        .with_max_characters(25);
+    let chunks = chunker.chunk(text).unwrap();
+    assert!(!chunks.is_empty());
+    for chunk in chunks {
+        assert!(chunk.content.chars().count() <= 25);
+    }
+}
+
+#[test]
+fn test_contextual_chunker_clone_preserves_base_chunker() {
+    let custom_chunker = SentenceChunker::new()
+        .with_sentences_per_chunk(1)
+        .with_sentence_overlap(0);
+    let contextual = ContextualChunker::new()
+        .with_base_chunker(custom_chunker)
+        .with_format(ContextFormat::MetadataOnly);
+
+    let cloned = contextual.clone();
+    let text = "Sentence one. Sentence two. Sentence three.";
+    let chunks = cloned.chunk(text).unwrap();
+    assert_eq!(chunks.len(), 3);
+}
+
+#[test]
+fn test_proposition_extractor_relative_clause() {
+    let sentence = "The Eiffel Tower, which was constructed in 1889, is located in Paris and welcomes millions of tourists every year.";
+    let props = SyntacticPropositionExtractor::decompose_sentence(sentence);
+    assert_eq!(props.len(), 2);
+    assert_eq!(props[0], "The Eiffel Tower is located in Paris and welcomes millions of tourists every year.");
+    assert_eq!(props[1], "The Eiffel Tower was constructed in 1889.");
+}

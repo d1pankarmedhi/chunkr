@@ -76,8 +76,8 @@ impl ContextGenerator for ExtractiveContextGenerator {
             format!("Doc: {} | Part {}/{}", first_line, chunk_idx + 1, total_chunks)
         };
 
-        if context.len() > self.max_context_chars {
-            Ok(context[..self.max_context_chars].to_string())
+        if let Some((idx, _)) = context.char_indices().nth(self.max_context_chars) {
+            Ok(context[..idx].to_string())
         } else {
             Ok(context)
         }
@@ -120,8 +120,9 @@ where
 ///
 /// Wraps any underlying chunker and enriches every generated chunk with situational
 /// document context, section hierarchy, or LLM-generated summaries.
+#[derive(Clone)]
 pub struct ContextualChunker {
-    pub base_chunker: Box<dyn Chunker>,
+    pub base_chunker: Arc<dyn Chunker>,
     pub context_generator: Arc<dyn ContextGenerator>,
     pub format: ContextFormat,
 }
@@ -134,21 +135,11 @@ impl std::fmt::Debug for ContextualChunker {
     }
 }
 
-impl Clone for ContextualChunker {
-    fn clone(&self) -> Self {
-        Self {
-            base_chunker: Box::new(RecursiveChunker::new()),
-            context_generator: Arc::clone(&self.context_generator),
-            format: self.format.clone(),
-        }
-    }
-}
-
 impl ContextualChunker {
     /// Create a ContextualChunker wrapping the default RecursiveChunker and ExtractiveContextGenerator
     pub fn new() -> Self {
         Self {
-            base_chunker: Box::new(RecursiveChunker::new()),
+            base_chunker: Arc::new(RecursiveChunker::new()),
             context_generator: Arc::new(ExtractiveContextGenerator::new()),
             format: ContextFormat::Prefix,
         }
@@ -156,7 +147,7 @@ impl ContextualChunker {
 
     /// Wrap a specific base chunker
     pub fn with_base_chunker(mut self, chunker: impl Chunker + 'static) -> Self {
-        self.base_chunker = Box::new(chunker);
+        self.base_chunker = Arc::new(chunker);
         self
     }
 

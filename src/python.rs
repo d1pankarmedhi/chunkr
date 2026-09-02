@@ -1,7 +1,6 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
-use std::collections::HashMap;
+use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString};
 
 use crate::prelude::*;
 
@@ -38,6 +37,43 @@ fn json_to_py(py: Python, val: &serde_json::Value) -> PyResult<PyObject> {
     }
 }
 
+fn py_to_json(val: &Bound<'_, PyAny>) -> PyResult<serde_json::Value> {
+    if val.is_none() {
+        Ok(serde_json::Value::Null)
+    } else if let Ok(b) = val.downcast::<PyBool>() {
+        Ok(serde_json::Value::Bool(b.is_true()))
+    } else if let Ok(i) = val.downcast::<PyInt>() {
+        let n: i64 = i.extract()?;
+        Ok(serde_json::Value::Number(n.into()))
+    } else if let Ok(f) = val.downcast::<PyFloat>() {
+        let fl: f64 = f.extract()?;
+        if let Some(num) = serde_json::Number::from_f64(fl) {
+            Ok(serde_json::Value::Number(num))
+        } else {
+            Ok(serde_json::Value::Null)
+        }
+    } else if let Ok(s) = val.downcast::<PyString>() {
+        let st: String = s.extract()?;
+        Ok(serde_json::Value::String(st))
+    } else if let Ok(dict) = val.downcast::<PyDict>() {
+        let mut map = serde_json::Map::new();
+        for (k, v) in dict.iter() {
+            let key_str: String = k.extract()?;
+            map.insert(key_str, py_to_json(&v)?);
+        }
+        Ok(serde_json::Value::Object(map))
+    } else if let Ok(list) = val.downcast::<PyList>() {
+        let mut arr = Vec::with_capacity(list.len());
+        for item in list.iter() {
+            arr.push(py_to_json(&item)?);
+        }
+        Ok(serde_json::Value::Array(arr))
+    } else {
+        let s = val.to_string();
+        Ok(serde_json::Value::String(s))
+    }
+}
+
 /// A document chunk holding text content and metadata
 #[pyclass(name = "Document")]
 #[derive(Debug, Clone)]
@@ -49,14 +85,16 @@ pub struct PyDocument {
 impl PyDocument {
     #[new]
     #[pyo3(signature = (content, metadata=None))]
-    pub fn new(content: String, metadata: Option<HashMap<String, String>>) -> Self {
+    pub fn new(content: String, metadata: Option<&Bound<'_, PyDict>>) -> PyResult<Self> {
         let mut inner = Document::from_text(content);
         if let Some(meta) = metadata {
-            for (k, v) in meta {
-                inner.add_metadata(k, serde_json::Value::String(v));
+            for (k, v) in meta.iter() {
+                let key: String = k.extract()?;
+                let val = py_to_json(&v)?;
+                inner.add_metadata(key, val);
             }
         }
-        Self { inner }
+        Ok(Self { inner })
     }
 
     #[getter]
@@ -100,6 +138,57 @@ fn wrap_docs(docs: Vec<Document>) -> Vec<PyDocument> {
     docs.into_iter().map(PyDocument::from).collect()
 }
 
+fn chunk_docs_helper<C: Chunker>(
+    chunker: &C,
+    docs: Vec<PyRef<'_, PyDocument>>,
+) -> PyResult<Vec<PyDocument>> {
+    let rust_docs: Vec<Document> = docs.iter().map(|d| d.inner.clone()).collect();
+    chunker
+        .chunk_documents(&rust_docs)
+        .map(wrap_docs)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+fn par_chunk_docs_helper<C: Chunker>(
+    chunker: &C,
+    docs: Vec<PyRef<'_, PyDocument>>,
+) -> PyResult<Vec<PyDocument>> {
+    let rust_docs: Vec<Document> = docs.iter().map(|d| d.inner.clone()).collect();
+    chunker
+        .par_chunk_documents(&rust_docs)
+        .map(wrap_docs)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+fn par_chunk_texts_helper<C: Chunker>(
+    chunker: &C,
+    texts: Vec<String>,
+) -> PyResult<Vec<Vec<PyDocument>>> {
+    let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+    let res = chunker
+        .par_chunk_texts(&text_refs)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(res.into_iter().map(wrap_docs).collect())
+}
+
+fn node_to_py(py: Python, node: &HierarchyNode) -> PyResult<PyObject> {
+    let dict = PyDict::new_bound(py);
+    dict.set_item("id", &node.id)?;
+    if let Some(ref pid) = node.parent_id {
+        dict.set_item("parent_id", pid)?;
+    } else {
+        dict.set_item("parent_id", py.None())?;
+    }
+    dict.set_item("depth", node.depth)?;
+    dict.set_item("document", Py::new(py, PyDocument::from(node.document.clone()))?)?;
+    let children = PyList::empty_bound(py);
+    for child in &node.children {
+        children.append(node_to_py(py, child)?)?;
+    }
+    dict.set_item("children", children)?;
+    Ok(dict.into())
+}
+
 // 1. Recursive Chunker
 #[pyclass(name = "RecursiveChunker")]
 pub struct PyRecursiveChunker {
@@ -122,6 +211,18 @@ impl PyRecursiveChunker {
 
     pub fn chunk(&self, text: &str) -> PyResult<Vec<PyDocument>> {
         self.inner.chunk(text).map(wrap_docs).map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    pub fn chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        par_chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_texts(&self, texts: Vec<String>) -> PyResult<Vec<Vec<PyDocument>>> {
+        par_chunk_texts_helper(&self.inner, texts)
     }
 }
 
@@ -152,6 +253,18 @@ impl PyTokenChunker {
         self.inner.chunk(text).map(wrap_docs).map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
+    pub fn chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        par_chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_texts(&self, texts: Vec<String>) -> PyResult<Vec<Vec<PyDocument>>> {
+        par_chunk_texts_helper(&self.inner, texts)
+    }
+
     pub fn count_tokens(&self, text: &str) -> usize {
         self.inner.count_tokens(text)
     }
@@ -180,6 +293,18 @@ impl PySentenceChunker {
     pub fn chunk(&self, text: &str) -> PyResult<Vec<PyDocument>> {
         self.inner.chunk(text).map(wrap_docs).map_err(|e| PyValueError::new_err(e.to_string()))
     }
+
+    pub fn chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        par_chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_texts(&self, texts: Vec<String>) -> PyResult<Vec<Vec<PyDocument>>> {
+        par_chunk_texts_helper(&self.inner, texts)
+    }
 }
 
 // 4. Paragraph Chunker
@@ -202,6 +327,18 @@ impl PyParagraphChunker {
 
     pub fn chunk(&self, text: &str) -> PyResult<Vec<PyDocument>> {
         self.inner.chunk(text).map(wrap_docs).map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    pub fn chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        par_chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_texts(&self, texts: Vec<String>) -> PyResult<Vec<Vec<PyDocument>>> {
+        par_chunk_texts_helper(&self.inner, texts)
     }
 }
 
@@ -226,6 +363,18 @@ impl PySemanticChunker {
     pub fn chunk(&self, text: &str) -> PyResult<Vec<PyDocument>> {
         self.inner.chunk(text).map(wrap_docs).map_err(|e| PyValueError::new_err(e.to_string()))
     }
+
+    pub fn chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        par_chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_texts(&self, texts: Vec<String>) -> PyResult<Vec<Vec<PyDocument>>> {
+        par_chunk_texts_helper(&self.inner, texts)
+    }
 }
 
 // 6. Proposition Chunker
@@ -247,6 +396,18 @@ impl PyPropositionChunker {
 
     pub fn chunk(&self, text: &str) -> PyResult<Vec<PyDocument>> {
         self.inner.chunk(text).map(wrap_docs).map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    pub fn chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        par_chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_texts(&self, texts: Vec<String>) -> PyResult<Vec<Vec<PyDocument>>> {
+        par_chunk_texts_helper(&self.inner, texts)
     }
 }
 
@@ -270,6 +431,18 @@ impl PyContextualChunker {
 
     pub fn chunk(&self, text: &str) -> PyResult<Vec<PyDocument>> {
         self.inner.chunk(text).map(wrap_docs).map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    pub fn chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        par_chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_texts(&self, texts: Vec<String>) -> PyResult<Vec<Vec<PyDocument>>> {
+        par_chunk_texts_helper(&self.inner, texts)
     }
 }
 
@@ -301,6 +474,18 @@ impl PyQueryAwareChunker {
     pub fn chunk(&self, text: &str) -> PyResult<Vec<PyDocument>> {
         self.inner.chunk(text).map(wrap_docs).map_err(|e| PyValueError::new_err(e.to_string()))
     }
+
+    pub fn chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        par_chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_texts(&self, texts: Vec<String>) -> PyResult<Vec<Vec<PyDocument>>> {
+        par_chunk_texts_helper(&self.inner, texts)
+    }
 }
 
 // 9. Agentic Chunker
@@ -323,6 +508,18 @@ impl PyAgenticChunker {
 
     pub fn chunk(&self, text: &str) -> PyResult<Vec<PyDocument>> {
         self.inner.chunk(text).map(wrap_docs).map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    pub fn chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        par_chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_texts(&self, texts: Vec<String>) -> PyResult<Vec<Vec<PyDocument>>> {
+        par_chunk_texts_helper(&self.inner, texts)
     }
 }
 
@@ -352,6 +549,45 @@ impl PyHierarchicalChunker {
     pub fn chunk(&self, text: &str) -> PyResult<Vec<PyDocument>> {
         self.inner.chunk(text).map(wrap_docs).map_err(|e| PyValueError::new_err(e.to_string()))
     }
+
+    pub fn chunk_hierarchical(&self, py: Python, text: &str) -> PyResult<PyObject> {
+        let pairs = self
+            .inner
+            .chunk_hierarchical(text)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let list = PyList::empty_bound(py);
+        for pair in pairs {
+            let dict = PyDict::new_bound(py);
+            dict.set_item("parent", Py::new(py, PyDocument::from(pair.parent))?)?;
+            let children = PyList::empty_bound(py);
+            for child in pair.children {
+                children.append(Py::new(py, PyDocument::from(child))?)?;
+            }
+            dict.set_item("children", children)?;
+            list.append(dict)?;
+        }
+        Ok(list.into())
+    }
+
+    pub fn chunk_tree(&self, py: Python, text: &str) -> PyResult<PyObject> {
+        let root = self
+            .inner
+            .chunk_tree(text)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        node_to_py(py, &root)
+    }
+
+    pub fn chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        par_chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_texts(&self, texts: Vec<String>) -> PyResult<Vec<Vec<PyDocument>>> {
+        par_chunk_texts_helper(&self.inner, texts)
+    }
 }
 
 // 11. Markdown Chunker
@@ -374,6 +610,18 @@ impl PyMarkdownChunker {
 
     pub fn chunk(&self, text: &str) -> PyResult<Vec<PyDocument>> {
         self.inner.chunk(text).map(wrap_docs).map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    pub fn chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        par_chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_texts(&self, texts: Vec<String>) -> PyResult<Vec<Vec<PyDocument>>> {
+        par_chunk_texts_helper(&self.inner, texts)
     }
 }
 
@@ -411,6 +659,18 @@ impl PyCodeChunker {
     pub fn chunk(&self, text: &str) -> PyResult<Vec<PyDocument>> {
         self.inner.chunk(text).map(wrap_docs).map_err(|e| PyValueError::new_err(e.to_string()))
     }
+
+    pub fn chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        par_chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_texts(&self, texts: Vec<String>) -> PyResult<Vec<Vec<PyDocument>>> {
+        par_chunk_texts_helper(&self.inner, texts)
+    }
 }
 
 // 13. Fixed Char & Word Chunkers
@@ -434,6 +694,18 @@ impl PyCharacterChunker {
     pub fn chunk(&self, text: &str) -> PyResult<Vec<PyDocument>> {
         self.inner.chunk(text).map(wrap_docs).map_err(|e| PyValueError::new_err(e.to_string()))
     }
+
+    pub fn chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        par_chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_texts(&self, texts: Vec<String>) -> PyResult<Vec<Vec<PyDocument>>> {
+        par_chunk_texts_helper(&self.inner, texts)
+    }
 }
 
 #[pyclass(name = "WordChunker")]
@@ -456,6 +728,18 @@ impl PyWordChunker {
     pub fn chunk(&self, text: &str) -> PyResult<Vec<PyDocument>> {
         self.inner.chunk(text).map(wrap_docs).map_err(|e| PyValueError::new_err(e.to_string()))
     }
+
+    pub fn chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        par_chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_texts(&self, texts: Vec<String>) -> PyResult<Vec<Vec<PyDocument>>> {
+        par_chunk_texts_helper(&self.inner, texts)
+    }
 }
 
 #[pyclass(name = "JsonChunker")]
@@ -475,6 +759,18 @@ impl PyJsonChunker {
 
     pub fn chunk(&self, text: &str) -> PyResult<Vec<PyDocument>> {
         self.inner.chunk(text).map(wrap_docs).map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    pub fn chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        par_chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_texts(&self, texts: Vec<String>) -> PyResult<Vec<Vec<PyDocument>>> {
+        par_chunk_texts_helper(&self.inner, texts)
     }
 }
 
@@ -497,6 +793,18 @@ impl PyHtmlChunker {
 
     pub fn chunk(&self, text: &str) -> PyResult<Vec<PyDocument>> {
         self.inner.chunk(text).map(wrap_docs).map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    pub fn chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        par_chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_texts(&self, texts: Vec<String>) -> PyResult<Vec<Vec<PyDocument>>> {
+        par_chunk_texts_helper(&self.inner, texts)
     }
 }
 

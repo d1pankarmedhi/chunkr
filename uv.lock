@@ -3,6 +3,6 @@ revision = 2
 requires-python = ">=3.8"
 
 [[package]]
-name = "chunkr"
-version = "0.2.0"
+name = "chunkr-rs"
+version = "1.1.0"
 source = { editable = "." }

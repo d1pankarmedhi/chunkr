@@ -80,6 +80,9 @@ impl PDFLoader {
         let mut content = String::new();
         for (&page_num, _) in pages.iter() {
             if let Ok(text) = doc.extract_text(&[page_num]) {
+                if !content.is_empty() && !content.ends_with('\n') {
+                    content.push('\n');
+                }
                 content.push_str(&text);
             }
         }

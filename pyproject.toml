@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "chunkr-rs"
-version = "1.0.1"
+version = "1.1.0"
 description = "Blazingly fast document and text chunking library for LLMs and RAG in Rust and Python"
 authors = [{ name = "Dipankar", email = "dipankarmedhi11@gmail.com" }]
 readme = "README.md"
@@ -50,4 +50,4 @@ Issues = "https://github.com/d1pankarmedhi/chunkr/issues"
 [tool.maturin]
 features = ["pyo3/extension-module", "python"]
 module-name = "chunkr"
-include = ["chunkr.pyi"]
+include = ["chunkr.pyi", "py.typed"]

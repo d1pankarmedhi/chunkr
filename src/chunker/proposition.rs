@@ -65,21 +65,46 @@ impl SyntacticPropositionExtractor {
         let subject = Self::extract_subject(trimmed);
         let mut propositions = Vec::new();
 
-        // 1. Check relative clause: ", which ...", ", who ...", ", where ..."
+        // 1. Check relative clause: ", which ", ", who ", ", where ", ", that "
         let rel_markers = [", which ", ", who ", ", where ", ", that "];
         let base_text = trimmed.to_string();
 
         for marker in &rel_markers {
             if let Some(pos) = base_text.find(marker) {
-                let main_clause = base_text[..pos].trim().trim_end_matches(',').to_string();
-                let rel_clause = base_text[pos + marker.len()..].trim().trim_end_matches('.').to_string();
+                let prefix = base_text[..pos].trim().trim_end_matches(',');
+                let after_marker = &base_text[pos + marker.len()..];
 
-                if let Some(ref subj) = subject {
-                    propositions.push(format!("{}.", main_clause));
-                    propositions.push(format!("{} {}.", subj, rel_clause));
+                let (rel_body, rest_of_sentence) = match after_marker.find(", ") {
+                    Some(comma_pos) => (
+                        after_marker[..comma_pos].trim(),
+                        Some(after_marker[comma_pos + 2..].trim()),
+                    ),
+                    None => (after_marker.trim().trim_end_matches('.'), None),
+                };
+
+                let subj = prefix;
+
+                if let Some(rest) = rest_of_sentence {
+                    let main_sentence = format!("{} {}", prefix, rest.trim_end_matches('.'));
+                    propositions.push(format!("{}.", main_sentence));
+                    propositions.push(format!("{} {}.", subj, rel_body.trim_end_matches('.')));
                 } else {
-                    propositions.push(format!("{}.", main_clause));
-                    propositions.push(format!("{}.", rel_clause));
+                    propositions.push(format!("{}.", prefix));
+                    let antecedent = prefix.split_whitespace().last().unwrap_or(subj);
+                    let clean_rel = rel_body.trim_end_matches('.');
+                    let starts_with_verb = clean_rel
+                        .split_whitespace()
+                        .next()
+                        .map(|w| {
+                            let clean = w.to_lowercase();
+                            ["is", "was", "are", "were", "has", "have", "had", "built", "located", "created", "features", "serves", "supports"].contains(&clean.as_str())
+                        })
+                        .unwrap_or(false);
+                    if starts_with_verb {
+                        propositions.push(format!("{} {}.", antecedent, clean_rel));
+                    } else {
+                        propositions.push(format!("{}.", clean_rel));
+                    }
                 }
                 return propositions;
             }

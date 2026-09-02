@@ -175,8 +175,14 @@ impl Chunker for SentenceChunker {
             let joined_text = chunk_sentences.join(" ");
 
             let content = match self.max_characters {
-                Some(max) if joined_text.len() > max => joined_text[..max].trim().to_string(),
-                _ => joined_text,
+                Some(max) => {
+                    if let Some((idx, _)) = joined_text.char_indices().nth(max) {
+                        joined_text[..idx].trim().to_string()
+                    } else {
+                        joined_text
+                    }
+                }
+                None => joined_text,
             };
 
             let mut metadata = HashMap::with_capacity(4);
