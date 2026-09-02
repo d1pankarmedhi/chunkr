@@ -21,6 +21,7 @@ pub mod prelude {
     pub use crate::chunker::hierarchical::{
         HierarchicalChunkPair, HierarchicalChunker, HierarchyNode,
     };
+    pub use crate::chunker::hf_token::HFTokenChunker;
     pub use crate::chunker::html::HtmlChunker;
     pub use crate::chunker::json::JsonChunker;
     pub use crate::chunker::late::LateChunker;
@@ -40,6 +41,7 @@ pub mod prelude {
     pub use crate::chunker::word::WordChunker;
     pub use crate::error::ChunkrError;
     pub use crate::loader::base::BaseLoader;
+    pub use crate::loader::directory::DirectoryLoader;
     pub use crate::loader::pdf::PDFLoader;
     pub use crate::structures::document::Document;
 }

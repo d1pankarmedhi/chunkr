@@ -963,6 +963,90 @@ impl PyLateChunker {
     }
 }
 
+#[pyclass(name = "HFTokenChunker")]
+pub struct PyHFTokenChunker {
+    inner: HFTokenChunker,
+}
+
+#[pymethods]
+impl PyHFTokenChunker {
+    #[new]
+    #[pyo3(signature = (json_or_path, is_file=false, chunk_size=512, overlap=50))]
+    pub fn new(
+        json_or_path: &str,
+        is_file: bool,
+        chunk_size: usize,
+        overlap: usize,
+    ) -> PyResult<Self> {
+        let inner = if is_file {
+            HFTokenChunker::from_file(json_or_path, chunk_size, overlap)
+        } else {
+            HFTokenChunker::from_json(json_or_path, chunk_size, overlap)
+        }
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+        Ok(Self { inner })
+    }
+
+    #[staticmethod]
+    #[pyo3(signature = (path, chunk_size=512, overlap=50))]
+    pub fn from_file(path: &str, chunk_size: usize, overlap: usize) -> PyResult<Self> {
+        HFTokenChunker::from_file(path, chunk_size, overlap)
+            .map(|inner| Self { inner })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    #[staticmethod]
+    #[pyo3(signature = (json_str, chunk_size=512, overlap=50))]
+    pub fn from_json(json_str: &str, chunk_size: usize, overlap: usize) -> PyResult<Self> {
+        HFTokenChunker::from_json(json_str, chunk_size, overlap)
+            .map(|inner| Self { inner })
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    #[staticmethod]
+    #[pyo3(signature = (tokenizer, chunk_size=512, overlap=50))]
+    pub fn from_tokenizer(
+        tokenizer: &Bound<'_, PyAny>,
+        chunk_size: usize,
+        overlap: usize,
+    ) -> PyResult<Self> {
+        let json_str: String = if let Ok(s) = tokenizer.call_method0("to_str") {
+            s.extract()?
+        } else {
+            return Err(PyValueError::new_err(
+                "Expected Hugging Face tokenizer with a to_str() method or a JSON string",
+            ));
+        };
+        Self::from_json(&json_str, chunk_size, overlap)
+    }
+
+    pub fn chunk(&self, text: &str) -> PyResult<Vec<PyDocument>> {
+        self.inner
+            .chunk(text)
+            .map(wrap_docs)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    pub fn count_tokens(&self, text: &str) -> PyResult<usize> {
+        self.inner
+            .count_tokens(text)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    pub fn chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        par_chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_texts(&self, texts: Vec<String>) -> PyResult<Vec<Vec<PyDocument>>> {
+        par_chunk_texts_helper(&self.inner, texts)
+    }
+}
+
 // 14. PDF Loader
 #[pyclass(name = "PDFLoader")]
 #[derive(Default)]
@@ -1036,6 +1120,55 @@ impl PyPDFLoader {
     }
 }
 
+// 15. Directory Loader
+#[pyclass(name = "DirectoryLoader")]
+pub struct PyDirectoryLoader {
+    inner: DirectoryLoader,
+}
+
+#[pymethods]
+impl PyDirectoryLoader {
+    #[new]
+    #[pyo3(signature = (recursive=true, extensions=None, excludes=None, chunk_size=1000, overlap=150))]
+    pub fn new(
+        recursive: bool,
+        extensions: Option<Vec<String>>,
+        excludes: Option<Vec<String>>,
+        chunk_size: usize,
+        overlap: usize,
+    ) -> Self {
+        let mut loader = DirectoryLoader::new()
+            .with_recursive(recursive)
+            .with_chunk_size(chunk_size)
+            .with_overlap(overlap);
+
+        if let Some(exts) = extensions {
+            loader = loader.with_extensions(exts);
+        }
+        if let Some(excl) = excludes {
+            loader = loader.with_excludes(excl);
+        }
+
+        Self { inner: loader }
+    }
+
+    #[pyo3(signature = (path))]
+    pub fn load(&self, path: &str) -> PyResult<Vec<PyDocument>> {
+        self.inner
+            .load_files(path)
+            .map(wrap_docs)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    #[pyo3(signature = (path))]
+    pub fn load_and_chunk(&self, path: &str) -> PyResult<Vec<PyDocument>> {
+        self.inner
+            .load_and_chunk(path)
+            .map(wrap_docs)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+}
+
 #[pyfunction]
 #[pyo3(signature = (path))]
 pub fn load_pdf(path: &str) -> PyResult<String> {
@@ -1059,6 +1192,7 @@ pub fn chunkr(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDocument>()?;
     m.add_class::<PyRecursiveChunker>()?;
     m.add_class::<PyTokenChunker>()?;
+    m.add_class::<PyHFTokenChunker>()?;
     m.add_class::<PySentenceChunker>()?;
     m.add_class::<PyParagraphChunker>()?;
     m.add_class::<PySemanticChunker>()?;
@@ -1076,6 +1210,7 @@ pub fn chunkr(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCharacterChunker>()?;
     m.add_class::<PyWordChunker>()?;
     m.add_class::<PyPDFLoader>()?;
+    m.add_class::<PyDirectoryLoader>()?;
     m.add_function(wrap_pyfunction!(load_pdf, m)?)?;
     m.add_function(wrap_pyfunction!(load_pdf_pages, m)?)?;
     Ok(())

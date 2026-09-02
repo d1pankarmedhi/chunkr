@@ -28,4 +28,5 @@ regex = "1.10"
 memchr = "2.7"
 rayon = "1.10"
 thiserror = "1.0"
+tokenizers = { version = "0.21", default-features = false, features = ["fancy-regex"] }
 pyo3 = { version = "0.22", features = ["abi3-py38"], optional = true }

@@ -4,6 +4,7 @@ pub mod char;
 pub mod code;
 pub mod contextual;
 pub mod hierarchical;
+pub mod hf_token;
 pub mod html;
 pub mod json;
 pub mod late;

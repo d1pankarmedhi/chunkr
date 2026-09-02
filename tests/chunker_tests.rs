@@ -712,3 +712,65 @@ fn test_late_chunker_pooling() {
         assert!((val - 1.0 / 3.0).abs() < 1e-4);
     }
 }
+
+#[test]
+fn test_directory_loader() {
+    let loader = DirectoryLoader::new()
+        .with_extensions(vec!["pdf".to_string(), "rs".to_string()]);
+
+    let docs = loader.load_and_chunk("tests/test_files").unwrap();
+    assert!(!docs.is_empty());
+
+    for doc in &docs {
+        assert!(doc.metadata.contains_key("file_path"));
+        assert!(doc.metadata.contains_key("file_name"));
+        assert!(doc.metadata.contains_key("file_extension"));
+        assert!(doc.metadata.contains_key("file_size_bytes"));
+        assert_eq!(doc.metadata.get("file_extension").unwrap().as_str().unwrap(), "pdf");
+    }
+}
+
+#[test]
+fn test_hf_token_chunker() {
+    let tokenizer_json = r#"{
+        "version": "1.0",
+        "truncation": null,
+        "padding": null,
+        "added_tokens": [],
+        "normalizer": null,
+        "pre_tokenizer": { "type": "Whitespace" },
+        "post_processor": null,
+        "decoder": null,
+        "model": {
+            "type": "WordLevel",
+            "unk_token": "[UNK]",
+            "vocab": {
+                "[UNK]": 0,
+                "Hello": 1,
+                "world": 2,
+                "chunkr": 3,
+                "is": 4,
+                "blazingly": 5,
+                "fast": 6
+            }
+        }
+    }"#;
+
+    let chunker = HFTokenChunker::from_json(tokenizer_json, 3, 1).unwrap();
+    let text = "Hello world chunkr is blazingly fast";
+
+    assert_eq!(chunker.count_tokens(text).unwrap(), 6);
+
+    let chunks = chunker.chunk(text).unwrap();
+    assert_eq!(chunks.len(), 3); // 6 tokens / step 2 = 3 chunks
+
+    for chunk in &chunks {
+        assert_eq!(chunk.metadata.get("tokenizer").unwrap().as_str().unwrap(), "huggingface");
+        assert!(chunk.metadata.contains_key("token_start"));
+        assert!(chunk.metadata.contains_key("token_end"));
+        assert!(chunk.metadata.contains_key("token_count"));
+    }
+
+    assert!(chunks[0].content.contains("Hello"));
+    assert!(chunks[0].content.contains("world"));
+}

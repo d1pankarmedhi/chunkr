@@ -44,6 +44,7 @@ maturin develop --release
 | :--- | :--- | :--- |
 | **Recursive** | `RecursiveChunker` | SIMD recursive separator splitting (**~1,000+ MB/s**) |
 | **Token BPE** | `TokenChunker` | OpenAI BPE token splitting (`cl100k_base`, `o200k_base`) |
+| **Universal HF Token** | `HFTokenChunker` | Hugging Face token splitting (Llama 3, Mistral, Qwen, BGE, BERT) |
 | **Sentence** | `SentenceChunker` | Multi-byte UTF-8 safe sentence splitting with abbreviation guards |
 | **Paragraph** | `ParagraphChunker` | Multi-paragraph grouping across `\n\n` |
 | **Semantic** | `SemanticChunker` | Distance threshold breakpoint clustering |
@@ -110,12 +111,20 @@ late_docs = late_chunker.chunk(sample_text)
 # Pool token embeddings directly from your transformer model:
 # pooled_embeddings = late_chunker.pool_embeddings(token_embeddings, late_docs)
 
-# 9. PDF Document Loading & Chunking
+# 9. Hugging Face Universal Token Chunking (Llama 3, Mistral, BGE, BERT)
+# hf_chunker = chunkr.HFTokenChunker.from_file("path/to/tokenizer.json", chunk_size=512, overlap=50)
+# hf_chunker = chunkr.HFTokenChunker.from_tokenizer(transformers_tokenizer, chunk_size=512, overlap=50)
+
+# 10. Recursive Directory Ingestion & Auto-Routing
+dir_loader = chunkr.DirectoryLoader(extensions=["pdf", "md", "csv", "py"])
+dir_chunks = dir_loader.load_and_chunk("path/to/repo_or_folder")
+
+# 11. PDF Document Loading & Chunking
 loader = chunkr.PDFLoader()
 pages = loader.load_pages("path/to/document.pdf")
 pdf_chunks = recursive_chunker.chunk_documents(pages)
 
-# 10. Multi-Core Parallel Batch Chunking (Rayon-backed multi-threading)
+# 12. Multi-Core Parallel Batch Chunking (Rayon-backed multi-threading)
 batch_docs = [
     chunkr.Document(f"Document {i} content...", {"doc_id": i, "category": "AI", "score": 0.98})
     for i in range(100)
@@ -160,12 +169,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let late_chunker = LateChunker::new();
     let late_chunks = late_chunker.chunk(text)?;
 
-    // 6. PDF Document Loading & Chunking
+    // 6. Directory Ingestion & Chunker Auto-Routing
+    let dir_loader = DirectoryLoader::new()
+        .with_extensions(vec!["md".into(), "csv".into(), "pdf".into()]);
+    let dir_chunks = dir_loader.load_and_chunk("tests/test_files")?;
+
+    // 7. PDF Document Loading & Chunking
     let loader = PDFLoader::new();
     let pdf_pages = loader.load_pages_from_file("tests/test_files/sample_doc.pdf")?;
     let pdf_chunks = recursive_chunker.chunk_documents(&pdf_pages)?;
 
-    // 7. Multi-Threaded Parallel Document Batch Chunking
+    // 8. Multi-Threaded Parallel Document Batch Chunking
     let parallel_chunks = recursive_chunker.par_chunk_documents(&pdf_pages)?;
 
     Ok(())

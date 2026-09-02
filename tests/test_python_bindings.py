@@ -147,5 +147,41 @@ class TestPythonBindings(unittest.TestCase):
         norm = sum(x * x for x in pooled[0]) ** 0.5
         self.assertAlmostEqual(norm, 1.0, places=3)
 
+    def test_directory_loader(self):
+        loader = chunkr.DirectoryLoader(extensions=["pdf", "rs"])
+        docs = loader.load_and_chunk("tests/test_files")
+        self.assertGreaterEqual(len(docs), 1)
+        self.assertIn("file_path", docs[0].metadata)
+        self.assertEqual(docs[0].metadata["file_extension"], "pdf")
+
+    def test_hf_token_chunker(self):
+        tokenizer_json = """{
+            "version": "1.0",
+            "truncation": null,
+            "padding": null,
+            "added_tokens": [],
+            "normalizer": null,
+            "pre_tokenizer": { "type": "Whitespace" },
+            "post_processor": null,
+            "decoder": null,
+            "model": {
+                "type": "WordLevel",
+                "unk_token": "[UNK]",
+                "vocab": {
+                    "[UNK]": 0,
+                    "Hello": 1,
+                    "world": 2,
+                    "chunkr": 3,
+                    "fast": 4
+                }
+            }
+        }"""
+        chunker = chunkr.HFTokenChunker.from_json(tokenizer_json, chunk_size=2, overlap=1)
+        text = "Hello world chunkr fast"
+        self.assertEqual(chunker.count_tokens(text), 4)
+        chunks = chunker.chunk(text)
+        self.assertGreaterEqual(len(chunks), 2)
+        self.assertEqual(chunks[0].metadata["tokenizer"], "huggingface")
+
 if __name__ == "__main__":
     unittest.main()
