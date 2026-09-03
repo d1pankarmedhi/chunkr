@@ -59,6 +59,7 @@ maturin develop --release
 | **Code** | `CodeChunker` | Syntax-aware chunking (Rust, Python, JS, TS, Go, C++, SQL) |
 | **AST Code** | `AstCodeChunker` | Tree-sitter AST syntax chunking (Rust & Python) along function/class boundaries |
 | **Chunk Bin-Packing** | `ChunkPacker` | Post-processing optimizer bin-packing small chunks into token budget blocks |
+| **Post-Chunking Pipeline** | `ChunkPipeline` | Composable quality filtering, deduplication, packing & SHA-256 metadata enrichment |
 | **JSON** | `JsonChunker` | Structure-aware JSON chunker preserving valid sub-trees |
 | **HTML** | `HtmlChunker` | DOM element boundary chunking |
 | **Character & Word** | `CharacterChunker`, `WordChunker` | High-throughput fixed character and word-count splitting |
@@ -134,7 +135,18 @@ code_chunks = ast_chunker.chunk("def calculate():\n    return 42\n\nclass Model:
 packer = chunkr.ChunkPacker(max_characters=1000)
 packed_chunks = packer.pack(recursive_chunker.chunk(sample_text))
 
-# 14. Multi-Core Parallel Batch Chunking (Rayon-backed multi-threading)
+# 14. Post-Chunking Transformation Pipeline (Filter + Dedup + Pack + SHA-256 Enrich)
+pipeline = (
+    chunkr.ChunkPipeline()
+    .filter_min_chars(30)
+    .filter_min_alpha_ratio(0.5)
+    .deduplicate(exact=True)
+    .pack(max_characters=1200)
+    .enrich(id_prefix="kb_doc_")
+)
+optimized_chunks = pipeline.process(recursive_chunker.chunk(sample_text))
+
+# 15. Multi-Core Parallel Batch Chunking (Rayon-backed multi-threading)
 batch_docs = [
     chunkr.Document(f"Document {i} content...", {"doc_id": i, "category": "AI", "score": 0.98})
     for i in range(100)
@@ -190,14 +202,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 8. Directory Ingestion & Chunker Auto-Routing
     let dir_loader = DirectoryLoader::new()
         .with_extensions(vec!["md".into(), "csv".into(), "pdf".into()]);
-    let dir_chunks = dir_loader.load_and_chunk("tests/test_files")?;
+    // 9. Post-Chunking Pipeline (Filter + Dedup + Packing + SHA-256 Enrichment)
+    let pipeline = ChunkPipeline::new()
+        .filter_min_characters(30)
+        .filter_min_alpha_ratio(0.5)
+        .deduplicate_exact(true)
+        .pack(1200)
+        .enrich_metadata()
+        .with_id_prefix("rust_doc_");
+    let clean_chunks = pipeline.process(chunks);
 
-    // 9. PDF Document Loading & Chunking
+    // 10. PDF Document Loading & Chunking
     let loader = PDFLoader::new();
     let pdf_pages = loader.load_pages_from_file("tests/test_files/sample_doc.pdf")?;
     let pdf_chunks = recursive_chunker.chunk_documents(&pdf_pages)?;
 
-    // 10. Multi-Threaded Parallel Document Batch Chunking
+    // 11. Multi-Threaded Parallel Document Batch Chunking
     let parallel_chunks = recursive_chunker.par_chunk_documents(&pdf_pages)?;
 
     Ok(())
@@ -214,8 +234,8 @@ Install or run the standalone `chunkr` CLI binary for fast batch processing or U
 # Chunk any file using Markdown strategy to JSONL format
 cargo run --bin chunkr -- README.md -s markdown -c 500 -f jsonl
 
-# Pipe from STDIN with optional bin-packing
-cat document.txt | chunkr -s recursive --chunk-size 800 --pack 1200 > output.jsonl
+# Pipe from STDIN with post-chunking pipeline (dedup, filtering, packing, SHA-256 hash enrichment)
+cat document.txt | chunkr -s recursive --chunk-size 800 --min-chars 30 --dedup --enrich --pack 1200 > output.jsonl
 
 # Ingest and auto-route an entire directory
 chunkr ./docs -s dir --format jsonl --out-file chunks.jsonl

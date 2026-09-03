@@ -60,6 +60,26 @@ struct Cli {
     /// Optional post-processing chunk bin-packing up to specified character budget
     #[arg(long = "pack")]
     pack: Option<usize>,
+
+    /// Filter chunks shorter than this minimum character count
+    #[arg(long = "min-chars")]
+    min_chars: Option<usize>,
+
+    /// Filter chunks with fewer than this minimum word count
+    #[arg(long = "min-words")]
+    min_words: Option<usize>,
+
+    /// Filter chunks with lower than this minimum alphanumeric ratio (e.g. 0.5)
+    #[arg(long = "min-alpha-ratio")]
+    min_alpha_ratio: Option<f32>,
+
+    /// Deduplicate identical chunks
+    #[arg(long = "dedup")]
+    dedup: bool,
+
+    /// Enrich chunks with SHA-256 hash, text metrics, and chunk IDs
+    #[arg(long = "enrich")]
+    enrich: bool,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -156,11 +176,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // 2. Optional bin-packing
-    if let Some(pack_size) = cli.pack {
-        let packer = ChunkPacker::new(pack_size);
-        chunks = packer.pack(&chunks);
+    // 2. Post-chunking Pipeline & Optimizations
+    let mut pipeline = ChunkPipeline::new();
+
+    if let Some(min_c) = cli.min_chars {
+        pipeline = pipeline.filter_min_characters(min_c);
     }
+    if let Some(min_w) = cli.min_words {
+        pipeline = pipeline.filter_min_words(min_w);
+    }
+    if let Some(ratio) = cli.min_alpha_ratio {
+        pipeline = pipeline.filter_min_alpha_ratio(ratio);
+    }
+    if cli.dedup {
+        pipeline = pipeline.deduplicate_exact(true);
+    }
+    if let Some(pack_size) = cli.pack {
+        pipeline = pipeline.pack(pack_size);
+    }
+    if cli.enrich {
+        pipeline = pipeline.enrich_metadata();
+    }
+
+    chunks = pipeline.process(chunks);
 
     // 3. Serialize output
     let output_str = match cli.format {

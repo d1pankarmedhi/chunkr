@@ -1239,6 +1239,92 @@ impl PyChunkPacker {
     }
 }
 
+// 18. Chunk Pipeline
+#[pyclass(name = "ChunkPipeline")]
+#[derive(Default)]
+pub struct PyChunkPipeline {
+    inner: ChunkPipeline,
+}
+
+#[pymethods]
+impl PyChunkPipeline {
+    #[new]
+    pub fn new() -> Self {
+        Self {
+            inner: ChunkPipeline::new(),
+        }
+    }
+
+    #[pyo3(signature = (min_chars))]
+    pub fn filter_min_chars(mut slf: PyRefMut<'_, Self>, min_chars: usize) -> PyRefMut<'_, Self> {
+        slf.inner = slf.inner.clone().filter_min_characters(min_chars);
+        slf
+    }
+
+    #[pyo3(signature = (max_chars))]
+    pub fn filter_max_chars(mut slf: PyRefMut<'_, Self>, max_chars: usize) -> PyRefMut<'_, Self> {
+        slf.inner = slf.inner.clone().filter_max_characters(max_chars);
+        slf
+    }
+
+    #[pyo3(signature = (min_words))]
+    pub fn filter_min_words(mut slf: PyRefMut<'_, Self>, min_words: usize) -> PyRefMut<'_, Self> {
+        slf.inner = slf.inner.clone().filter_min_words(min_words);
+        slf
+    }
+
+    #[pyo3(signature = (ratio))]
+    pub fn filter_min_alpha_ratio(mut slf: PyRefMut<'_, Self>, ratio: f32) -> PyRefMut<'_, Self> {
+        slf.inner = slf.inner.clone().filter_min_alpha_ratio(ratio);
+        slf
+    }
+
+    #[pyo3(signature = (exact=true, case_sensitive=true))]
+    pub fn deduplicate(
+        mut slf: PyRefMut<'_, Self>,
+        exact: bool,
+        case_sensitive: bool,
+    ) -> PyRefMut<'_, Self> {
+        slf.inner = if exact {
+            slf.inner.clone().deduplicate_exact(case_sensitive)
+        } else {
+            slf.inner.clone().deduplicate_normalized(case_sensitive)
+        };
+        slf
+    }
+
+    #[pyo3(signature = (max_characters))]
+    pub fn pack(mut slf: PyRefMut<'_, Self>, max_characters: usize) -> PyRefMut<'_, Self> {
+        slf.inner = slf.inner.clone().pack(max_characters);
+        slf
+    }
+
+    #[pyo3(signature = (id_prefix=None))]
+    pub fn enrich(
+        mut slf: PyRefMut<'_, Self>,
+        id_prefix: Option<String>,
+    ) -> PyRefMut<'_, Self> {
+        let mut p = slf.inner.clone().enrich_metadata();
+        if let Some(prefix) = id_prefix {
+            p = p.with_id_prefix(prefix);
+        }
+        slf.inner = p;
+        slf
+    }
+
+    pub fn process(&self, docs: Vec<PyRef<'_, PyDocument>>) -> Vec<PyDocument> {
+        let unwrap_docs: Vec<Document> = docs.iter().map(|d| d.inner.clone()).collect();
+        let processed = self.inner.process(unwrap_docs);
+        wrap_docs(processed)
+    }
+
+    pub fn par_process(&self, docs: Vec<PyRef<'_, PyDocument>>) -> Vec<PyDocument> {
+        let unwrap_docs: Vec<Document> = docs.iter().map(|d| d.inner.clone()).collect();
+        let processed = self.inner.par_process(unwrap_docs);
+        wrap_docs(processed)
+    }
+}
+
 #[pyfunction]
 #[pyo3(signature = (path))]
 pub fn load_pdf(path: &str) -> PyResult<String> {
@@ -1281,6 +1367,7 @@ pub fn chunkr(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCharacterChunker>()?;
     m.add_class::<PyWordChunker>()?;
     m.add_class::<PyChunkPacker>()?;
+    m.add_class::<PyChunkPipeline>()?;
     m.add_class::<PyPDFLoader>()?;
     m.add_class::<PyDirectoryLoader>()?;
     m.add_function(wrap_pyfunction!(load_pdf, m)?)?;

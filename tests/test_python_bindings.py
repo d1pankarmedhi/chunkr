@@ -211,5 +211,26 @@ class Worker:
         self.assertEqual(len(packed), 2)
         self.assertEqual(packed[0].metadata["merged_chunk_count"], 3)
 
+    def test_chunk_pipeline(self):
+        docs = [
+            chunkr.Document("   ", {}), # dropped by filter
+            chunkr.Document("Alpha line one.", {}),
+            chunkr.Document("Alpha line one.", {}), # dropped by dedup
+            chunkr.Document("Beta line two.", {}),
+        ]
+        pipeline = (
+            chunkr.ChunkPipeline()
+            .filter_min_chars(5)
+            .deduplicate(exact=True)
+            .pack(max_characters=100)
+            .enrich(id_prefix="py_test_")
+        )
+        processed = pipeline.process(docs)
+        self.assertEqual(len(processed), 1)
+        self.assertIn("Alpha line one.", processed[0].content)
+        self.assertIn("Beta line two.", processed[0].content)
+        self.assertIn("chunk_hash", processed[0].metadata)
+        self.assertEqual(processed[0].metadata["chunk_id"], "py_test_0")
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,6 +1,7 @@
 pub mod chunker;
 pub mod error;
 pub mod loader;
+pub mod pipeline;
 pub mod structures;
 
 #[cfg(feature = "python")]
@@ -45,6 +46,7 @@ pub mod prelude {
     pub use crate::loader::base::BaseLoader;
     pub use crate::loader::directory::DirectoryLoader;
     pub use crate::loader::pdf::PDFLoader;
+    pub use crate::pipeline::{ChunkDeduplicator, ChunkFilter, ChunkPipeline, MetadataEnricher};
     pub use crate::structures::document::Document;
 }
 

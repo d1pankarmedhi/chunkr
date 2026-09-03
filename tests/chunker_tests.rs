@@ -875,3 +875,87 @@ fn test_chunk_packer() {
     assert!(packed[0].content.contains("Short heading 1"));
     assert!(packed[0].content.contains("Sentence B"));
 }
+
+#[test]
+fn test_chunk_filter() {
+    let docs = vec![
+        Document::new("   ", std::collections::HashMap::new()),
+        Document::new("Tiny", std::collections::HashMap::new()),
+        Document::new("!@#$%^&*()_+", std::collections::HashMap::new()),
+        Document::new("Valid high quality chunk with enough text content.", std::collections::HashMap::new()),
+    ];
+
+    let filter = ChunkFilter::new()
+        .with_min_characters(10)
+        .with_min_words(3)
+        .with_min_alpha_ratio(0.5);
+
+    let filtered = filter.filter(&docs);
+    assert_eq!(filtered.len(), 1);
+    assert!(filtered[0].content.contains("Valid high quality"));
+}
+
+#[test]
+fn test_chunk_deduplicator() {
+    let docs = vec![
+        Document::new("Repeated footer notice.", std::collections::HashMap::new()),
+        Document::new("Unique content chunk 1.", std::collections::HashMap::new()),
+        Document::new("Repeated footer notice.", std::collections::HashMap::new()),
+        Document::new("repeated footer notice.", std::collections::HashMap::new()),
+    ];
+
+    // Exact dedup
+    let exact_dedup = ChunkDeduplicator::new().with_exact(true).with_case_sensitive(true);
+    let deduped = exact_dedup.deduplicate(&docs);
+    assert_eq!(deduped.len(), 3);
+    assert_eq!(deduped[0].metadata.get("duplicate_count").unwrap().as_u64().unwrap(), 2);
+
+    // Case-insensitive normalized dedup
+    let norm_dedup = ChunkDeduplicator::new().with_exact(false).with_case_sensitive(false);
+    let deduped_norm = norm_dedup.deduplicate(&docs);
+    assert_eq!(deduped_norm.len(), 2);
+    assert_eq!(deduped_norm[0].metadata.get("duplicate_count").unwrap().as_u64().unwrap(), 3);
+}
+
+#[test]
+fn test_metadata_enricher() {
+    let docs = vec![
+        Document::new("Antigravity powers advanced agentic coding systems.", std::collections::HashMap::new()),
+    ];
+
+    let enricher = MetadataEnricher::new().with_id_prefix("doc_test_");
+    let enriched = enricher.enrich(&docs);
+
+    assert_eq!(enriched.len(), 1);
+    let meta = &enriched[0].metadata;
+    assert!(meta.contains_key("chunk_hash"));
+    assert_eq!(meta.get("chunk_hash").unwrap().as_str().unwrap().len(), 64); // SHA-256 is 64 hex chars
+    assert_eq!(meta.get("word_count").unwrap().as_u64().unwrap(), 6);
+    assert!(meta.contains_key("char_count"));
+    assert_eq!(meta.get("chunk_id").unwrap().as_str().unwrap(), "doc_test_0");
+}
+
+#[test]
+fn test_chunk_pipeline_end_to_end() {
+    let raw_docs = vec![
+        Document::new("   ", std::collections::HashMap::new()), // dropped by filter
+        Document::new("Short chunk A.", std::collections::HashMap::new()),
+        Document::new("Short chunk B.", std::collections::HashMap::new()),
+        Document::new("Short chunk A.", std::collections::HashMap::new()), // dropped by dedup
+    ];
+
+    let pipeline = ChunkPipeline::new()
+        .filter_min_characters(5)
+        .deduplicate_exact(true)
+        .pack(100)
+        .enrich_metadata()
+        .with_id_prefix("rag_");
+
+    let processed = pipeline.process(raw_docs);
+    assert_eq!(processed.len(), 1); // packed together into a single chunk
+    let doc = &processed[0];
+    assert!(doc.content.contains("Short chunk A."));
+    assert!(doc.content.contains("Short chunk B."));
+    assert!(doc.metadata.contains_key("chunk_hash"));
+    assert_eq!(doc.metadata.get("chunk_id").unwrap().as_str().unwrap(), "rag_0");
+}
