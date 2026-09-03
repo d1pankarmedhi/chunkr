@@ -16,6 +16,7 @@ enum Strategy {
     Json,
     Html,
     Late,
+    Stream,
     Dir,
 }
 
@@ -95,6 +96,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .with_chunk_size(cli.chunk_size)
             .with_overlap(cli.overlap);
         loader.load_and_chunk(dir_path)?
+    } else if cli.strategy == Strategy::Stream {
+        let streamer = StreamChunker::new(cli.chunk_size, cli.overlap)?;
+        match cli.input.as_deref() {
+            Some("-") | None => {
+                let stdin = io::stdin();
+                let handle = stdin.lock();
+                streamer.chunk_reader(handle).collect::<Result<Vec<_>, _>>()?
+            }
+            Some(path) => {
+                streamer.chunk_file(path)?.collect::<Result<Vec<_>, _>>()?
+            }
+        }
     } else {
         // Read text from file or STDIN
         let (raw_text, is_pdf) = match cli.input.as_deref() {
@@ -124,7 +137,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Apply strategy
         match cli.strategy {
-            Strategy::Recursive | Strategy::Dir => {
+            Strategy::Recursive => {
                 let chunker = RecursiveChunker::new()
                     .with_chunk_size(cli.chunk_size)
                     .with_overlap(cli.overlap);
@@ -173,6 +186,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let chunker = LateChunker::new();
                 chunker.chunk(&raw_text)?
             }
+            Strategy::Stream | Strategy::Dir => unreachable!(),
         }
     };
 

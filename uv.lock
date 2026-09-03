@@ -4,5 +4,5 @@ requires-python = ">=3.8"
 
 [[package]]
 name = "chunkr-rs"
-version = "1.1.0"
+version = "1.2.0"
 source = { editable = "." }

@@ -118,6 +118,68 @@ impl PyDocument {
         Ok(dict.into())
     }
 
+    pub fn to_langchain(&self, py: Python) -> PyResult<PyObject> {
+        let lc_mod = py.import_bound("langchain_core.documents")
+            .or_else(|_| py.import_bound("langchain.schema"))
+            .map_err(|_| PyValueError::new_err("Could not import langchain_core.documents or langchain.schema. Ensure langchain is installed."))?;
+        let doc_cls = lc_mod.getattr("Document")?;
+        let dict = PyDict::new_bound(py);
+        dict.set_item("page_content", &self.inner.content)?;
+        dict.set_item("metadata", self.metadata(py)?)?;
+        let obj = doc_cls.call((), Some(&dict))?;
+        Ok(obj.into())
+    }
+
+    #[staticmethod]
+    pub fn from_langchain(doc: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let content: String = doc.getattr("page_content")?.extract()?;
+        let mut inner = Document::from_text(content);
+        if let Ok(meta_obj) = doc.getattr("metadata") {
+            if let Ok(dict) = meta_obj.downcast::<PyDict>() {
+                for (k, v) in dict.iter() {
+                    let key: String = k.extract()?;
+                    let val = py_to_json(&v)?;
+                    inner.add_metadata(key, val);
+                }
+            }
+        }
+        Ok(Self { inner })
+    }
+
+    pub fn to_llamaindex(&self, py: Python) -> PyResult<PyObject> {
+        let li_mod = py.import_bound("llama_index.core.schema")
+            .or_else(|_| py.import_bound("llama_index.schema"))
+            .map_err(|_| PyValueError::new_err("Could not import llama_index.core.schema. Ensure llama-index is installed."))?;
+        let node_cls = li_mod.getattr("TextNode")?;
+        let dict = PyDict::new_bound(py);
+        dict.set_item("text", &self.inner.content)?;
+        dict.set_item("metadata", self.metadata(py)?)?;
+        let obj = node_cls.call((), Some(&dict))?;
+        Ok(obj.into())
+    }
+
+    #[staticmethod]
+    pub fn from_llamaindex(node: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let content: String = if let Ok(t) = node.getattr("text") {
+            t.extract()?
+        } else if let Ok(t) = node.call_method0("get_content") {
+            t.extract()?
+        } else {
+            return Err(PyValueError::new_err("Expected LlamaIndex node with 'text' attribute or get_content() method"));
+        };
+        let mut inner = Document::from_text(content);
+        if let Ok(meta_obj) = node.getattr("metadata") {
+            if let Ok(dict) = meta_obj.downcast::<PyDict>() {
+                for (k, v) in dict.iter() {
+                    let key: String = k.extract()?;
+                    let val = py_to_json(&v)?;
+                    inner.add_metadata(key, val);
+                }
+            }
+        }
+        Ok(Self { inner })
+    }
+
     pub fn __repr__(&self) -> String {
         let preview: String = self.inner.content.chars().take(50).collect();
         format!("Document(content='{}...', len={})", preview.replace('\n', " "), self.inner.content.len())
@@ -1325,6 +1387,103 @@ impl PyChunkPipeline {
     }
 }
 
+// 19. Stream Chunker
+#[pyclass(name = "StreamChunker")]
+pub struct PyStreamChunker {
+    inner: StreamChunker,
+}
+
+#[pymethods]
+impl PyStreamChunker {
+    #[new]
+    #[pyo3(signature = (chunk_size=1000, overlap=150))]
+    pub fn new(chunk_size: usize, overlap: usize) -> PyResult<Self> {
+        let inner = StreamChunker::new(chunk_size, overlap)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Self { inner })
+    }
+
+    #[pyo3(signature = (path))]
+    pub fn chunk_file(&self, path: &str) -> PyResult<Vec<PyDocument>> {
+        let iter = self.inner.chunk_file(path)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let mut docs = Vec::new();
+        for item in iter {
+            let doc = item.map_err(|e| PyValueError::new_err(e.to_string()))?;
+            docs.push(PyDocument::from(doc));
+        }
+        Ok(docs)
+    }
+
+    #[pyo3(signature = (text))]
+    pub fn chunk_text(&self, text: &str) -> PyResult<Vec<PyDocument>> {
+        let cursor = std::io::Cursor::new(text);
+        let iter = self.inner.chunk_reader(cursor);
+        let mut docs = Vec::new();
+        for item in iter {
+            let doc = item.map_err(|e| PyValueError::new_err(e.to_string()))?;
+            docs.push(PyDocument::from(doc));
+        }
+        Ok(docs)
+    }
+
+    #[pyo3(signature = (lines))]
+    pub fn chunk_lines(&self, lines: Vec<String>) -> PyResult<Vec<PyDocument>> {
+        let combined = lines.join("\n");
+        self.chunk_text(&combined)
+    }
+}
+
+#[pyfunction]
+#[pyo3(signature = (docs))]
+pub fn to_langchain(py: Python, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<PyObject> {
+    let list = PyList::empty_bound(py);
+    for doc in docs {
+        list.append(doc.to_langchain(py)?)?;
+    }
+    Ok(list.into())
+}
+
+#[pyfunction]
+#[pyo3(signature = (docs))]
+pub fn from_langchain(docs: &Bound<'_, PyList>) -> PyResult<Vec<PyDocument>> {
+    let mut result = Vec::with_capacity(docs.len());
+    for item in docs.iter() {
+        result.push(PyDocument::from_langchain(&item)?);
+    }
+    Ok(result)
+}
+
+#[pyfunction]
+#[pyo3(signature = (docs))]
+pub fn to_llamaindex(py: Python, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<PyObject> {
+    let list = PyList::empty_bound(py);
+    for doc in docs {
+        list.append(doc.to_llamaindex(py)?)?;
+    }
+    Ok(list.into())
+}
+
+#[pyfunction]
+#[pyo3(signature = (nodes))]
+pub fn from_llamaindex(nodes: &Bound<'_, PyList>) -> PyResult<Vec<PyDocument>> {
+    let mut result = Vec::with_capacity(nodes.len());
+    for item in nodes.iter() {
+        result.push(PyDocument::from_llamaindex(&item)?);
+    }
+    Ok(result)
+}
+
+#[pyfunction]
+#[pyo3(signature = (docs))]
+pub fn to_dict_list(py: Python, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<PyObject> {
+    let list = PyList::empty_bound(py);
+    for doc in docs {
+        list.append(doc.to_dict(py)?)?;
+    }
+    Ok(list.into())
+}
+
 #[pyfunction]
 #[pyo3(signature = (path))]
 pub fn load_pdf(path: &str) -> PyResult<String> {
@@ -1368,9 +1527,15 @@ pub fn chunkr(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyWordChunker>()?;
     m.add_class::<PyChunkPacker>()?;
     m.add_class::<PyChunkPipeline>()?;
+    m.add_class::<PyStreamChunker>()?;
     m.add_class::<PyPDFLoader>()?;
     m.add_class::<PyDirectoryLoader>()?;
     m.add_function(wrap_pyfunction!(load_pdf, m)?)?;
     m.add_function(wrap_pyfunction!(load_pdf_pages, m)?)?;
+    m.add_function(wrap_pyfunction!(to_langchain, m)?)?;
+    m.add_function(wrap_pyfunction!(from_langchain, m)?)?;
+    m.add_function(wrap_pyfunction!(to_llamaindex, m)?)?;
+    m.add_function(wrap_pyfunction!(from_llamaindex, m)?)?;
+    m.add_function(wrap_pyfunction!(to_dict_list, m)?)?;
     Ok(())
 }

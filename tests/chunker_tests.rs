@@ -959,3 +959,20 @@ fn test_chunk_pipeline_end_to_end() {
     assert!(doc.metadata.contains_key("chunk_hash"));
     assert_eq!(doc.metadata.get("chunk_id").unwrap().as_str().unwrap(), "rag_0");
 }
+
+#[test]
+fn test_stream_chunker() {
+    let text = "Line 1: High-throughput document chunking.\nLine 2: Constant memory streaming processing.\nLine 3: Real-time RAG ingestion.\nLine 4: Low latency vector pipeline.\nLine 5: Deep learning retrieval.";
+    let cursor = std::io::Cursor::new(text);
+
+    let chunker = StreamChunker::new(80, 20).unwrap();
+    let chunks: Vec<Document> = chunker.chunk_reader(cursor).map(|r| r.unwrap()).collect();
+
+    assert!(chunks.len() >= 2);
+    for chunk in &chunks {
+        assert_eq!(chunk.metadata.get("strategy").unwrap().as_str().unwrap(), "stream");
+        assert!(chunk.metadata.contains_key("chunk_index"));
+        assert!(chunk.metadata.contains_key("length"));
+        assert!(!chunk.content.is_empty());
+    }
+}

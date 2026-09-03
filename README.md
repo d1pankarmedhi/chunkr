@@ -60,6 +60,8 @@ maturin develop --release
 | **AST Code** | `AstCodeChunker` | Tree-sitter AST syntax chunking (Rust & Python) along function/class boundaries |
 | **Chunk Bin-Packing** | `ChunkPacker` | Post-processing optimizer bin-packing small chunks into token budget blocks |
 | **Post-Chunking Pipeline** | `ChunkPipeline` | Composable quality filtering, deduplication, packing & SHA-256 metadata enrichment |
+| **Streaming Chunker** | `StreamChunker` | Constant-memory sliding-window streaming for multi-GB files & stdin |
+| **Ecosystem Bridges** | `to_langchain`, `to_llamaindex`, `to_dict_list` | Zero-copy adapters for LangChain, LlamaIndex, Hugging Face & Pandas |
 | **JSON** | `JsonChunker` | Structure-aware JSON chunker preserving valid sub-trees |
 | **HTML** | `HtmlChunker` | DOM element boundary chunking |
 | **Character & Word** | `CharacterChunker`, `WordChunker` | High-throughput fixed character and word-count splitting |
@@ -153,6 +155,15 @@ batch_docs = [
 ]
 # Parallel processing across all available CPU cores
 parallel_chunks = recursive_chunker.par_chunk_documents(batch_docs)
+
+# 16. Streaming Chunker (Constant memory for multi-GB inputs)
+streamer = chunkr.StreamChunker(chunk_size=1000, overlap=150)
+stream_chunks = streamer.chunk_text(sample_text)
+
+# 17. Ecosystem Bridges (LangChain, LlamaIndex, Hugging Face, Pandas)
+langchain_docs = chunkr.to_langchain(stream_chunks)      # List[langchain_core.documents.Document]
+llamaindex_nodes = chunkr.to_llamaindex(stream_chunks)  # List[llama_index.core.schema.TextNode]
+records = chunkr.to_dict_list(stream_chunks)            # Direct DataFrame / Dataset input
 ```
 
 ---
@@ -220,6 +231,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 11. Multi-Threaded Parallel Document Batch Chunking
     let parallel_chunks = recursive_chunker.par_chunk_documents(&pdf_pages)?;
 
+    // 12. Constant-Memory Streaming Chunker (Files, Sockets, STDIN)
+    let streamer = StreamChunker::new(1000, 150)?;
+    let stream_iter = streamer.chunk_file("large_document.txt")?;
+    for chunk_result in stream_iter {
+        let chunk = chunk_result?;
+        println!("Streamed chunk: {}", chunk.content.len());
+    }
+
     Ok(())
 }
 ```
@@ -233,6 +252,9 @@ Install or run the standalone `chunkr` CLI binary for fast batch processing or U
 ```powershell
 # Chunk any file using Markdown strategy to JSONL format
 cargo run --bin chunkr -- README.md -s markdown -c 500 -f jsonl
+
+# Stream massive multi-GB files with constant memory footprint
+cargo run --bin chunkr -- large_file.txt -s stream --chunk-size 1000 -f jsonl
 
 # Pipe from STDIN with post-chunking pipeline (dedup, filtering, packing, SHA-256 hash enrichment)
 cat document.txt | chunkr -s recursive --chunk-size 800 --min-chars 30 --dedup --enrich --pack 1200 > output.jsonl

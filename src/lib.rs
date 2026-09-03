@@ -39,6 +39,7 @@ pub mod prelude {
         BreakpointThreshold, CustomEmbedder, Embedder, FastLexicalEmbedder, SemanticChunker,
     };
     pub use crate::chunker::sentence::{ParagraphChunker, SentenceChunker};
+    pub use crate::chunker::stream::StreamChunker;
     pub use crate::chunker::table::{TableChunker, TableFormat};
     pub use crate::chunker::token::{TokenChunker, TokenEncoding};
     pub use crate::chunker::word::WordChunker;

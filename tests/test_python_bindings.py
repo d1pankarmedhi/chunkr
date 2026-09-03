@@ -232,5 +232,44 @@ class Worker:
         self.assertIn("chunk_hash", processed[0].metadata)
         self.assertEqual(processed[0].metadata["chunk_id"], "py_test_0")
 
+    def test_stream_chunker(self):
+        streamer = chunkr.StreamChunker(chunk_size=80, overlap=20)
+        chunks = streamer.chunk_text("Sentence 1.\nSentence 2.\nSentence 3.\nSentence 4.\nSentence 5.")
+        self.assertGreaterEqual(len(chunks), 1)
+        self.assertEqual(chunks[0].metadata["strategy"], "stream")
+
+    def test_ecosystem_bridges(self):
+        docs = [
+            chunkr.Document("Content 1", {"doc_id": 1}),
+            chunkr.Document("Content 2", {"doc_id": 2}),
+        ]
+        # to_dict & to_dict_list
+        dict_list = chunkr.to_dict_list(docs)
+        self.assertEqual(len(dict_list), 2)
+        self.assertEqual(dict_list[0]["content"], "Content 1")
+        self.assertEqual(dict_list[0]["metadata"]["doc_id"], 1)
+
+        # Mock LangChain bridge roundtrip
+        class MockLCDocument:
+            def __init__(self, page_content, metadata):
+                self.page_content = page_content
+                self.metadata = metadata
+
+        lc_mock = MockLCDocument("Hello LangChain", {"source": "test.txt"})
+        doc = chunkr.Document.from_langchain(lc_mock)
+        self.assertEqual(doc.content, "Hello LangChain")
+        self.assertEqual(doc.metadata["source"], "test.txt")
+
+        # Mock LlamaIndex bridge roundtrip
+        class MockLlamaNode:
+            def __init__(self, text, metadata):
+                self.text = text
+                self.metadata = metadata
+
+        li_mock = MockLlamaNode("Hello LlamaIndex", {"category": "ai"})
+        doc_li = chunkr.Document.from_llamaindex(li_mock)
+        self.assertEqual(doc_li.content, "Hello LlamaIndex")
+        self.assertEqual(doc_li.metadata["category"], "ai")
+
 if __name__ == "__main__":
     unittest.main()

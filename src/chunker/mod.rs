@@ -16,6 +16,7 @@ pub mod query_aware;
 pub mod recursive;
 pub mod semantic;
 pub mod sentence;
+pub mod stream;
 pub mod table;
 pub mod token;
 pub mod word;
