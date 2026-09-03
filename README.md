@@ -269,10 +269,6 @@ chunkr ./docs -s dir --format jsonl --out-file chunks.jsonl
 
 Direct in-memory Python runtime comparison (`import chunkr` vs. `langchain-text-splitters`, `pypdf`, and `PyMuPDF`):
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/d1pankarmedhi/chunkr/main/assets/benchmark.svg" alt="Chunkr vs LangChain Speed Benchmark" width="100%" />
-</p>
-
 ### Text Chunking Throughput Comparison
 
 | Strategy & Test Case | Document Size | LangChain (ms) | Chunkr (ms) | LangChain Throughput | Chunkr Throughput | Speedup Factor |
