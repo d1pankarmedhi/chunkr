@@ -1,3 +1,54 @@
+//! # ⚡ `chunkr`: High-Performance Document Chunking for LLMs & RAG
+//!
+//! `chunkr` is a blazingly fast document and text chunking library engineered in Rust
+//! with native Python bindings for Large Language Models (LLMs), AI Agents, and
+//! Retrieval-Augmented Generation (RAG) pipelines.
+//!
+//! ## Core Features
+//!
+//! - **Extreme Performance**: High throughput (up to 1,000+ MB/s) with minimal allocations,
+//!   efficient string slicing, and multi-core Rayon parallelism.
+//! - **20+ Chunking Strategies**: Natural language, token BPE (OpenAI), Hugging Face tokenizers,
+//!   AST code syntax, Markdown, Tables, JSON, HTML, Late Chunking, and more.
+//! - **Post-Processing Pipeline**: Composable filtering, deduplication, bin-packing, and SHA-256 metadata enrichment.
+//! - **Streaming Processing**: Constant-memory chunking for multi-gigabyte files, network streams, and STDIN.
+//! - **First-Class Ecosystem Bridges**: Seamless export to LangChain, LlamaIndex, Hugging Face, and Pandas.
+//!
+//! ## Quickstart
+//!
+//! ```rust
+//! use chunkr::prelude::*;
+//!
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! let text = "Chunkr provides fast text chunking. It handles paragraphs and sentences cleanly.\n\nSecond section starts here.";
+//!
+//! // 1. Recursive semantic boundary chunker
+//! let chunker = RecursiveChunker::new()
+//!     .with_chunk_size(100)
+//!     .with_overlap(20);
+//!
+//! let chunks = chunker.chunk(text)?;
+//! for chunk in &chunks {
+//!     println!("Chunk: {} (meta: {:?})", chunk.content, chunk.metadata);
+//! }
+//!
+//! // 2. Post-processing pipeline (filter, dedup, pack, enrich)
+//! let pipeline = ChunkPipeline::new()
+//!     .filter_min_characters(10)
+//!     .deduplicate_exact(true)
+//!     .pack(250)
+//!     .enrich_metadata();
+//!
+//! let optimized = pipeline.process(chunks);
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! ## Re-exports
+//!
+//! Most users will want to import [`prelude::*`](prelude), which brings all chunkers,
+//! loaders, pipeline stages, and data structures into scope.
+
 pub mod chunker;
 pub mod error;
 pub mod loader;

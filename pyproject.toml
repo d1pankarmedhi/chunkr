@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "chunkr-rs"
-version = "1.2.0"
+version = "1.2.1"
 description = "Blazingly fast document and text chunking library for LLMs and RAG in Rust and Python"
 authors = [{ name = "Dipankar", email = "dipankarmedhi11@gmail.com" }]
 readme = "README.md"

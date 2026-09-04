@@ -8,7 +8,7 @@
 
 ## 🚀 1. Automated Release via GitHub Actions (Recommended)
 
-GitHub Actions will build multi-platform wheels for Linux, Windows, and macOS, compile the sdist, run test suites, and publish to both **PyPI** and **Crates.io** automatically.
+GitHub Actions will build multi-platform wheels for Linux, Windows, and macOS, compile the sdist, run test suites, create a **GitHub Release** with all wheel and source assets attached, and publish to both **PyPI** and **Crates.io** automatically.
 
 ### Setup GitHub Secrets (One-time)
 In your GitHub repo: **Settings → Secrets and variables → Actions → New repository secret**:
@@ -16,10 +16,24 @@ In your GitHub repo: **Settings → Secrets and variables → Actions → New re
 2. `CARGO_REGISTRY_TOKEN`: Your Crates.io API Token (from [crates.io/settings/tokens](https://crates.io/settings/tokens))
 
 ### Release Steps:
+
+#### Option A: Release with Custom Title and Notes (Annotated Tag)
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+# First -m is the Title, second -m (or subsequent lines) is the Release Notes body
+git tag -a v1.3.0 -m "Release v1.3.0: Streaming Chunker" -m "### Highlights
+- Added StreamingChunker for real-time token streams.
+- Added LangChain & LlamaIndex ecosystem bridges.
+- Added chunkr-cli binary."
+
+git push origin v1.3.0
 ```
+
+#### Option B: Quick Release with Auto-Generated Notes (Lightweight Tag)
+```bash
+git tag v1.3.0
+git push origin v1.3.0
+```
+*(GitHub Actions will automatically extract PRs and commits to generate the changelog).*
 
 ---
 
