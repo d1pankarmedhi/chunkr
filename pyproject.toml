@@ -5,22 +5,42 @@ build-backend = "maturin"
 [project]
 name = "chunkr-rs"
 version = "1.2.1"
-description = "Blazingly fast document and text chunking library for LLMs and RAG in Rust and Python"
+description = "Blazingly fast document and text chunking library for LLMs, RAG, and AI agents in Rust and Python. High-throughput alternative to LangChain RecursiveCharacterTextSplitter and LlamaIndex."
 authors = [{ name = "Dipankar", email = "dipankarmedhi11@gmail.com" }]
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.8"
 keywords = [
     "chunking",
-    "rag",
-    "llm",
+    "text-chunking",
+    "document-chunking",
     "text-splitter",
+    "recursive-text-splitter",
+    "rag",
+    "retrieval-augmented-generation",
+    "llm",
+    "langchain",
+    "langchain-alternative",
+    "llamaindex",
     "embeddings",
-    "retrieval",
     "vector-database",
-    "markdown",
-    "nlp",
+    "late-chunking",
+    "semantic-chunking",
+    "hierarchical-chunking",
+    "parent-child-chunking",
+    "tree-sitter",
+    "code-chunking",
+    "markdown-splitter",
+    "table-chunker",
+    "pdf-loader",
+    "pdf-chunking",
+    "tiktoken",
+    "bpe-tokenization",
+    "huggingface-tokenizers",
+    "chonkie",
+    "fast-chunking",
     "rust",
+    "nlp",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -46,6 +66,7 @@ Homepage = "https://github.com/d1pankarmedhi/chunkr"
 Documentation = "https://github.com/d1pankarmedhi/chunkr#readme"
 Repository = "https://github.com/d1pankarmedhi/chunkr.git"
 Issues = "https://github.com/d1pankarmedhi/chunkr/issues"
+Changelog = "https://github.com/d1pankarmedhi/chunkr/blob/main/CHANGELOG.md"
 
 [tool.maturin]
 features = ["pyo3/extension-module", "python"]

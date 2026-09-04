@@ -2,26 +2,68 @@
 <h1>chunkr</h1>
 <h3>⚡ Blazingly Fast Document & Text Chunking for LLMs, Agents and RAG</h3>
 
-[![Crates.io](https://img.shields.io/crates/v/chunkr.svg)](https://crates.io/crates/chunkr)
 [![PyPI](https://img.shields.io/pypi/v/chunkr-rs.svg)](https://pypi.org/project/chunkr-rs/)
-![License](https://img.shields.io/crates/l/chunkr.svg)
+[![PyPI - Python Version](https://img.shields.io/pypi/pyversions/chunkr-rs.svg)](https://pypi.org/project/chunkr-rs/)
+[![Crates.io](https://img.shields.io/crates/v/chunkr.svg)](https://crates.io/crates/chunkr)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 </div>
 
-**`chunkr`** is a high-performance document chunking library built in Rust with first-class Python native bindings for Large Language Models (LLMs) and Retrieval-Augmented Generation (RAG) applications. It delivers throughput up to **hundreds of MB/sec** with zero superfluous heap allocations, advanced structure awareness, OpenAI BPE tokenization, semantic clustering, proposition decomposition, query-adaptive sizing, agentic topic segmentation, and multi-core parallel processing.
+**Chunkr** (`chunkr-rs` on PyPI, `import chunkr`) is an ultra-high-performance document chunking and text-splitting engine written in Rust with native Python C-ABI bindings. Engineered specifically for Large Language Models (LLMs), Vector Databases (Chroma, Qdrant, Pinecone, Weaviate, Milvus), and Retrieval-Augmented Generation (RAG) pipelines, Chunkr delivers **up to 1,000+ MB/s throughput** with zero superfluous heap allocations — operating **2x to 20x faster** than pure-Python splitters like LangChain's `RecursiveCharacterTextSplitter` and LlamaIndex node parsers.
+
+> [!TIP]
+> **Quick Package Disambiguation**:
+> - **Python (pip)**: `pip install chunkr-rs` ➔ `import chunkr`
+> - **Rust (cargo)**: `cargo add chunkr` ➔ `use chunkr::prelude::*;`
+> - **Core Architecture**: Zero heap churn, SIMD-accelerated separator scanning, and true multi-core Rayon execution that bypasses the Python GIL.
+
+---
+
+## 🥊 Chunkr vs. Alternatives
+
+Why data engineers and AI developers choose Chunkr over pure-Python chunking libraries:
+
+| Feature / Capability | Chunkr (`chunkr-rs`) | LangChain Splitters | LlamaIndex Node Parsers | Chonkie | Semchunk |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Core Architecture** | **Rust + PyO3 (Native)** | Pure Python | Pure Python | Python / Rust partial | Pure Python |
+| **Recursive Split Throughput** | **500 – 1,000+ MB/s** | 200 – 350 MB/s | 150 – 300 MB/s | ~400 MB/s | ~100 MB/s |
+| **Fixed Char Throughput** | **100 – 140 MB/s** | 7 – 10 MB/s | 8 – 12 MB/s | ~50 MB/s | ~10 MB/s |
+| **Memory Strategy** | **Zero-Copy Slices** | String Duplication | Object Churn | String Duplication | String Duplication |
+| **Multithreading** | **Rayon (True Multi-core)** | ThreadPool (GIL bound) | Async / GIL bound | None | ProcessPool |
+| **Built-in Strategies** | **18+ Strategies** | ~5 Splitters | ~6 Node Parsers | 4 Chonkers | 1 Strategy |
+| **Late Chunking Support** | **Built-in (Span Snapping)** | ❌ None | Experimental | ❌ None | ❌ None |
+| **Tree-sitter AST Code Chunking** | **Built-in (Python & Rust)** | Regex-based | ❌ None | ❌ None | ❌ None |
+| **Markdown Header Breadcrumbs** | **Full `#`–`######` Hierarchy** | Basic Split | Basic Markdown | ❌ None | ❌ None |
+| **Table Chunking (CSV/TSV/MD)** | **Header Preserving/Repeating** | ❌ None | Limited | ❌ None | ❌ None |
+| **Native PDF Extraction Engine** | **Built-in (600+ pgs/s)** | External (`pypdf`, `fitz`) | External (`pypdf`) | ❌ None | ❌ None |
+| **Parent-Child / Hierarchical** | **Built-in (`HierarchicalChunker`)** | Multi-class setup | Class pipeline | ❌ None | ❌ None |
+| **Post-Processing Pipeline** | **Built-in (`ChunkPipeline`)** | Manual code | IngestionPipeline | ❌ None | ❌ None |
+| **Constant-Memory Streaming** | **Built-in (`StreamChunker`)** | ❌ None | ❌ None | ❌ None | ❌ None |
+| **Ecosystem Bridges** | **`to_langchain`, `to_llamaindex`** | Native | Native | Conversion helper | ❌ None |
+
+---
+
+## 🧭 Which Chunker Should I Use? (Decision Guide)
+
+| If your document or use-case is... | Recommended Chunker | Why? |
+| :--- | :--- | :--- |
+| **General prose, blog posts, articles** | `RecursiveChunker` | Blazing-fast SIMD separator splitting (`\n\n`, `\n`, ` `). |
+| **OpenAI models (GPT-4o, text-embedding-3)** | `TokenChunker` | Exact BPE token bounds (`cl100k_base`, `o200k_base`) with zero token waste. |
+| **Open-source LLMs (Llama 3, Mistral, Qwen, BGE)** | `HFTokenChunker` | Direct native integration with Hugging Face `tokenizer.json`. |
+| **Small-to-Big RAG Architectures** | `HierarchicalChunker` | Matches high-relevance child chunks and retrieves full parent context. |
+| **Preserving full-document context in embeddings** | `LateChunker` | Computes token spans across full text; pools embeddings with global context. |
+| **Markdown documentation & technical specs** | `MarkdownChunker` | Preserves headers and tracks breadcrumb paths (`Guide > Setup > Auth`). |
+| **Codebases (Python, Rust, JS, Go, C++, SQL)** | `AstCodeChunker` or `CodeChunker` | Splits cleanly at AST function/class boundaries without breaking logic. |
+| **Financial tables, CSVs, TSVs, Markdown tables** | `TableChunker` | Automatically repeats table header rows on split chunks for LLM clarity. |
+| **Factual claim verification & legal contracts** | `PropositionChunker` | Splits sentences into atomic, self-contained factual propositions. |
+| **Isolated chunks needing context** | `ContextualChunker` | Injects Anthropic-style situational document prefaces into every chunk. |
+| **Search-time dynamic sizing** | `QueryAwareChunker` | Tight high-resolution chunks around query hotspots, wide context elsewhere. |
+| **Multi-gigabyte log files, dumps, stdin** | `StreamChunker` | Constant-memory sliding window streaming for arbitrarily large inputs. |
+| **Production cleanup & token budget packing** | `ChunkPipeline` | Filters short noise, deduplicates, packs small chunks, and generates SHA-256 IDs. |
 
 ---
 
 ## 📦 Installation
-
-### Rust
-
-Add `chunkr` to your `Cargo.toml`:
-
-```toml
-[dependencies]
-chunkr = "1.1"
-```
 
 ### Python
 
@@ -31,9 +73,25 @@ Install `chunkr-rs` via `pip`:
 pip install chunkr-rs
 ```
 
+*Pre-compiled wheels are available for Linux, Windows, and macOS (Intel & Apple Silicon) on Python 3.8 through 3.13. No Rust compiler required!*
+
 Or build from source with `maturin`:
 ```bash
 maturin develop --release
+```
+
+### Rust
+
+Add `chunkr` to your `Cargo.toml`:
+
+```toml
+[dependencies]
+chunkr = "1.2"
+```
+
+Or via `cargo`:
+```bash
+cargo add chunkr
 ```
 
 ---
@@ -168,6 +226,97 @@ records = chunkr.to_dict_list(stream_chunks)            # Direct DataFrame / Dat
 
 ---
 
+## 🛠️ Production RAG Recipes
+
+### Recipe 1: End-to-End LangChain + ChromaDB Ingestion
+Combine Chunkr's high-speed PDF loading and recursive splitting with LangChain vector stores:
+
+```python
+import chunkr
+from langchain_community.vectorstores import Chroma
+from langchain_openai import OpenAIEmbeddings
+
+# 1. High-speed native PDF parsing (17x faster than pypdf)
+loader = chunkr.PDFLoader()
+pages = loader.load_pages("annual_report.pdf")
+
+# 2. Multi-threaded recursive chunking across all CPU cores
+chunker = chunkr.RecursiveChunker(chunk_size=800, overlap=100)
+chunks = chunker.par_chunk_documents(pages)
+
+# 3. Zero-copy bridge to LangChain Document format
+langchain_docs = chunkr.to_langchain(chunks)
+
+# 4. Ingest into Chroma vector database
+vectorstore = Chroma.from_documents(
+    documents=langchain_docs,
+    embedding=OpenAIEmbeddings(model="text-embedding-3-small")
+)
+```
+
+### Recipe 2: Small-to-Big (Parent-Child) Retrieval with LlamaIndex
+Match tight child chunks for high semantic precision, then return full parent context to the LLM:
+
+```python
+import chunkr
+
+# 1. Generate parent-child pairs in a single native pass
+hier = chunkr.HierarchicalChunker(parent_size=1500, parent_overlap=150, child_size=300, child_overlap=30)
+pairs = hier.chunk_hierarchical(document_text)
+
+# 2. Extract child chunks enriched with parent context metadata
+child_docs = []
+for pair in pairs:
+    parent_doc = pair["parent"]
+    for child in pair["children"]:
+        child.metadata["parent_id"] = parent_doc.metadata.get("chunk_id")
+        child.metadata["parent_content"] = parent_doc.content
+        child_docs.append(child)
+
+# 3. Export directly to LlamaIndex TextNodes
+llamaindex_nodes = chunkr.to_llamaindex(child_docs)
+```
+
+### Recipe 3: Late Chunking with SentenceTransformers & Full Document Context
+Late Chunking encodes the entire document first to retain bidirectional context across all chunks:
+
+```python
+import chunkr
+import torch
+from transformers import AutoTokenizer, AutoModel
+
+# 1. Tokenize full document and obtain token embeddings
+model_name = "jinaai/jina-embeddings-v2-base-en"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModel.from_pretrained(model_name)
+
+inputs = tokenizer(full_text, return_tensors="pt")
+with torch.no_grad():
+    outputs = model(**inputs)
+    token_embeddings = outputs.last_hidden_state[0].tolist()
+
+# 2. Snap exact token spans and mean-pool chunk embeddings
+late_chunker = chunkr.LateChunker(chunk_size=400, overlap=40)
+chunks = late_chunker.chunk(full_text)
+chunk_embeddings = late_chunker.pool_embeddings(token_embeddings, chunks)
+```
+
+### Recipe 4: Universal Hugging Face Tokenizer Chunking
+Chunk documents directly with open-source model tokenizers (Llama 3, Mistral, Qwen, DeepSeek):
+
+```python
+import chunkr
+from transformers import AutoTokenizer
+
+tok = AutoTokenizer.from_pretrained("meta-llama/Meta-Llama-3-8B")
+hf_chunker = chunkr.HFTokenChunker.from_tokenizer(tok, chunk_size=512, overlap=50)
+
+# Chunks are guaranteed to fit within exact model token limits
+token_bounded_chunks = hf_chunker.chunk(document_text)
+```
+
+---
+
 ## 🦀 Rust Quickstart
 
 ```rust
@@ -293,6 +442,84 @@ Direct in-memory Python runtime comparison (`import chunkr` vs. `langchain-text-
 | **Chunkr End-to-End (PDF + Recursive)** | **5.82 ms** | **1,718.8 pgs/s** | **18.7x Faster** |
 | PyMuPDF + LangChain RecursiveTextSplitter | 27.33 ms | 365.9 pgs/s | 4.0x Faster |
 | pypdf + LangChain RecursiveTextSplitter | 109.04 ms | 91.7 pgs/s | 1.0x (baseline) |
+
+---
+
+## ❓ Frequently Asked Questions (FAQ)
+
+<details>
+<summary><b>What is Chunkr?</b></summary>
+<br>
+
+**Chunkr** is an ultra-fast document chunking and text-splitting library written in Rust with native Python bindings (`chunkr-rs` on PyPI, `import chunkr`). It is engineered to replace slow, pure-Python text splitters in Retrieval-Augmented Generation (RAG) and LLM application pipelines.
+</details>
+
+<details>
+<summary><b>Why use Chunkr instead of LangChain's <code>RecursiveCharacterTextSplitter</code>?</b></summary>
+<br>
+
+Chunkr provides a **2x to 3.5x speedup** on recursive text splitting and up to **20x speedup** on character splitting, with zero heap allocations. Furthermore, Chunkr includes 18+ specialized strategies (Late Chunking, Tree-sitter AST for code, table header preservation, parent-child trees) and a native PDF extractor that is **17x faster than `pypdf`**, all callable via `import chunkr` with zero-copy LangChain and LlamaIndex adapters.
+</details>
+
+<details>
+<summary><b>Why is the package named <code>chunkr-rs</code> on PyPI but imported as <code>chunkr</code>?</b></summary>
+<br>
+
+On PyPI, the name `chunkr` was previously occupied by a legacy OCR service. To avoid naming collisions and provide a clean distribution channel, the package is registered as `chunkr-rs` on PyPI:
+```bash
+pip install chunkr-rs
+```
+In Python code, you import it directly:
+```python
+import chunkr
+```
+</details>
+
+<details>
+<summary><b>Does Chunkr require a local Rust compiler or toolchain to install?</b></summary>
+<br>
+
+No. Pre-compiled binary wheels (built with `maturin` and PyO3 C-ABI) are distributed on PyPI for Linux (x86_64, aarch64), Windows (x86_64), and macOS (Apple Silicon & Intel). When you run `pip install chunkr-rs`, pip downloads the pre-built native binary directly.
+</details>
+
+<details>
+<summary><b>How do I use Chunkr with LangChain or LlamaIndex?</b></summary>
+<br>
+
+Chunkr features zero-copy bridges:
+```python
+import chunkr
+
+chunks = chunkr.RecursiveChunker(chunk_size=500, overlap=50).chunk("Sample text...")
+
+# Convert to LangChain Document objects:
+langchain_docs = chunkr.to_langchain(chunks)
+
+# Convert to LlamaIndex TextNode objects:
+llamaindex_nodes = chunkr.to_llamaindex(chunks)
+```
+</details>
+
+<details>
+<summary><b>What is Late Chunking and how does it improve retrieval quality?</b></summary>
+<br>
+
+Traditional chunking splits text prior to embedding generation, causing each chunk to lose global document context. **Late Chunking** passes the entire document through a transformer embedding model first, then uses `chunkr.LateChunker` to snap exact token span boundaries and pool chunk embeddings directly from full-document hidden states.
+</details>
+
+<details>
+<summary><b>Can Chunkr parse and chunk PDFs directly without external dependencies?</b></summary>
+<br>
+
+Yes. Chunkr includes a native `PDFLoader` built on `lopdf` in Rust. It extracts text and generates page documents at **over 600–1,800 pages per second**, running **12x–17x faster than `pypdf`** without requiring Poppler or PyMuPDF.
+</details>
+
+<details>
+<summary><b>How does Markdown chunking preserve header breadcrumbs?</b></summary>
+<br>
+
+`chunkr.MarkdownChunker` inspects Markdown headers (`#` through `######`) and assigns a hierarchical `header_path` attribute to each chunk's metadata (e.g., `Guide > Setup > Configuration`), preventing LLMs and vector search engines from losing structural context.
+</details>
 
 ---
 

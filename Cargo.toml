@@ -4,11 +4,13 @@ edition = "2021"
 license = "MIT"
 name = "chunkr"
 version = "1.2.1"
-description = "Blazingly fast document and text chunking library for LLMs and RAG in Rust and Python"
+description = "Blazingly fast document and text chunking library for LLMs, RAG, and AI agents in Rust and Python"
 repository = "https://github.com/d1pankarmedhi/chunkr"
+homepage = "https://github.com/d1pankarmedhi/chunkr"
+documentation = "https://docs.rs/chunkr"
 readme = "README.md"
-keywords = ["chunking", "rag", "llm", "nlp", "text-splitter"]
-categories = ["text-processing", "science"]
+keywords = ["chunking", "rag", "llm", "text-splitter", "nlp"]
+categories = ["text-processing", "science", "development-tools"]
 
 [lib]
 name = "chunkr"
