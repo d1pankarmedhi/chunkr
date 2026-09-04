@@ -1,4 +1,5 @@
 use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 use serde_json::Value;
 use tiktoken_rs::CoreBPE;
@@ -200,8 +201,12 @@ impl LateChunker {
         token_embeddings: &[Vec<f32>],
         docs: &[Document],
     ) -> Vec<Vec<f32>> {
-        docs.par_iter()
-            .map(|doc| {
+        #[cfg(not(target_arch = "wasm32"))]
+        let iter = docs.par_iter();
+        #[cfg(target_arch = "wasm32")]
+        let iter = docs.iter();
+
+        iter.map(|doc| {
                 let start = doc
                     .metadata
                     .get("token_start")
@@ -223,9 +228,12 @@ impl LateChunker {
         token_embeddings: &[Vec<f32>],
         spans: &[(usize, usize)],
     ) -> Vec<Vec<f32>> {
-        spans
-            .par_iter()
-            .map(|&(start, end)| Self::pool_span(token_embeddings, start, end, self.normalize))
+        #[cfg(not(target_arch = "wasm32"))]
+        let iter = spans.par_iter();
+        #[cfg(target_arch = "wasm32")]
+        let iter = spans.iter();
+
+        iter.map(|&(start, end)| Self::pool_span(token_embeddings, start, end, self.normalize))
             .collect()
     }
 }

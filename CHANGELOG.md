@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.0] - 2026-09-04
+
+### Added
+- **WebAssembly Support (`wasm32-unknown-unknown`)**:
+  - Full first-class compatibility for Browsers, Cloudflare Workers, Node.js, Deno, and Bun.
+  - Pure Rust implementation on Wasm target with C-based tree-sitter gated to native platforms.
+  - Sequential fallbacks on `wasm32` for Rayon parallel chunking (`par_chunk_documents`, `par_chunk_texts`, `par_enrich`).
+- **WebAssembly Bindings (`chunkr-wasm`)**:
+  - `wasm-bindgen` bindings for all chunking strategies: `RecursiveChunker`, `MarkdownChunker`, `TokenChunker` (OpenAI BPE `cl100k_base`, `o200k_base`, `p50k_base`, `r50k_base`), `CodeChunker`, `HtmlChunker`, `JsonChunker`, `TableChunker`, `SentenceChunker`, `ParagraphChunker`, `CharacterChunker`, `WordChunker`, `SemanticChunker`, `LateChunker`, `PropositionChunker`, `HierarchicalChunker`, `QueryAwareChunker`, and `StreamChunker`.
+  - In-memory `PDFLoader`: `loadTextFromBytes`, `loadDocumentFromBytes`, and `loadPagesFromBytes` for zero-server in-memory PDF parsing and extraction directly at the edge.
+  - `ChunkPipeline`: Composable post-chunking filtering, deduplication, packing, and SHA-256 metadata enrichment.
+  - Native JavaScript objects serialization via `serde_wasm_bindgen::Serializer::json_compatible()`.
+  - Top-level `chunk()` and `countTokens()` helper functions.
+- **Universal NPM Package**:
+  - Multi-target packaging in `wasm/`: `web` (Browsers & Cloudflare Workers), `bundler` (Vite, Webpack, Rollup), `nodejs` (Node.js CommonJS & ESM).
+- **Examples**:
+  - `examples/cloudflare-worker/`: Ready-to-deploy Cloudflare Worker demonstrating synchronous Wasm loading, text chunking, and in-memory binary PDF parsing.
+  - `examples/browser/`: Interactive client-side HTML demo showing multi-strategy live chunking and performance benchmarks.
+- **CI/CD Wasm Publishing**:
+  - Automated Wasm compilation, testing, and NPM release jobs in `.github/workflows/publish.yml`.
+
+---
+
 ## [1.2.1] - 2026-09-04
 
 ### Added

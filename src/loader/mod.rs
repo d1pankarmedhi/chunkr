@@ -9,9 +9,11 @@
 //! - [`PDFLoader`]: Extracts text page-by-page from PDF files into [`Document`](crate::structures::document::Document) structs.
 
 pub mod base;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod directory;
 pub mod pdf;
 
 pub use base::BaseLoader;
+#[cfg(not(target_arch = "wasm32"))]
 pub use directory::DirectoryLoader;
 pub use pdf::PDFLoader;

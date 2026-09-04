@@ -37,6 +37,7 @@
 //! - [`ChunkPacker`](packer::ChunkPacker): Bin-packing optimizer merging small fragments into target budgets.
 
 pub mod agentic;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod ast_code;
 pub mod base;
 pub mod char;

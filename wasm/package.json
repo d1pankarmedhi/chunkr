@@ -1,0 +1,57 @@
+{
+  "name": "chunkr-wasm",
+  "version": "1.3.0",
+  "description": "Blazingly fast document and text chunking library for LLMs, RAG, and AI agents in WebAssembly (Browser, Cloudflare Workers, Node.js)",
+  "main": "nodejs/chunkr.js",
+  "module": "bundler/chunkr.js",
+  "types": "web/chunkr.d.ts",
+  "exports": {
+    ".": {
+      "types": "./web/chunkr.d.ts",
+      "browser": "./web/chunkr.js",
+      "worker": "./web/chunkr.js",
+      "import": "./bundler/chunkr.js",
+      "require": "./nodejs/chunkr.js"
+    },
+    "./web": {
+      "types": "./web/chunkr.d.ts",
+      "import": "./web/chunkr.js"
+    },
+    "./bundler": {
+      "types": "./bundler/chunkr.d.ts",
+      "import": "./bundler/chunkr.js"
+    },
+    "./node": {
+      "types": "./nodejs/chunkr.d.ts",
+      "require": "./nodejs/chunkr.js"
+    },
+    "./wasm": "./web/chunkr_bg.wasm"
+  },
+  "files": [
+    "web/",
+    "bundler/",
+    "nodejs/",
+    "README.md"
+  ],
+  "keywords": [
+    "chunking",
+    "rag",
+    "llm",
+    "text-splitter",
+    "wasm",
+    "webassembly",
+    "cloudflare-workers",
+    "browser",
+    "pdf"
+  ],
+  "author": "Dipankar dipankarmedhi11@gmail.com",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/d1pankarmedhi/chunkr"
+  },
+  "bugs": {
+    "url": "https://github.com/d1pankarmedhi/chunkr/issues"
+  },
+  "homepage": "https://github.com/d1pankarmedhi/chunkr"
+}

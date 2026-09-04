@@ -1,3 +1,4 @@
+#[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -95,12 +96,19 @@ impl MetadataEnricher {
             .collect()
     }
 
-    /// Enrich a slice of documents concurrently across CPU cores
+    /// Enrich a slice of documents concurrently across CPU cores (sequential on wasm32)
     pub fn par_enrich(&self, docs: &[Document]) -> Vec<Document> {
-        docs.par_iter()
-            .enumerate()
-            .map(|(idx, doc)| self.enrich_document(doc, idx))
-            .collect()
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            docs.par_iter()
+                .enumerate()
+                .map(|(idx, doc)| self.enrich_document(doc, idx))
+                .collect()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.enrich(docs)
+        }
     }
 }
 

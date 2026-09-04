@@ -1,6 +1,13 @@
 /target
 /dist
-/scripts
+/scripts/*
+!/scripts/build_wasm.sh
+!/scripts/build_wasm.ps1
+/wasm/web
+/wasm/bundler
+/wasm/nodejs
+*.wasm
+*.tgz
 .venv
 __pycache__
 *.pyc

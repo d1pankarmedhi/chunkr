@@ -58,11 +58,15 @@ pub mod structures;
 #[cfg(feature = "python")]
 pub mod python;
 
+#[cfg(feature = "wasm")]
+pub mod wasm;
+
 pub mod prelude {
     pub use crate::chunker::agentic::{
         AgenticChunker, AgenticDecision, AgenticDecisionMaker, CustomAgenticDecisionMaker,
         HeuristicAgenticDecisionMaker,
     };
+    #[cfg(not(target_arch = "wasm32"))]
     pub use crate::chunker::ast_code::{AstCodeChunker, AstLanguage};
     pub use crate::chunker::base::{BaseChunker, Chunker};
     pub use crate::chunker::char::CharacterChunker;
@@ -96,6 +100,7 @@ pub mod prelude {
     pub use crate::chunker::word::WordChunker;
     pub use crate::error::ChunkrError;
     pub use crate::loader::base::BaseLoader;
+    #[cfg(not(target_arch = "wasm32"))]
     pub use crate::loader::directory::DirectoryLoader;
     pub use crate::loader::pdf::PDFLoader;
     pub use crate::pipeline::{ChunkDeduplicator, ChunkFilter, ChunkPipeline, MetadataEnricher};

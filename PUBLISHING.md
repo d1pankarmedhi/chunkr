@@ -8,12 +8,13 @@
 
 ## 🚀 1. Automated Release via GitHub Actions (Recommended)
 
-GitHub Actions will build multi-platform wheels for Linux, Windows, and macOS, compile the sdist, run test suites, create a **GitHub Release** with all wheel and source assets attached, and publish to both **PyPI** and **Crates.io** automatically.
+GitHub Actions will build multi-platform wheels for Linux, Windows, and macOS, compile the sdist, build and verify WebAssembly targets, create a **GitHub Release** with all wheel, wasm, and source assets attached, and publish to **PyPI**, **Crates.io**, and **npm** automatically.
 
 ### Setup GitHub Secrets (One-time)
 In your GitHub repo: **Settings → Secrets and variables → Actions → New repository secret**:
 1. `PYPI_API_TOKEN`: Your PyPI API Token (starts with `pypi-...` from [pypi.org/manage/account/token](https://pypi.org/manage/account/token/))
 2. `CARGO_REGISTRY_TOKEN`: Your Crates.io API Token (from [crates.io/settings/tokens](https://crates.io/settings/tokens))
+3. `NPM_TOKEN`: Your npm Access Token (from [npmjs.com/settings/tokens](https://www.npmjs.com/settings/tokens)) with publish permissions for `chunkr-wasm`
 
 ### Release Steps:
 
@@ -79,4 +80,21 @@ cargo package
 
 # Publish to crates.io
 cargo publish
+```
+
+---
+
+## 🌐 5. NPM Publishing (WebAssembly)
+
+Build the WebAssembly artifacts and publish `chunkr-wasm` to npm:
+
+```bash
+# 1. Build Wasm targets (web, bundler, nodejs)
+./scripts/build_wasm.sh  # or .\scripts\build_wasm.ps1 on Windows
+
+# 2. Run smoke tests
+node tests/test_wasm_smoke.js
+
+# 3. Publish to npm
+npm publish ./wasm --access public
 ```

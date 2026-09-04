@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chunkr WebAssembly Browser Demo</title>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text: #1e293b;
+      --border: #e2e8f0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      max-width: 960px;
+      margin: 30px auto;
+      padding: 0 20px;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    h1 { margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+    .badge { font-size: 0.5em; background: #dbeafe; color: #1e40af; padding: 3px 8px; border-radius: 9999px; }
+    .subtitle { color: #64748b; margin-top: 0; margin-bottom: 24px; }
+    .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+    label { font-weight: 600; font-size: 0.9em; display: block; margin-bottom: 6px; }
+    textarea {
+      width: 100%;
+      height: 160px;
+      box-sizing: border-box;
+      padding: 12px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 13px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      resize: vertical;
+    }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin: 15px 0; }
+    input, select {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    .btn {
+      background: var(--primary);
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 6px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn:hover { background: var(--primary-hover); }
+    .btn:disabled { background: #94a3b8; cursor: not-allowed; }
+    .stats {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      color: #1e3a8a;
+      padding: 10px 14px;
+      border-radius: 6px;
+      font-size: 14px;
+      margin-bottom: 15px;
+      display: none;
+    }
+    .chunk-card {
+      background: white;
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--primary);
+      border-radius: 6px;
+      padding: 14px;
+      margin-bottom: 12px;
+    }
+    .chunk-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85em;
+      color: #64748b;
+      margin-bottom: 8px;
+    }
+    .chunk-content {
+      white-space: pre-wrap;
+      font-family: ui-monospace, monospace;
+      font-size: 13px;
+      background: #f1f5f9;
+      padding: 10px;
+      border-radius: 4px;
+      margin: 0;
+    }
+    .chunk-meta {
+      margin-top: 8px;
+      font-size: 0.78em;
+      color: #475569;
+      background: #f8fafc;
+      padding: 6px;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>⚡ Chunkr Wasm <span class="badge">Browser Demo</span></h1>
+  <p class="subtitle">High-throughput document and text chunking running 100% client-side via WebAssembly.</p>
+
+  <div class="card">
+    <label for="inputText">Input Document</label>
+    <textarea id="inputText"># Chunkr: Blazingly Fast Document Chunking
+
+Chunkr is an ultra-fast document and text chunking library engineered in Rust with native bindings for Python and WebAssembly.
+
+## Key WebAssembly Features
+- **100% Client-Side**: No sensitive documents or proprietary text ever leave the user's browser.
+- **Edge Compatible**: Direct synchronous loading in Cloudflare Workers and lightweight serverless runtimes.
+- **In-Memory PDF Parsing**: Extract and chunk multi-page PDFs directly from raw bytes.
+- **OpenAI Tokenizer**: Exact BPE token sizing using cl100k_base and o200k_base encodings.
+
+## Post-Processing Pipeline
+Pipeline stages allow chaining min/max length filtering, exact deduplication, bin-packing, and metadata enrichment.</textarea>
+
+    <div class="grid">
+      <div>
+        <label for="strategy">Chunking Strategy</label>
+        <select id="strategy">
+          <option value="recursive">Recursive (Natural Boundaries)</option>
+          <option value="markdown">Markdown (Header Hierarchy)</option>
+          <option value="token">Token (OpenAI BPE cl100k)</option>
+          <option value="sentence">Sentence Boundaries</option>
+          <option value="paragraph">Paragraph Boundaries</option>
+          <option value="code">Code Syntax</option>
+          <option value="semantic">Semantic (Lexical Distance)</option>
+        </select>
+      </div>
+      <div>
+        <label for="chunkSize">Chunk Size (Chars/Tokens)</label>
+        <input type="number" id="chunkSize" value="150" min="10">
+      </div>
+      <div>
+        <label for="overlap">Overlap</label>
+        <input type="number" id="overlap" value="25" min="0">
+      </div>
+    </div>
+
+    <button id="chunkBtn" class="btn" disabled>Loading Wasm...</button>
+  </div>
+
+  <div id="stats" class="stats"></div>
+  <div id="results"></div>
+
+  <script type="module">
+    import init, {
+      RecursiveChunker,
+      MarkdownChunker,
+      TokenChunker,
+      SentenceChunker,
+      ParagraphChunker,
+      CodeChunker,
+      SemanticChunker,
+      countTokens
+    } from "../../wasm/web/chunkr.js";
+
+    const chunkBtn = document.getElementById("chunkBtn");
+    const statsDiv = document.getElementById("stats");
+    const resultsDiv = document.getElementById("results");
+
+    async function bootstrap() {
+      try {
+        await init();
+        chunkBtn.textContent = "⚡ Chunk Document";
+        chunkBtn.disabled = false;
+      } catch (err) {
+        chunkBtn.textContent = "Failed to load Wasm";
+        console.error("Wasm initialization error:", err);
+      }
+    }
+
+    chunkBtn.addEventListener("click", () => {
+      const text = document.getElementById("inputText").value;
+      const strategy = document.getElementById("strategy").value;
+      const chunkSize = parseInt(document.getElementById("chunkSize").value) || 150;
+      const overlap = parseInt(document.getElementById("overlap").value) || 25;
+
+      const t0 = performance.now();
+      let chunks = [];
+
+      switch (strategy) {
+        case "markdown": {
+          const chunker = new MarkdownChunker(chunkSize, overlap, true);
+          chunks = chunker.chunk(text);
+          break;
+        }
+        case "token": {
+          const chunker = new TokenChunker(chunkSize, overlap, "cl100k_base");
+          chunks = chunker.chunk(text);
+          break;
+        }
+        case "sentence": {
+          const chunker = new SentenceChunker(2, 1);
+          chunks = chunker.chunk(text);
+          break;
+        }
+        case "paragraph": {
+          const chunker = new ParagraphChunker(1, 0);
+          chunks = chunker.chunk(text);
+          break;
+        }
+        case "code": {
+          const chunker = new CodeChunker("generic", chunkSize, overlap);
+          chunks = chunker.chunk(text);
+          break;
+        }
+        case "semantic": {
+          const chunker = new SemanticChunker(85.0);
+          chunks = chunker.chunk(text);
+          break;
+        }
+        case "recursive":
+        default: {
+          const chunker = new RecursiveChunker(chunkSize, overlap);
+          chunks = chunker.chunk(text);
+          break;
+        }
+      }
+
+      const elapsed = (performance.now() - t0).toFixed(2);
+      const tokenCount = countTokens(text, "cl100k_base");
+
+      statsDiv.style.display = "block";
+      statsDiv.innerHTML = `<strong>Performance:</strong> Generated <strong>${chunks.length} chunks</strong> (${text.length} chars, ~${tokenCount} tokens) in <strong>${elapsed} ms</strong>.`;
+
+      resultsDiv.innerHTML = chunks.map((c, i) => `
+        <div class="chunk-card">
+          <div class="chunk-header">
+            <span><strong>Chunk #${i + 1}</strong></span>
+            <span>${c.content.length} characters</span>
+          </div>
+          <pre class="chunk-content">${escapeHtml(c.content)}</pre>
+          <div class="chunk-meta">Metadata: ${escapeHtml(JSON.stringify(c.metadata))}</div>
+        </div>
+      `).join("");
+    });
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    bootstrap();
+  </script>
+</body>
+</html>

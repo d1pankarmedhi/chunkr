@@ -15,6 +15,7 @@
 > **Quick Package Disambiguation**:
 > - **Python (pip)**: `pip install chunkr-rs` ➔ `import chunkr`
 > - **Rust (cargo)**: `cargo add chunkr` ➔ `use chunkr::prelude::*;`
+> - **WebAssembly (npm)**: `npm install chunkr-wasm` ➔ `import { RecursiveChunker } from "chunkr-wasm"` (Browser & Cloudflare Workers)
 > - **Core Architecture**: Zero heap churn, SIMD-accelerated separator scanning, and true multi-core Rayon execution that bypasses the Python GIL.
 
 ---
@@ -92,6 +93,23 @@ chunkr = "1.2"
 Or via `cargo`:
 ```bash
 cargo add chunkr
+```
+
+### WebAssembly (Browsers, Cloudflare Workers & Node.js)
+
+Install `chunkr-wasm` via `npm`:
+
+```bash
+npm install chunkr-wasm
+```
+
+Or build all Wasm bindings directly from source:
+```bash
+# Unix / Linux / macOS
+./scripts/build_wasm.sh
+
+# Windows (PowerShell)
+.\scripts\build_wasm.ps1
 ```
 
 ---
@@ -222,6 +240,65 @@ stream_chunks = streamer.chunk_text(sample_text)
 langchain_docs = chunkr.to_langchain(stream_chunks)      # List[langchain_core.documents.Document]
 llamaindex_nodes = chunkr.to_llamaindex(stream_chunks)  # List[llama_index.core.schema.TextNode]
 records = chunkr.to_dict_list(stream_chunks)            # Direct DataFrame / Dataset input
+```
+
+---
+
+## 🌐 WebAssembly Quickstart (Edge & Browser)
+
+Chunkr's WebAssembly build brings identical ultra-fast chunking algorithms to JavaScript/TypeScript environments with zero native dependencies.
+
+### Cloudflare Workers (Edge Runtimes)
+
+```javascript
+import wasm from "chunkr-wasm/wasm";
+import { initSync, RecursiveChunker, PDFLoader } from "chunkr-wasm/web";
+
+// Zero-latency synchronous initialization
+initSync(wasm);
+
+export default {
+  async fetch(request) {
+    const { text, chunkSize, overlap } = await request.json();
+    const chunker = new RecursiveChunker(chunkSize || 500, overlap || 50);
+    const chunks = chunker.chunk(text);
+    return Response.json({ chunks });
+  }
+};
+```
+
+### Client-Side Browser (Vite / Next.js / Vanilla ESM)
+
+Chunk sensitive documents entirely client-side without sending text to any external server:
+
+```typescript
+import { RecursiveChunker, MarkdownChunker, TokenChunker, countTokens } from "chunkr-wasm";
+
+// 1. Recursive semantic splitting
+const chunker = new RecursiveChunker(800, 100);
+const chunks = chunker.chunk(documentText);
+
+// 2. Exact OpenAI token chunking at native speed
+const tokenChunker = new TokenChunker(512, 50, "cl100k_base");
+const tokenChunks = tokenChunker.chunk(documentText);
+const numTokens = countTokens(documentText, "cl100k_base");
+```
+
+### In-Memory PDF Chunking at the Edge
+
+```typescript
+import { PDFLoader, RecursiveChunker } from "chunkr-wasm";
+
+const fileBytes = new Uint8Array(await request.arrayBuffer());
+const loader = new PDFLoader();
+
+// Parse and extract pages in memory
+const pages = loader.loadPagesFromBytes(fileBytes);
+const chunker = new RecursiveChunker(500, 50);
+const chunkedPages = pages.map(p => ({
+  page: p.metadata.page_number,
+  chunks: chunker.chunk(p.content)
+}));
 ```
 
 ---
