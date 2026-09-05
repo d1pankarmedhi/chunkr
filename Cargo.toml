@@ -51,5 +51,13 @@ tree-sitter-rust = "0.24.2"
 tree-sitter-python = "0.25"
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
-getrandom = { version = "0.4", features = ["wasm_js"] }
+# PINNED to 0.3.x on purpose — do NOT bump to 0.4+ via Dependabot.
+# chunkr never calls getrandom directly; this dep exists solely to switch
+# the wasm_js backend ON for the whole wasm32 resolve via feature
+# unification: tokenizers pulls getrandom 0.3 transitively (ahash/rand),
+# and the global `--cfg getrandom_backend="wasm_js"` in .cargo/config.toml
+# applies to EVERY getrandom copy. A 0.4 direct dep leaves the transitive
+# 0.3 copy featureless, tripping its compile_error! guard (0.3.4+).
+# Revisit only when ahash/rand move off getrandom 0.3.
+getrandom = { version = "0.3", features = ["wasm_js"] }
 
