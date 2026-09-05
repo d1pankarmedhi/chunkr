@@ -254,7 +254,14 @@ jobs:
           python-version: "3.11"
       - name: Install local wheel and run test suite
         run: |
-          WHEEL=$(ls dist/*linux_x86_64*.whl | head -1)
+          # maturin manylinux wheels are named e.g.
+          # chunkr_rs-1.4.0-...-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+          # — there is no literal `linux_x86_64` segment, so match on the arch.
+          WHEEL=$(ls dist/*x86_64*.whl | head -1)
+          if [ -z "$WHEEL" ]; then
+            echo "::error::No linux x86_64 wheel found in dist/: $(ls dist || true)"
+            exit 1
+          fi
           echo "Testing $WHEEL"
           pip install "$WHEEL" pytest
           pytest tests/test_python_bindings.py -q
