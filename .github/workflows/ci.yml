@@ -139,10 +139,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+      # wasm-bindgen-cli schema MUST exactly match the wasm-bindgen crate
+      # in Cargo.lock. Derive it dynamically so `cargo update -p wasm-bindgen`
+      # can never silently break this job again.
+      - name: Resolve wasm-bindgen-cli version from Cargo.lock
+        id: wbg
+        run: |
+          V=$(grep -A3 'name = "wasm-bindgen"$' Cargo.lock | grep '^version' | head -1 | cut -d'"' -f2)
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "wasm-bindgen-cli version: $V"
       - name: Install wasm-bindgen-cli (cached)
         uses: taiki-e/cache-cargo-install-action@v2
         with:
-          tool: wasm-bindgen-cli@0.2.100
+          tool: wasm-bindgen-cli@${{ steps.wbg.outputs.version }}
       - name: Build Wasm targets
         run: |
           chmod +x scripts/build_wasm.sh
