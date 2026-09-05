@@ -1,0 +1,28 @@
+version: 2
+updates:
+  # Keep GitHub Actions pinned & patched (PRs weekly, grouped)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Keep Rust dependencies fresh (PRs weekly, grouped)
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      rust-deps:
+        patterns: ["*"]
+
+  # Keep Python dev deps fresh (uv.lock)
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      python-deps:
+        patterns: ["*"]
