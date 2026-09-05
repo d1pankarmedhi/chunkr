@@ -89,7 +89,7 @@ impl PDFLoader {
     fn extract_all_text(doc: &LopdfDoc) -> Result<String, ChunkrError> {
         let pages = doc.get_pages();
         let mut content = String::new();
-        for (&page_num, _) in pages.iter() {
+        for &page_num in pages.keys() {
             if let Ok(text) = doc.extract_text(&[page_num]) {
                 if !content.is_empty() && !content.ends_with('\n') {
                     content.push('\n');
@@ -110,7 +110,7 @@ impl PDFLoader {
         let total_pages = pages.len();
         let mut result = Vec::with_capacity(total_pages);
 
-        for (&page_num, _) in pages.iter() {
+        for &page_num in pages.keys() {
             let page_text = doc.extract_text(&[page_num]).unwrap_or_default();
             let mut metadata = HashMap::new();
             metadata.insert("page_number".to_string(), Value::from(page_num));
