@@ -1,3 +1,10 @@
+// NOTE: `clippy::useless_conversion` fires on every `#[pyfunction]` returning
+// `PyResult` under current clippy — a known pyo3 0.22 macro-expansion false
+// positive (the flagged `.into()` lives in generated wrapper code, not here).
+// Scoped allow for this PyO3 boundary module only; revisit on pyo3 upgrade.
+// `-D warnings` still applies to everything else in the crate.
+#![allow(clippy::useless_conversion)]
+
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString};

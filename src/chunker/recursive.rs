@@ -230,8 +230,8 @@ impl RecursiveChunker {
 
             if current_len + p_len > self.chunk_size && i > start_idx {
                 let mut joined = String::with_capacity(current_len);
-                for j in start_idx..i {
-                    joined.push_str(splits[j]);
+                for s in &splits[start_idx..i] {
+                    joined.push_str(s);
                 }
                 let trimmed = joined.trim();
                 if !trimmed.is_empty() {
@@ -254,8 +254,8 @@ impl RecursiveChunker {
 
         if start_idx < n {
             let mut joined = String::with_capacity(current_len);
-            for j in start_idx..n {
-                joined.push_str(splits[j]);
+            for s in &splits[start_idx..n] {
+                joined.push_str(s);
             }
             let trimmed = joined.trim();
             if !trimmed.is_empty() {

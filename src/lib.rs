@@ -81,7 +81,7 @@ pub mod prelude {
     };
     pub use crate::chunker::html::HtmlChunker;
     pub use crate::chunker::json::JsonChunker;
-    pub use crate::chunker::late::LateChunker;
+    pub use crate::chunker::late::{ChunkSpans, LateChunker};
     pub use crate::chunker::markdown::MarkdownChunker;
     pub use crate::chunker::packer::ChunkPacker;
     pub use crate::chunker::proposition::{

@@ -91,10 +91,10 @@ impl Embedder for FastLexicalEmbedder {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let dim = self.dim.max(1);
-            return texts
+            texts
                 .par_iter()
                 .map(|text| Ok(Self::embed_one(text, dim)))
-                .collect();
+                .collect()
         }
         #[cfg(target_arch = "wasm32")]
         {

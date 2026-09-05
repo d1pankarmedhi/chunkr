@@ -663,10 +663,7 @@ fn test_table_chunker_markdown_pure() {
             .content
             .contains("| Quarter | Revenue | Profit | Margin |"));
         assert!(chunk.content.contains("| :--- | :--- | :--- | :--- |"));
-        assert_eq!(
-            chunk.metadata.get("is_table").unwrap().as_bool().unwrap(),
-            true
-        );
+        assert!(chunk.metadata.get("is_table").unwrap().as_bool().unwrap());
         assert_eq!(
             chunk.metadata.get("format").unwrap().as_str().unwrap(),
             "markdown"
@@ -729,10 +726,7 @@ fn test_table_chunker_csv() {
 
     for chunk in &chunks {
         assert!(chunk.content.starts_with("Product,Category,Price,Stock"));
-        assert_eq!(
-            chunk.metadata.get("is_table").unwrap().as_bool().unwrap(),
-            true
-        );
+        assert!(chunk.metadata.get("is_table").unwrap().as_bool().unwrap());
         assert_eq!(
             chunk.metadata.get("format").unwrap().as_str().unwrap(),
             "csv"

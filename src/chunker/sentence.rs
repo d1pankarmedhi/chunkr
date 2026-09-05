@@ -78,7 +78,7 @@ impl SentenceChunker {
     }
 
     /// High-precision sentence boundary detector
-    pub fn split_sentences<'a>(text: &'a str) -> Vec<&'a str> {
+    pub fn split_sentences(text: &str) -> Vec<&str> {
         let mut sentences = Vec::new();
         let bytes = text.as_bytes();
         let len = bytes.len();
@@ -94,34 +94,30 @@ impl SentenceChunker {
                 } else {
                     let next_byte = bytes[i + 1];
                     // Followed by whitespace, newline, or quote + whitespace
-                    if next_byte == b' '
+                    next_byte == b' '
                         || next_byte == b'\n'
                         || next_byte == b'\r'
                         || next_byte == b'\t'
-                    {
-                        true
-                    } else if (next_byte == b'"'
-                        || next_byte == b'\''
-                        || next_byte == b')'
-                        || next_byte == b']')
-                        && (i + 2 >= len
-                            || bytes[i + 2] == b' '
-                            || bytes[i + 2] == b'\n'
-                            || bytes[i + 2] == b'\r')
-                    {
-                        true
-                    } else {
-                        false
-                    }
+                        || ((next_byte == b'"'
+                            || next_byte == b'\''
+                            || next_byte == b')'
+                            || next_byte == b']')
+                            && (i + 2 >= len
+                                || bytes[i + 2] == b' '
+                                || bytes[i + 2] == b'\n'
+                                || bytes[i + 2] == b'\r'))
                 };
 
                 if is_end {
                     // Check if period is part of decimal number (e.g. 3.14)
-                    if b == b'.' && i > 0 && i + 1 < len {
-                        if bytes[i - 1].is_ascii_digit() && bytes[i + 1].is_ascii_digit() {
-                            i += 1;
-                            continue;
-                        }
+                    if b == b'.'
+                        && i > 0
+                        && i + 1 < len
+                        && bytes[i - 1].is_ascii_digit()
+                        && bytes[i + 1].is_ascii_digit()
+                    {
+                        i += 1;
+                        continue;
                     }
 
                     // Check if period is part of ellipsis (...)
@@ -288,7 +284,7 @@ impl ParagraphChunker {
         self
     }
 
-    pub fn split_paragraphs<'a>(text: &'a str) -> Vec<&'a str> {
+    pub fn split_paragraphs(text: &str) -> Vec<&str> {
         text.split("\n\n")
             .map(|p| p.trim())
             .filter(|p| !p.is_empty())

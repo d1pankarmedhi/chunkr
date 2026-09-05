@@ -170,10 +170,11 @@ impl SyntacticPropositionExtractor {
                         })
                         .unwrap_or(false);
 
-                    if starts_with_verb && subject.is_some() {
-                        propositions.push(format!("{} {}.", subject.as_ref().unwrap(), clean_part));
-                    } else {
-                        propositions.push(format!("{}.", clean_part));
+                    match (starts_with_verb, subject.as_ref()) {
+                        (true, Some(subj)) => {
+                            propositions.push(format!("{} {}.", subj, clean_part))
+                        }
+                        _ => propositions.push(format!("{}.", clean_part)),
                     }
                 }
 

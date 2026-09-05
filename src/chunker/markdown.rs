@@ -165,7 +165,7 @@ fn strip_leading_headers(body: &str) -> &str {
     let mut rest = body;
     loop {
         // Skip blank lines.
-        let stripped = rest.trim_start_matches(|c| c == '\n' || c == '\r');
+        let stripped = rest.trim_start_matches(['\n', '\r']);
         let line_end = stripped.find('\n').map(|i| i + 1).unwrap_or(stripped.len());
         let (line, tail) = stripped.split_at(line_end);
         if parse_header_slice(line).is_some() {

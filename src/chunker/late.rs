@@ -10,11 +10,17 @@ use crate::chunker::token::TokenEncoding;
 use crate::error::ChunkrError;
 use crate::structures::document::Document;
 
+/// A chunked document paired with its exact token span `[token_start, token_end)`.
+pub type ChunkSpans = Vec<(Document, (usize, usize))>;
+
 /// High-performance chunker implementing Late Chunking for LLMs and RAG.
 ///
 /// Late Chunking embeds the entire document first via a transformer encoder to maintain
 /// bidirectional attention across the whole context, then mean-pools token embeddings
 /// over chunk token spans to produce context-rich chunk embeddings.
+///
+/// See [`ChunkSpans`] for the `(document, token-span)` pairs returned by
+/// [`LateChunker::chunk_spans`].
 #[derive(Clone)]
 pub struct LateChunker {
     pub encoding: TokenEncoding,
@@ -103,7 +109,7 @@ impl LateChunker {
     }
 
     /// Split text and compute exact token span indices [token_start, token_end) for each chunk
-    pub fn chunk_spans(&self, text: &str) -> Result<Vec<(Document, (usize, usize))>, ChunkrError> {
+    pub fn chunk_spans(&self, text: &str) -> Result<ChunkSpans, ChunkrError> {
         if text.trim().is_empty() {
             return Err(ChunkrError::EmptyInput);
         }
@@ -196,8 +202,7 @@ impl LateChunker {
         let dim = token_embeddings[0].len();
         let mut pooled = vec![0.0f32; dim];
 
-        for i in start..end_idx {
-            let vec = &token_embeddings[i];
+        for vec in &token_embeddings[start..end_idx] {
             for (d, val) in vec.iter().enumerate() {
                 if d < dim {
                     pooled[d] += val;
