@@ -661,12 +661,13 @@ pub struct PyMarkdownChunker {
 #[pymethods]
 impl PyMarkdownChunker {
     #[new]
-    #[pyo3(signature = (chunk_size=1000, overlap=150))]
-    pub fn new(chunk_size: usize, overlap: usize) -> Self {
+    #[pyo3(signature = (chunk_size=1000, overlap=150, include_header_in_content=true))]
+    pub fn new(chunk_size: usize, overlap: usize, include_header_in_content: bool) -> Self {
         Self {
             inner: MarkdownChunker::new()
                 .with_chunk_size(chunk_size)
-                .with_overlap(overlap),
+                .with_overlap(overlap)
+                .with_include_header_in_content(include_header_in_content),
         }
     }
 

@@ -101,6 +101,23 @@ impl Chunker for QueryAwareChunker {
         if text.trim().is_empty() {
             return Err(ChunkrError::EmptyInput);
         }
+        // Guard against post-construction mutation of the public fields:
+        // a zero window or overlap >= window would underflow `size - overlap`
+        // and spin/hang the loop below.
+        for (size, overlap) in [
+            (self.hotspot_sentences_per_chunk, self.hotspot_overlap),
+            (self.context_sentences_per_chunk, self.context_overlap),
+        ] {
+            if size == 0 {
+                return Err(ChunkrError::InvalidChunkSize(0));
+            }
+            if overlap >= size {
+                return Err(ChunkrError::InvalidOverlap {
+                    chunk_size: size,
+                    overlap,
+                });
+            }
+        }
 
         let query_terms: HashSet<String> = self
             .query

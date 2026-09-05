@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 use serde_json::Value;
 use tiktoken_rs::{cl100k_base, o200k_base, p50k_base, r50k_base, CoreBPE};
 
@@ -41,7 +42,7 @@ pub struct TokenChunker {
     pub chunk_size: usize,
     pub overlap: usize,
     pub encoding: TokenEncoding,
-    bpe: CoreBPE,
+    bpe: Arc<CoreBPE>,
 }
 
 impl std::fmt::Debug for TokenChunker {
@@ -56,8 +57,14 @@ impl std::fmt::Debug for TokenChunker {
 
 impl Clone for TokenChunker {
     fn clone(&self) -> Self {
-        Self::with_encoding(self.chunk_size, self.overlap, self.encoding)
-            .expect("Valid BPE clone")
+        Self {
+            chunk_size: self.chunk_size,
+            overlap: self.overlap,
+            encoding: self.encoding,
+            // Share the (expensive to construct) BPE rank tables instead of
+            // rebuilding them from embedded data on every clone.
+            bpe: Arc::clone(&self.bpe),
+        }
     }
 }
 
@@ -84,7 +91,7 @@ impl TokenChunker {
             chunk_size,
             overlap,
             encoding,
-            bpe,
+            bpe: Arc::new(bpe),
         })
     }
 
@@ -125,6 +132,19 @@ impl Chunker for TokenChunker {
     fn chunk(&self, text: &str) -> Result<Vec<Document>, ChunkrError> {
         if text.trim().is_empty() {
             return Err(ChunkrError::EmptyInput);
+        }
+        // Re-validate here: `chunk_size` / `overlap` are public fields, so a
+        // caller may have mutated them after construction. Without this guard
+        // `self.chunk_size - self.overlap` would underflow and panic (or wrap
+        // to `usize::MAX` in release, hanging/OOMing the loop below).
+        if self.chunk_size == 0 {
+            return Err(ChunkrError::InvalidChunkSize(0));
+        }
+        if self.overlap >= self.chunk_size {
+            return Err(ChunkrError::InvalidOverlap {
+                chunk_size: self.chunk_size,
+                overlap: self.overlap,
+            });
         }
 
         let tokens = self.bpe.encode_ordinary(text);
@@ -181,8 +201,19 @@ impl BaseChunker<Result<Vec<Document>, String>> for TokenChunker {
         chunk_size: usize,
         overlap: usize,
     ) -> Result<Vec<Document>, String> {
-        let chunker = TokenChunker::with_encoding(chunk_size, overlap, self.encoding)
-            .map_err(|e| e.to_string())?;
+        // Share the BPE tables via Arc instead of rebuilding them.
+        if chunk_size == 0 {
+            return Err(ChunkrError::InvalidChunkSize(0).to_string());
+        }
+        if overlap >= chunk_size {
+            return Err(ChunkrError::InvalidOverlap { chunk_size, overlap }.to_string());
+        }
+        let chunker = Self {
+            chunk_size,
+            overlap,
+            encoding: self.encoding,
+            bpe: Arc::clone(&self.bpe),
+        };
         chunker.chunk(text).map_err(|e| e.to_string())
     }
 }

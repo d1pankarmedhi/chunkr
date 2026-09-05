@@ -71,16 +71,31 @@ impl LateChunker {
         self
     }
 
-    /// Build monotonic byte offset array for every token in the text
+    /// Build monotonic byte offset array for every token in the text.
+    ///
+    /// Single-token `decode` calls are cached by token id: natural text
+    /// reuses a small working vocabulary, so distinct tokens << total
+    /// tokens and repeat decodes (one heap `String` per token) collapse to
+    /// one per distinct id.
     fn build_token_offsets(&self, text: &str) -> (Vec<u32>, Vec<usize>) {
         let tokens = self.bpe.encode_ordinary(text);
         let mut offsets = Vec::with_capacity(tokens.len() + 1);
         offsets.push(0);
 
         let mut current_offset = 0;
+        let mut len_cache: std::collections::HashMap<u32, usize> =
+            std::collections::HashMap::with_capacity(1024);
         for &t in &tokens {
-            let decoded = self.bpe.decode(vec![t]).unwrap_or_default();
-            current_offset += decoded.len();
+            let t_len = match len_cache.get(&t) {
+                Some(&len) => len,
+                None => {
+                    let decoded = self.bpe.decode(vec![t]).unwrap_or_default();
+                    let len = decoded.len();
+                    len_cache.insert(t, len);
+                    len
+                }
+            };
+            current_offset += t_len;
             offsets.push(current_offset);
         }
 

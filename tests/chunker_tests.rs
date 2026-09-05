@@ -976,3 +976,73 @@ fn test_stream_chunker() {
         assert!(!chunk.content.is_empty());
     }
 }
+
+#[test]
+fn test_robustness_mutated_config_returns_error_not_panic() {
+    // Public fields can be mutated after construction; chunk() must return
+    // a proper error instead of underflowing `size - overlap` (panic in
+    // debug, wrap-to-huge hang/OOM in release).
+    let text = "Some text that would otherwise chunk just fine.";
+
+    let mut token = TokenChunker::with_encoding(50, 10, TokenEncoding::Cl100kBase).unwrap();
+    token.overlap = 50;
+    assert!(token.chunk(text).is_err());
+    token.overlap = 10;
+    token.chunk_size = 0;
+    assert!(token.chunk(text).is_err());
+
+    let mut qa = QueryAwareChunker::new("text");
+    qa.hotspot_overlap = qa.hotspot_sentences_per_chunk; // overlap == size
+    assert!(qa.chunk(text).is_err());
+
+    let mut prop = PropositionChunker::new();
+    prop.proposition_overlap = 1; // overlap >= count (1)
+    assert!(prop.chunk(text).is_err());
+
+    let chunker = HFTokenChunker::from_json(
+        r#"{"version":"1.0","truncation":null,"padding":null,"added_tokens":[],"normalizer":null,"pre_tokenizer":{"type":"Whitespace"},"post_processor":null,"decoder":null,"model":{"type":"WordLevel","unk_token":"[UNK]","vocab":{"[UNK]":0,"hi":1}}}"#,
+        3,
+        1,
+    )
+    .unwrap();
+    let mut bad = chunker.clone();
+    bad.chunk_size = 0;
+    assert!(bad.chunk("hi").is_err());
+}
+
+#[test]
+fn test_markdown_include_header_toggle() {
+    let md = "# Guide\n\n## Setup\n\nDo the thing.\n";
+    let with = MarkdownChunker::new()
+        .with_chunk_size(1000)
+        .with_overlap(0)
+        .with_include_header_in_content(true);
+    let without = MarkdownChunker::new()
+        .with_chunk_size(1000)
+        .with_overlap(0)
+        .with_include_header_in_content(false);
+
+    let with_chunks = with.chunk(md).unwrap();
+    let without_chunks = without.chunk(md).unwrap();
+    assert!(with_chunks.iter().any(|c| c.content.contains("## Setup")));
+    assert!(!without_chunks.iter().any(|c| c.content.contains("## Setup")));
+    // Breadcrumb metadata is preserved in both modes.
+    assert!(without_chunks[0].metadata.contains_key("header_path"));
+}
+
+#[test]
+fn test_stream_chunker_large_input_progresses() {
+    // 20k lines exercises the offset-based cursor (no per-chunk memmove).
+    let mut big = String::new();
+    for i in 0..20_000 {
+        big.push_str(&format!("Line {}: streaming chunker throughput probe sentence.\n", i));
+    }
+    let cursor = std::io::Cursor::new(big);
+    let chunker = StreamChunker::new(1000, 100).unwrap();
+    let chunks: Vec<Document> = chunker.chunk_reader(cursor).map(|r| r.unwrap()).collect();
+    assert!(chunks.len() > 100);
+    for (i, chunk) in chunks.iter().enumerate() {
+        assert_eq!(chunk.metadata.get("chunk_index").unwrap().as_u64().unwrap(), i as u64);
+        assert!(!chunk.content.is_empty());
+    }
+}

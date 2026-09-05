@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Fixed & Improved (chunking efficiency + robustness)
+- **Efficiency**:
+  - `TokenChunker` now shares BPE tables via `Arc` — `clone()` and legacy `chunk_text()` no longer rebuild rank tables from embedded data.
+  - `LateChunker` caches per-token decoded byte lengths by token id (distinct tokens << total tokens on natural text).
+  - `RecursiveChunker` separator probing uses a single `memmem::Finder::find` scan per candidate; char fallback streams `char_indices` without a per-char index `Vec`.
+  - `CharacterChunker` resolves byte offsets only at chunk boundaries (O(chunks) memory, two allocation-free passes).
+  - `SentenceChunker` abbreviation guard is allocation-free and bounded to the last token (was `split_whitespace` + `to_lowercase` over the whole prefix per `.`).
+  - `FastLexicalEmbedder` embeds sentences in parallel via Rayon and hashes words allocation-free; cosine distance is now true normalized cosine, safe for custom unnormalized embedders.
+  - `StreamChunker` tracks a read offset with bulk compaction instead of `String::drain` per chunk (was O(n²) memmoves on multi-GB streams).
+- **Robustness**:
+  - `TokenChunker`, `HFTokenChunker`, `PropositionChunker`, `QueryAwareChunker` re-validate `chunk_size`/`overlap` in `chunk()` so post-construction mutation of public fields returns `InvalidChunkSize`/`InvalidOverlap` instead of underflow panic/hang.
+  - `MarkdownChunker` honors `include_header_in_content = false` (previously a dead flag) and detects headers under CRLF line endings.
+  - Research grounding: late-chunking flow follows Günther et al. (2024, arXiv:2409.04701) — full-text token stream + mean-pool over spans; delimiter fast-path rationale per memchr/SIMD backward-search analysis.
+
+---
+
 ## [1.3.0] - 2026-09-04
 
 ### Added

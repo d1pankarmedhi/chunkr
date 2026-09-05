@@ -75,7 +75,9 @@ impl RecursiveChunker {
             return;
         }
 
-        // Find the first matching separator in the priority list
+        // Find the first matching separator in the priority list.
+        // NOTE: a single `Finder::find` probe per candidate avoids the extra
+        // full-text scan that `str::contains` + `find_iter` would perform.
         let mut chosen_sep = None;
         let mut remaining_seps = &[][..];
 
@@ -85,7 +87,8 @@ impl RecursiveChunker {
                 remaining_seps = &[];
                 break;
             }
-            if text.contains(sep.as_str()) {
+            let finder = memmem::Finder::new(sep.as_bytes());
+            if finder.find(text.as_bytes()).is_some() {
                 chosen_sep = Some(sep.as_str());
                 remaining_seps = &separators[i + 1..];
                 break;
@@ -160,22 +163,48 @@ impl RecursiveChunker {
         result
     }
 
-    /// Fallback char indices splitter
+    /// Fallback char-boundary splitter.
+    ///
+    /// Streams over `char_indices` without collecting the whole index table
+    /// first (the old version allocated a `Vec` of one entry per char — i.e.
+    /// ~16 bytes/char of temporary memory on large inputs).
     fn split_by_char_indices_into<'a>(&self, text: &'a str, out: &mut Vec<&'a str>) {
-        let char_indices: Vec<(usize, char)> = text.char_indices().collect();
-        let total_chars = char_indices.len();
-        let mut start_char = 0;
+        if text.is_empty() {
+            return;
+        }
+        // Byte offsets at which each chunk starts.
+        let mut chunk_starts: Vec<usize> = Vec::new();
+        chunk_starts.push(0);
+        let mut chars_in_chunk = 0usize;
 
-        while start_char < total_chars {
-            let end_char = (start_char + self.chunk_size).min(total_chars);
-            let start_byte = char_indices[start_char].0;
-            let end_byte = if end_char < total_chars {
-                char_indices[end_char].0
+        for (byte_idx, _) in text.char_indices() {
+            chars_in_chunk += 1;
+            if chars_in_chunk == self.chunk_size {
+                // Next chunk starts at the following char boundary.
+                let next_start = text[byte_idx..]
+                    .char_indices()
+                    .nth(1)
+                    .map(|(off, _)| byte_idx + off)
+                    .unwrap_or(text.len());
+                chunk_starts.push(next_start);
+                chars_in_chunk = 0;
+            }
+        }
+
+        if chunk_starts.len() == 1 {
+            out.push(text);
+            return;
+        }
+
+        for (i, &start) in chunk_starts.iter().enumerate() {
+            let end = if i + 1 < chunk_starts.len() {
+                chunk_starts[i + 1]
             } else {
                 text.len()
             };
-            out.push(&text[start_byte..end_byte]);
-            start_char = end_char;
+            if start < end {
+                out.push(&text[start..end]);
+            }
         }
     }
 

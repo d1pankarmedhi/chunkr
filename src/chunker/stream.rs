@@ -49,6 +49,7 @@ impl StreamChunker {
             chunk_size: self.chunk_size,
             overlap: self.overlap,
             buffer: String::with_capacity(self.chunk_size * 2),
+            start: 0,
             chunk_index: 0,
             eof: false,
         }
@@ -62,16 +63,47 @@ impl Default for StreamChunker {
 }
 
 /// Iterator that yields Document chunks lazily from an underlying `BufRead` source.
+///
+/// Consumed prefix bytes are tracked with a `start` offset instead of
+/// `String::drain(..advance)` per chunk (`drain` memmoves the whole
+/// remainder — O(n²) total on multi-GB streams). The prefix is compacted
+/// away in bulk only once it grows past a threshold.
 pub struct ChunkReaderIterator<R: BufRead> {
     reader: R,
     chunk_size: usize,
     overlap: usize,
     buffer: String,
+    start: usize,
     chunk_index: usize,
     eof: bool,
 }
 
 impl<R: BufRead> ChunkReaderIterator<R> {
+    /// Bytes of unread data currently buffered.
+    fn available_len(&self) -> usize {
+        self.buffer.len() - self.start
+    }
+
+    /// Advance the read cursor, snapping forward to a char boundary and
+    /// compacting the consumed prefix in bulk when it gets large.
+    fn advance(&mut self, n: usize) {
+        let mut next = (self.start + n).min(self.buffer.len());
+        while next < self.buffer.len() && !self.buffer.is_char_boundary(next) {
+            next += 1;
+        }
+        if next >= self.buffer.len() && !self.buffer.is_char_boundary(next) {
+            next = self.buffer.len();
+        }
+        self.start = next;
+        // Bulk-compact the consumed prefix (amortized O(1) per chunk).
+        if self.start == self.buffer.len() {
+            self.buffer.clear();
+            self.start = 0;
+        } else if self.start >= self.chunk_size * 4 {
+            self.buffer.drain(..self.start);
+            self.start = 0;
+        }
+    }
     fn find_cut_point(buffer: &str, target: usize, overlap: usize) -> usize {
         let max_pos = target.min(buffer.len());
         let min_pos = target.saturating_sub(overlap).max(max_pos / 2);
@@ -132,9 +164,9 @@ impl<R: BufRead> Iterator for ChunkReaderIterator<R> {
 
         while !self.eof {
             // Check if buffer has accumulated enough text for a chunk
-            if self.buffer.len() >= self.chunk_size {
-                let cut = Self::find_cut_point(&self.buffer, self.chunk_size, self.overlap);
-                let chunk_text = self.buffer[..cut].trim().to_string();
+            if self.available_len() >= self.chunk_size {
+                let cut = Self::find_cut_point(&self.buffer[self.start..], self.chunk_size, self.overlap);
+                let chunk_text = self.buffer[self.start..self.start + cut].trim().to_string();
 
                 let advance = if cut > self.overlap {
                     cut - self.overlap
@@ -142,18 +174,12 @@ impl<R: BufRead> Iterator for ChunkReaderIterator<R> {
                     cut
                 }.max(1);
 
-                let mut safe_advance = advance.min(self.buffer.len());
-                while safe_advance < self.buffer.len() && !self.buffer.is_char_boundary(safe_advance) {
-                    safe_advance += 1;
-                }
-                if !self.buffer.is_char_boundary(safe_advance) {
-                    safe_advance = self.buffer.len();
-                }
-                self.buffer.drain(..safe_advance);
+                self.advance(advance);
 
                 if !chunk_text.is_empty() {
                     return Some(Ok(self.make_chunk(chunk_text)));
                 }
+                continue;
             }
 
             line.clear();
@@ -170,24 +196,18 @@ impl<R: BufRead> Iterator for ChunkReaderIterator<R> {
         }
 
         // EOF reached: yield any residual text
-        while !self.buffer.is_empty() {
-            let cut = Self::find_cut_point(&self.buffer, self.chunk_size, self.overlap);
-            let chunk_text = self.buffer[..cut].trim().to_string();
+        while self.start < self.buffer.len() {
+            let avail = self.available_len();
+            let cut = Self::find_cut_point(&self.buffer[self.start..], self.chunk_size, self.overlap);
+            let chunk_text = self.buffer[self.start..self.start + cut].trim().to_string();
 
-            let advance = if cut > self.overlap && self.buffer.len() > self.chunk_size {
+            let advance = if cut > self.overlap && avail > self.chunk_size {
                 cut - self.overlap
             } else {
                 cut
             }.max(1);
 
-            let mut safe_advance = advance.min(self.buffer.len());
-            while safe_advance < self.buffer.len() && !self.buffer.is_char_boundary(safe_advance) {
-                safe_advance += 1;
-            }
-            if !self.buffer.is_char_boundary(safe_advance) {
-                safe_advance = self.buffer.len();
-            }
-            self.buffer.drain(..safe_advance);
+            self.advance(advance);
 
             if !chunk_text.is_empty() {
                 return Some(Ok(self.make_chunk(chunk_text)));

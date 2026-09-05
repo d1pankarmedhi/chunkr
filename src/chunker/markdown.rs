@@ -57,7 +57,10 @@ impl MarkdownChunker {
         self
     }
 
-    /// Zero-allocation slice-based markdown section parser
+    /// Zero-allocation slice-based markdown section parser.
+    /// Handles both LF (`\n`) and CRLF (`\r\n`) line endings: byte
+    /// accounting uses the raw line length, and trailing `\r` is stripped
+    /// for header detection and content slicing.
     fn parse_sections<'a>(&self, text: &'a str) -> Vec<MarkdownSection<'a>> {
         let mut sections: Vec<MarkdownSection<'a>> = Vec::new();
         let mut current_headers: Vec<(usize, &'a str)> = Vec::new();
@@ -129,6 +132,8 @@ impl MarkdownChunker {
 }
 
 fn parse_header_slice(line: &str) -> Option<(usize, &str)> {
+    // Accept a trailing CR so CRLF documents detect headers correctly.
+    let line = line.strip_suffix('\r').unwrap_or(line);
     let trimmed = line.trim_start();
     if !trimmed.starts_with('#') {
         return None;
@@ -151,6 +156,27 @@ fn parse_header_slice(line: &str) -> Option<(usize, &str)> {
     }
 
     None
+}
+
+/// Strip leading Markdown header lines (ATX `#`–`######` plus surrounding
+/// blank lines) from a section body. Used when
+/// `include_header_in_content == false`.
+fn strip_leading_headers(body: &str) -> &str {
+    let mut rest = body;
+    loop {
+        // Skip blank lines.
+        let stripped = rest.trim_start_matches(|c| c == '\n' || c == '\r');
+        let line_end = stripped
+            .find('\n')
+            .map(|i| i + 1)
+            .unwrap_or(stripped.len());
+        let (line, tail) = stripped.split_at(line_end);
+        if parse_header_slice(line).is_some() {
+            rest = tail;
+        } else {
+            return stripped;
+        }
+    }
 }
 
 impl Default for MarkdownChunker {
@@ -176,9 +202,17 @@ impl Chunker for MarkdownChunker {
         for section in sections {
             let header_titles: Vec<String> = section.headers.iter().map(|(_, t)| t.to_string()).collect();
             let header_path = header_titles.join(" > ");
+            // Honor `include_header_in_content`: when disabled, strip the
+            // section's own opening header line(s) from the emitted text
+            // (metadata still carries the breadcrumb path).
+            let body: &str = if self.include_header_in_content {
+                section.content
+            } else {
+                strip_leading_headers(section.content)
+            };
 
-            if section.content.len() <= self.chunk_size {
-                let trimmed = section.content.trim();
+            if body.len() <= self.chunk_size {
+                let trimmed = body.trim();
                 if !trimmed.is_empty() {
                     let mut metadata = HashMap::new();
                     metadata.insert("length".to_string(), Value::from(trimmed.len()));
@@ -195,7 +229,7 @@ impl Chunker for MarkdownChunker {
                 }
             } else {
                 // Sub-split oversized section
-                let sub_docs = self.sub_chunker.chunk(section.content)?;
+                let sub_docs = self.sub_chunker.chunk(body)?;
                 for sub_doc in sub_docs {
                     let mut metadata = HashMap::new();
                     metadata.insert("length".to_string(), Value::from(sub_doc.content.len()));

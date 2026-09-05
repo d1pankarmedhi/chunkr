@@ -257,6 +257,16 @@ impl Chunker for PropositionChunker {
         if text.trim().is_empty() {
             return Err(ChunkrError::EmptyInput);
         }
+        // Guard against post-construction mutation of the public fields.
+        if self.propositions_per_chunk == 0 {
+            return Err(ChunkrError::InvalidChunkSize(0));
+        }
+        if self.proposition_overlap >= self.propositions_per_chunk {
+            return Err(ChunkrError::InvalidOverlap {
+                chunk_size: self.propositions_per_chunk,
+                overlap: self.proposition_overlap,
+            });
+        }
 
         let sentences = SentenceChunker::split_sentences(text);
         let mut all_propositions = Vec::new();

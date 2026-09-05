@@ -13,6 +13,34 @@ const KNOWN_ABBREVIATIONS: &[&str] = &[
     "nov.", "dec.", "dept.", "approx.", "est.", "fig.", "al.", "no.", "vol.", "pp.",
 ];
 
+/// Check whether the word ending at the current period is a known abbreviation.
+///
+/// Only inspects the last whitespace-delimited token (bounded work) and
+/// compares case-insensitively without allocating a lowercased `String`.
+/// The old code ran `prefix.split_whitespace().last()` + `to_lowercase()`
+/// over the *entire* text before the period on every `.` — O(n²) total with
+/// an allocation per candidate boundary.
+fn is_abbreviation_token(text_before_period_incl: &str) -> bool {
+    // Find start of the last token: scan back over non-whitespace bytes.
+    let bytes = text_before_period_incl.as_bytes();
+    let mut tok_start = bytes.len();
+    while tok_start > 0 {
+        let b = bytes[tok_start - 1];
+        if b == b' ' || b == b'\n' || b == b'\r' || b == b'\t' {
+            break;
+        }
+        tok_start -= 1;
+    }
+    // Bound the scan: abbreviations are short; a very long token can't match.
+    if bytes.len() - tok_start > 16 {
+        return false;
+    }
+    let token = &text_before_period_incl[tok_start..];
+    KNOWN_ABBREVIATIONS
+        .iter()
+        .any(|abbr| token.eq_ignore_ascii_case(abbr))
+}
+
 /// Splits text into chunks by sentences while preserving abbreviations, decimals, and quotes.
 #[derive(Debug, Clone)]
 pub struct SentenceChunker {
@@ -95,13 +123,7 @@ impl SentenceChunker {
                     // Check if preceding token is an abbreviation (e.g. "Dr.", "e.g.")
                     if b == b'.' {
                         let prefix = &text[start..=i];
-                        let last_word = prefix
-                            .split_whitespace()
-                            .last()
-                            .unwrap_or("")
-                            .to_lowercase();
-
-                        if KNOWN_ABBREVIATIONS.contains(&last_word.as_str()) {
+                        if is_abbreviation_token(prefix) {
                             i += 1;
                             continue;
                         }
