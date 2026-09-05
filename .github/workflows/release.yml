@@ -39,7 +39,7 @@ env:
   TAG_NAME: ${{ github.ref_name }}
 
 jobs:
-  # ── 0. Gate: tag ↔ manifests ↔ changelog must agree ─────────────────────
+  # ── 0. Gate: (tag) ↔ manifests ↔ changelog must agree ───────────────────
   validate:
     name: Validate release
     runs-on: ubuntu-latest
@@ -53,26 +53,34 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-      - name: Tag must be annotated (carries title + notes)
+      # On a tag push github.ref_name IS the tag; on workflow_dispatch it is
+      # the branch (e.g. main), so the annotated-tag rule must only apply to
+      # tag-triggered runs. Manual dispatch validates manifests + changelog
+      # against the manifest version instead.
+      - name: Determine expected version + prerelease flag
+        id: v
+        run: |
+          CARGO_V=$(grep '^version' Cargo.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          PY_V=$(grep '^version' pyproject.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          WASM_V=$(grep '"version"' wasm/package.json | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "cargo=$CARGO_V py=$PY_V wasm=$WASM_V"
+          [ "$CARGO_V" = "$PY_V" ]   || { echo "::error::Manifest drift: Cargo.toml=$CARGO_V pyproject.toml=$PY_V"; exit 1; }
+          [ "$CARGO_V" = "$WASM_V" ] || { echo "::error::Manifest drift: Cargo.toml=$CARGO_V wasm/package.json=$WASM_V"; exit 1; }
+          echo "version=$CARGO_V" >> "$GITHUB_OUTPUT"
+          case "$CARGO_V" in *-* ) echo "is_prerelease=true" >> "$GITHUB_OUTPUT";; *) echo "is_prerelease=false" >> "$GITHUB_OUTPUT";; esac
+      - name: Tag must be annotated and match manifests (tag push only)
+        if: github.event_name == 'push'
+        env:
+          TAG_NAME: ${{ github.ref_name }}
         run: |
           TYPE=$(git cat-file -t "$TAG_NAME")
           if [ "$TYPE" != "tag" ]; then
             echo "::error::Tag $TAG_NAME is lightweight ($TYPE). Re-create it annotated: git tag -a $TAG_NAME -m \"...\""
             exit 1
           fi
-      - id: v
-        name: Tag version == Cargo.toml == pyproject.toml == wasm/package.json
-        run: |
           TAG_V="${TAG_NAME#v}"
-          CARGO_V=$(grep '^version' Cargo.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
-          PY_V=$(grep '^version' pyproject.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
-          WASM_V=$(grep '"version"' wasm/package.json | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
-          echo "tag=$TAG_V cargo=$CARGO_V py=$PY_V wasm=$WASM_V"
-          [ "$TAG_V" = "$CARGO_V" ] || { echo "::error::Tag $TAG_V != Cargo.toml $CARGO_V"; exit 1; }
-          [ "$TAG_V" = "$PY_V" ]    || { echo "::error::Tag $TAG_V != pyproject.toml $PY_V"; exit 1; }
-          [ "$TAG_V" = "$WASM_V" ]  || { echo "::error::Tag $TAG_V != wasm/package.json $WASM_V"; exit 1; }
-          echo "version=$TAG_V" >> "$GITHUB_OUTPUT"
-          case "$TAG_V" in *-* ) echo "is_prerelease=true" >> "$GITHUB_OUTPUT";; *) echo "is_prerelease=false" >> "$GITHUB_OUTPUT";; esac
+          CARGO_V="${{ steps.v.outputs.version }}"
+          [ "$TAG_V" = "$CARGO_V" ] || { echo "::error::Tag $TAG_V != manifests $CARGO_V"; exit 1; }
       - name: CHANGELOG must have an entry for this version
         run: |
           V="${{ steps.v.outputs.version }}"
