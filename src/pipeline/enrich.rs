@@ -53,7 +53,9 @@ impl MetadataEnricher {
         let mut hasher = Sha256::new();
         hasher.update(text.as_bytes());
         let result = hasher.finalize();
-        format!("{:x}", result)
+        // sha2 0.11's output no longer implements LowerHex; format the
+        // digest bytes manually. Output is identical lowercase hex (64 chars).
+        result.iter().map(|b| format!("{:02x}", b)).collect()
     }
 
     /// Enrich a single document

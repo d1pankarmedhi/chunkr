@@ -8,34 +8,35 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString};
+use pyo3::IntoPyObjectExt; // .into_py_any(): pyo3 0.23+ replacement for removed .to_object()
 
 use crate::prelude::*;
 
 fn json_to_py(py: Python, val: &serde_json::Value) -> PyResult<PyObject> {
     match val {
         serde_json::Value::Null => Ok(py.None()),
-        serde_json::Value::Bool(b) => Ok(b.to_object(py)),
+        serde_json::Value::Bool(b) => Ok(b.into_py_any(py)?),
         serde_json::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
-                Ok(i.to_object(py))
+                Ok(i.into_py_any(py)?)
             } else if let Some(u) = n.as_u64() {
-                Ok(u.to_object(py))
+                Ok(u.into_py_any(py)?)
             } else if let Some(f) = n.as_f64() {
-                Ok(f.to_object(py))
+                Ok(f.into_py_any(py)?)
             } else {
                 Ok(py.None())
             }
         }
-        serde_json::Value::String(s) => Ok(s.to_object(py)),
+        serde_json::Value::String(s) => Ok(s.into_py_any(py)?),
         serde_json::Value::Array(arr) => {
-            let list = PyList::empty_bound(py);
+            let list = PyList::empty(py);
             for item in arr {
                 list.append(json_to_py(py, item)?)?;
             }
             Ok(list.into())
         }
         serde_json::Value::Object(map) => {
-            let dict = PyDict::new_bound(py);
+            let dict = PyDict::new(py);
             for (k, v) in map {
                 dict.set_item(k, json_to_py(py, v)?)?;
             }
@@ -111,7 +112,7 @@ impl PyDocument {
 
     #[getter]
     pub fn metadata(&self, py: Python) -> PyResult<PyObject> {
-        let dict = PyDict::new_bound(py);
+        let dict = PyDict::new(py);
         for (k, v) in &self.inner.metadata {
             dict.set_item(k, json_to_py(py, v)?)?;
         }
@@ -119,18 +120,18 @@ impl PyDocument {
     }
 
     pub fn to_dict(&self, py: Python) -> PyResult<PyObject> {
-        let dict = PyDict::new_bound(py);
+        let dict = PyDict::new(py);
         dict.set_item("content", &self.inner.content)?;
         dict.set_item("metadata", self.metadata(py)?)?;
         Ok(dict.into())
     }
 
     pub fn to_langchain(&self, py: Python) -> PyResult<PyObject> {
-        let lc_mod = py.import_bound("langchain_core.documents")
-            .or_else(|_| py.import_bound("langchain.schema"))
+        let lc_mod = py.import("langchain_core.documents")
+            .or_else(|_| py.import("langchain.schema"))
             .map_err(|_| PyValueError::new_err("Could not import langchain_core.documents or langchain.schema. Ensure langchain is installed."))?;
         let doc_cls = lc_mod.getattr("Document")?;
-        let dict = PyDict::new_bound(py);
+        let dict = PyDict::new(py);
         dict.set_item("page_content", &self.inner.content)?;
         dict.set_item("metadata", self.metadata(py)?)?;
         let obj = doc_cls.call((), Some(&dict))?;
@@ -155,15 +156,15 @@ impl PyDocument {
 
     pub fn to_llamaindex(&self, py: Python) -> PyResult<PyObject> {
         let li_mod = py
-            .import_bound("llama_index.core.schema")
-            .or_else(|_| py.import_bound("llama_index.schema"))
+            .import("llama_index.core.schema")
+            .or_else(|_| py.import("llama_index.schema"))
             .map_err(|_| {
                 PyValueError::new_err(
                     "Could not import llama_index.core.schema. Ensure llama-index is installed.",
                 )
             })?;
         let node_cls = li_mod.getattr("TextNode")?;
-        let dict = PyDict::new_bound(py);
+        let dict = PyDict::new(py);
         dict.set_item("text", &self.inner.content)?;
         dict.set_item("metadata", self.metadata(py)?)?;
         let obj = node_cls.call((), Some(&dict))?;
@@ -252,7 +253,7 @@ fn par_chunk_texts_helper<C: Chunker>(
 }
 
 fn node_to_py(py: Python, node: &HierarchyNode) -> PyResult<PyObject> {
-    let dict = PyDict::new_bound(py);
+    let dict = PyDict::new(py);
     dict.set_item("id", &node.id)?;
     if let Some(ref pid) = node.parent_id {
         dict.set_item("parent_id", pid)?;
@@ -264,7 +265,7 @@ fn node_to_py(py: Python, node: &HierarchyNode) -> PyResult<PyObject> {
         "document",
         Py::new(py, PyDocument::from(node.document.clone()))?,
     )?;
-    let children = PyList::empty_bound(py);
+    let children = PyList::empty(py);
     for child in &node.children {
         children.append(node_to_py(py, child)?)?;
     }
@@ -708,11 +709,11 @@ impl PyHierarchicalChunker {
             .inner
             .chunk_hierarchical(text)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
-        let list = PyList::empty_bound(py);
+        let list = PyList::empty(py);
         for pair in pairs {
-            let dict = PyDict::new_bound(py);
+            let dict = PyDict::new(py);
             dict.set_item("parent", Py::new(py, PyDocument::from(pair.parent))?)?;
-            let children = PyList::empty_bound(py);
+            let children = PyList::empty(py);
             for child in pair.children {
                 children.append(Py::new(py, PyDocument::from(child))?)?;
             }
@@ -1596,7 +1597,7 @@ impl PyStreamChunker {
 #[pyfunction]
 #[pyo3(signature = (docs))]
 pub fn to_langchain(py: Python, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<PyObject> {
-    let list = PyList::empty_bound(py);
+    let list = PyList::empty(py);
     for doc in docs {
         list.append(doc.to_langchain(py)?)?;
     }
@@ -1616,7 +1617,7 @@ pub fn from_langchain(docs: &Bound<'_, PyList>) -> PyResult<Vec<PyDocument>> {
 #[pyfunction]
 #[pyo3(signature = (docs))]
 pub fn to_llamaindex(py: Python, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<PyObject> {
-    let list = PyList::empty_bound(py);
+    let list = PyList::empty(py);
     for doc in docs {
         list.append(doc.to_llamaindex(py)?)?;
     }
@@ -1636,7 +1637,7 @@ pub fn from_llamaindex(nodes: &Bound<'_, PyList>) -> PyResult<Vec<PyDocument>> {
 #[pyfunction]
 #[pyo3(signature = (docs))]
 pub fn to_dict_list(py: Python, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<PyObject> {
-    let list = PyList::empty_bound(py);
+    let list = PyList::empty(py);
     for doc in docs {
         list.append(doc.to_dict(py)?)?;
     }
