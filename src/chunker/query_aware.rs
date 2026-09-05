@@ -1,5 +1,5 @@
-use std::collections::{HashMap, HashSet};
 use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 
 use crate::chunker::base::{BaseChunker, Chunker};
 use crate::chunker::sentence::SentenceChunker;
@@ -56,8 +56,16 @@ impl QueryAwareChunker {
         self
     }
 
-    /// Calculate query relevance score and matched terms for a sentence
-    fn score_sentence(&self, sentence: &str, query_terms: &HashSet<String>) -> (f64, Vec<String>) {
+    /// Calculate query relevance score and matched terms for a sentence.
+    ///
+    /// `query_lower` is the lowercased query, hoisted by the caller so it is
+    /// computed once per `chunk()` call instead of once per sentence.
+    fn score_sentence(
+        &self,
+        sentence: &str,
+        query_terms: &HashSet<String>,
+        query_lower: &str,
+    ) -> (f64, Vec<String>) {
         let words: Vec<String> = sentence
             .split_whitespace()
             .map(|w| {
@@ -85,9 +93,12 @@ impl QueryAwareChunker {
         }
 
         // Exact phrase bonus if whole query appears in sentence
-        let query_lower = self.query.to_lowercase();
         let sent_lower = sentence.to_lowercase();
-        let phrase_bonus = if sent_lower.contains(&query_lower) { 0.5 } else { 0.0 };
+        let phrase_bonus = if sent_lower.contains(query_lower) {
+            0.5
+        } else {
+            0.0
+        };
 
         let term_density = match_count as f64 / words.len() as f64;
         let score = (term_density + phrase_bonus).min(1.0);
@@ -100,6 +111,23 @@ impl Chunker for QueryAwareChunker {
     fn chunk(&self, text: &str) -> Result<Vec<Document>, ChunkrError> {
         if text.trim().is_empty() {
             return Err(ChunkrError::EmptyInput);
+        }
+        // Guard against post-construction mutation of the public fields:
+        // a zero window or overlap >= window would underflow `size - overlap`
+        // and spin/hang the loop below.
+        for (size, overlap) in [
+            (self.hotspot_sentences_per_chunk, self.hotspot_overlap),
+            (self.context_sentences_per_chunk, self.context_overlap),
+        ] {
+            if size == 0 {
+                return Err(ChunkrError::InvalidChunkSize(0));
+            }
+            if overlap >= size {
+                return Err(ChunkrError::InvalidOverlap {
+                    chunk_size: size,
+                    overlap,
+                });
+            }
         }
 
         let query_terms: HashSet<String> = self
@@ -118,9 +146,13 @@ impl Chunker for QueryAwareChunker {
             return Err(ChunkrError::EmptyInput);
         }
 
-        let mut scored_sentences: Vec<(&str, f64, Vec<String>)> = Vec::with_capacity(sentences.len());
+        // Lowercase the query once; `score_sentence` is called per sentence.
+        let query_lower = self.query.to_lowercase();
+
+        let mut scored_sentences: Vec<(&str, f64, Vec<String>)> =
+            Vec::with_capacity(sentences.len());
         for &sent in &sentences {
-            let (score, matched) = self.score_sentence(sent, &query_terms);
+            let (score, matched) = self.score_sentence(sent, &query_terms, &query_lower);
             scored_sentences.push((sent, score, matched));
         }
 
@@ -168,9 +200,18 @@ impl Chunker for QueryAwareChunker {
             metadata.insert("chunk_index".to_string(), Value::from(chunk_idx));
             metadata.insert("query".to_string(), Value::from(self.query.clone()));
             metadata.insert("is_hotspot".to_string(), Value::from(is_hotspot));
-            metadata.insert("chunk_type".to_string(), Value::from(if is_hotspot { "hotspot" } else { "context" }));
-            metadata.insert("relevance_score".to_string(), Value::from((max_score * 1000.0).round() / 1000.0));
-            metadata.insert("matched_terms".to_string(), serde_json::to_value(&all_matched_terms).unwrap_or(Value::Null));
+            metadata.insert(
+                "chunk_type".to_string(),
+                Value::from(if is_hotspot { "hotspot" } else { "context" }),
+            );
+            metadata.insert(
+                "relevance_score".to_string(),
+                Value::from((max_score * 1000.0).round() / 1000.0),
+            );
+            metadata.insert(
+                "matched_terms".to_string(),
+                serde_json::to_value(&all_matched_terms).unwrap_or(Value::Null),
+            );
 
             result.push(Document {
                 content: chunk_content,

@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde_json::Value;
+use std::collections::HashMap;
 
 use crate::chunker::base::{BaseChunker, Chunker};
 use crate::error::ChunkrError;
@@ -7,11 +7,39 @@ use crate::structures::document::Document;
 
 /// Known common abbreviations that should NOT trigger sentence boundaries
 const KNOWN_ABBREVIATIONS: &[&str] = &[
-    "mr.", "mrs.", "ms.", "dr.", "prof.", "sr.", "jr.", "vs.", "etc.", "e.g.",
-    "i.e.", "inc.", "corp.", "co.", "ltd.", "u.s.", "u.k.", "u.s.a.", "p.m.", "a.m.",
-    "jan.", "feb.", "mar.", "apr.", "jun.", "jul.", "aug.", "sep.", "sept.", "oct.",
-    "nov.", "dec.", "dept.", "approx.", "est.", "fig.", "al.", "no.", "vol.", "pp.",
+    "mr.", "mrs.", "ms.", "dr.", "prof.", "sr.", "jr.", "vs.", "etc.", "e.g.", "i.e.", "inc.",
+    "corp.", "co.", "ltd.", "u.s.", "u.k.", "u.s.a.", "p.m.", "a.m.", "jan.", "feb.", "mar.",
+    "apr.", "jun.", "jul.", "aug.", "sep.", "sept.", "oct.", "nov.", "dec.", "dept.", "approx.",
+    "est.", "fig.", "al.", "no.", "vol.", "pp.",
 ];
+
+/// Check whether the word ending at the current period is a known abbreviation.
+///
+/// Only inspects the last whitespace-delimited token (bounded work) and
+/// compares case-insensitively without allocating a lowercased `String`.
+/// The old code ran `prefix.split_whitespace().last()` + `to_lowercase()`
+/// over the *entire* text before the period on every `.` — O(n²) total with
+/// an allocation per candidate boundary.
+fn is_abbreviation_token(text_before_period_incl: &str) -> bool {
+    // Find start of the last token: scan back over non-whitespace bytes.
+    let bytes = text_before_period_incl.as_bytes();
+    let mut tok_start = bytes.len();
+    while tok_start > 0 {
+        let b = bytes[tok_start - 1];
+        if b == b' ' || b == b'\n' || b == b'\r' || b == b'\t' {
+            break;
+        }
+        tok_start -= 1;
+    }
+    // Bound the scan: abbreviations are short; a very long token can't match.
+    if bytes.len() - tok_start > 16 {
+        return false;
+    }
+    let token = &text_before_period_incl[tok_start..];
+    KNOWN_ABBREVIATIONS
+        .iter()
+        .any(|abbr| token.eq_ignore_ascii_case(abbr))
+}
 
 /// Splits text into chunks by sentences while preserving abbreviations, decimals, and quotes.
 #[derive(Debug, Clone)]
@@ -50,7 +78,7 @@ impl SentenceChunker {
     }
 
     /// High-precision sentence boundary detector
-    pub fn split_sentences<'a>(text: &'a str) -> Vec<&'a str> {
+    pub fn split_sentences(text: &str) -> Vec<&str> {
         let mut sentences = Vec::new();
         let bytes = text.as_bytes();
         let len = bytes.len();
@@ -66,28 +94,36 @@ impl SentenceChunker {
                 } else {
                     let next_byte = bytes[i + 1];
                     // Followed by whitespace, newline, or quote + whitespace
-                    if next_byte == b' ' || next_byte == b'\n' || next_byte == b'\r' || next_byte == b'\t' {
-                        true
-                    } else if (next_byte == b'"' || next_byte == b'\'' || next_byte == b')' || next_byte == b']')
-                        && (i + 2 >= len || bytes[i + 2] == b' ' || bytes[i + 2] == b'\n' || bytes[i + 2] == b'\r')
-                    {
-                        true
-                    } else {
-                        false
-                    }
+                    next_byte == b' '
+                        || next_byte == b'\n'
+                        || next_byte == b'\r'
+                        || next_byte == b'\t'
+                        || ((next_byte == b'"'
+                            || next_byte == b'\''
+                            || next_byte == b')'
+                            || next_byte == b']')
+                            && (i + 2 >= len
+                                || bytes[i + 2] == b' '
+                                || bytes[i + 2] == b'\n'
+                                || bytes[i + 2] == b'\r'))
                 };
 
                 if is_end {
                     // Check if period is part of decimal number (e.g. 3.14)
-                    if b == b'.' && i > 0 && i + 1 < len {
-                        if bytes[i - 1].is_ascii_digit() && bytes[i + 1].is_ascii_digit() {
-                            i += 1;
-                            continue;
-                        }
+                    if b == b'.'
+                        && i > 0
+                        && i + 1 < len
+                        && bytes[i - 1].is_ascii_digit()
+                        && bytes[i + 1].is_ascii_digit()
+                    {
+                        i += 1;
+                        continue;
                     }
 
                     // Check if period is part of ellipsis (...)
-                    if b == b'.' && (i + 1 < len && bytes[i + 1] == b'.' || (i > 0 && bytes[i - 1] == b'.')) {
+                    if b == b'.'
+                        && (i + 1 < len && bytes[i + 1] == b'.' || (i > 0 && bytes[i - 1] == b'.'))
+                    {
                         i += 1;
                         continue;
                     }
@@ -95,13 +131,7 @@ impl SentenceChunker {
                     // Check if preceding token is an abbreviation (e.g. "Dr.", "e.g.")
                     if b == b'.' {
                         let prefix = &text[start..=i];
-                        let last_word = prefix
-                            .split_whitespace()
-                            .last()
-                            .unwrap_or("")
-                            .to_lowercase();
-
-                        if KNOWN_ABBREVIATIONS.contains(&last_word.as_str()) {
+                        if is_abbreviation_token(prefix) {
                             i += 1;
                             continue;
                         }
@@ -109,7 +139,12 @@ impl SentenceChunker {
 
                     // Determine split end position including trailing quote if present
                     let mut split_end = i + 1;
-                    if split_end < len && (bytes[split_end] == b'"' || bytes[split_end] == b'\'' || bytes[split_end] == b')' || bytes[split_end] == b']') {
+                    if split_end < len
+                        && (bytes[split_end] == b'"'
+                            || bytes[split_end] == b'\''
+                            || bytes[split_end] == b')'
+                            || bytes[split_end] == b']')
+                    {
                         split_end += 1;
                     }
 
@@ -187,15 +222,15 @@ impl Chunker for SentenceChunker {
 
             let mut metadata = HashMap::with_capacity(4);
             metadata.insert("length".to_string(), Value::from(content.len()));
-            metadata.insert("sentence_count".to_string(), Value::from(end_idx - start_idx));
+            metadata.insert(
+                "sentence_count".to_string(),
+                Value::from(end_idx - start_idx),
+            );
             metadata.insert("start_sentence".to_string(), Value::from(start_idx));
             metadata.insert("end_sentence".to_string(), Value::from(end_idx));
             metadata.insert("chunk_index".to_string(), Value::from(chunk_idx));
 
-            result.push(Document {
-                content,
-                metadata,
-            });
+            result.push(Document { content, metadata });
             chunk_idx += 1;
 
             if end_idx == total_sentences {
@@ -249,7 +284,7 @@ impl ParagraphChunker {
         self
     }
 
-    pub fn split_paragraphs<'a>(text: &'a str) -> Vec<&'a str> {
+    pub fn split_paragraphs(text: &str) -> Vec<&str> {
         text.split("\n\n")
             .map(|p| p.trim())
             .filter(|p| !p.is_empty())
@@ -297,15 +332,15 @@ impl Chunker for ParagraphChunker {
 
             let mut metadata = HashMap::with_capacity(4);
             metadata.insert("length".to_string(), Value::from(content.len()));
-            metadata.insert("paragraph_count".to_string(), Value::from(end_idx - start_idx));
+            metadata.insert(
+                "paragraph_count".to_string(),
+                Value::from(end_idx - start_idx),
+            );
             metadata.insert("start_paragraph".to_string(), Value::from(start_idx));
             metadata.insert("end_paragraph".to_string(), Value::from(end_idx));
             metadata.insert("chunk_index".to_string(), Value::from(chunk_idx));
 
-            result.push(Document {
-                content,
-                metadata,
-            });
+            result.push(Document { content, metadata });
             chunk_idx += 1;
 
             if end_idx == total_paragraphs {

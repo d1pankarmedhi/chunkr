@@ -1,0 +1,164 @@
+name: CI
+
+# Fast feedback on every PR and push to long-lived branches.
+# Release publishing lives in release.yml (tag-gated only).
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {} # no default permissions; jobs request what they need
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  # ── 0. Version consistency gate (cheap, fails fast) ──────────────────────
+  version-sync:
+    name: Version sync check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Cargo.toml == pyproject.toml == wasm/package.json
+        run: |
+          CARGO_V=$(grep '^version' Cargo.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          PY_V=$(grep '^version' pyproject.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          WASM_V=$(grep '"version"' wasm/package.json | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "cargo=$CARGO_V pyproject=$PY_V wasm=$WASM_V"
+          if [ "$CARGO_V" != "$PY_V" ] || [ "$CARGO_V" != "$WASM_V" ]; then
+            echo "::error::Version drift: Cargo.toml=$CARGO_V pyproject.toml=$PY_V wasm/package.json=$WASM_V"
+            exit 1
+          fi
+
+  # ── 1. Lint: fmt + clippy (fail fast, blocks everything else) ────────────
+  lint:
+    name: fmt + clippy
+    runs-on: ubuntu-latest
+    needs: [version-sync]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+      - name: cargo clippy (all targets, deny warnings)
+        run: cargo clippy --all-targets --features python -- -D warnings
+      - name: cargo doc (no broken intra-doc links)
+        run: cargo doc --no-deps --features python --document-private-items
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  # ── 2. Rust tests across the three supported OSes ────────────────────────
+  test-rust:
+    name: Rust tests (${{ matrix.os }})
+    needs: [lint]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo test (default features)
+        run: cargo test --locked
+      # NOTE: never `cargo test --features python`. The `python` feature enables
+      # pyo3/extension-module, which deliberately does NOT link libpython
+      # (extension modules resolve _Py* symbols from the host interpreter at
+      # load time). A `cargo test` binary is a real executable, so the macOS
+      # (and Windows) linker fails with undefined _Py* symbols. Python binding
+      # coverage comes from the test-python job (maturin develop + pytest).
+      # `cargo check` never links, so it safely compile-covers the feature.
+      - name: cargo check (python feature, compile only)
+        run: cargo check --locked --all-targets --features python
+      - name: cargo package dry-run (catches missing files before release)
+        run: cargo package --list --allow-dirty
+
+  # ── 3. Python bindings: build dev module + run pytest suite ──────────────
+  test-python:
+    name: Python bindings (3.${{ matrix.python }})
+    needs: [lint]
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["9", "10", "11", "12", "13"]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.${{ matrix.python }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - name: Build dev module + run tests
+        run: |
+          uv venv
+          uv pip install maturin pytest
+          uv run maturin develop --features python
+          uv run pytest tests/test_python_bindings.py -q
+
+  # ── 4. Wasm build + Node smoke test ──────────────────────────────────────
+  test-wasm:
+    name: Wasm build + smoke test
+    needs: [lint]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # wasm-bindgen-cli schema MUST exactly match the wasm-bindgen crate
+      # in Cargo.lock. Derive it dynamically so `cargo update -p wasm-bindgen`
+      # can never silently break this job again.
+      - name: Resolve wasm-bindgen-cli version from Cargo.lock
+        id: wbg
+        run: |
+          V=$(grep -A3 'name = "wasm-bindgen"$' Cargo.lock | grep '^version' | head -1 | cut -d'"' -f2)
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "wasm-bindgen-cli version: $V"
+      - name: Install wasm-bindgen-cli (cached)
+        uses: taiki-e/cache-cargo-install-action@v2
+        with:
+          tool: wasm-bindgen-cli@${{ steps.wbg.outputs.version }}
+      - name: Build Wasm targets
+        run: |
+          chmod +x scripts/build_wasm.sh
+          ./scripts/build_wasm.sh
+      - name: Run Wasm smoke tests
+        run: node tests/test_wasm_smoke.js
+      - name: Verify npm package packs cleanly
+        run: |
+          cd wasm
+          npm pack --dry-run

@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use rayon::prelude::*;
 use serde_json::Value;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use crate::chunker::base::Chunker;
 use crate::chunker::code::{CodeChunker, CodeLanguage};
@@ -93,7 +93,9 @@ impl DirectoryLoader {
         for part in path.components() {
             let name = part.as_os_str().to_string_lossy();
             for ex in &self.excludes {
-                if name.eq_ignore_ascii_case(ex) || (name.starts_with('.') && name != "." && name != "..") {
+                if name.eq_ignore_ascii_case(ex)
+                    || (name.starts_with('.') && name != "." && name != "..")
+                {
                     return true;
                 }
             }
@@ -117,7 +119,10 @@ impl DirectoryLoader {
     /// Recursive directory scan collecting matching file paths
     fn scan_dir(&self, dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), ChunkrError> {
         if !dir.is_dir() {
-            return Err(ChunkrError::IoError(format!("Path is not a directory: {:?}", dir)));
+            return Err(ChunkrError::IoError(format!(
+                "Path is not a directory: {:?}",
+                dir
+            )));
         }
 
         let entries = std::fs::read_dir(dir).map_err(|e| ChunkrError::IoError(e.to_string()))?;
@@ -125,6 +130,15 @@ impl DirectoryLoader {
         for entry in entries {
             let entry = entry.map_err(|e| ChunkrError::IoError(e.to_string()))?;
             let path = entry.path();
+
+            // Skip symlinks entirely: path.is_dir()/is_file() follow links,
+            // so a symlink cycle would otherwise cause unbounded recursion.
+            let file_type = entry
+                .file_type()
+                .map_err(|e| ChunkrError::IoError(format!("{}: {}", path.display(), e)))?;
+            if file_type.is_symlink() {
+                continue;
+            }
 
             if self.should_exclude(&path) {
                 continue;
@@ -161,12 +175,16 @@ impl DirectoryLoader {
             return self.pdf_loader.load_document(path);
         }
 
-        let content = std::fs::read_to_string(path).map_err(|e| ChunkrError::IoError(e.to_string()))?;
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| ChunkrError::IoError(format!("{}: {}", path.display(), e)))?;
         let metadata_fs = std::fs::metadata(path).ok();
         let file_size = metadata_fs.map(|m| m.len()).unwrap_or(0);
 
         let mut metadata = HashMap::new();
-        metadata.insert("file_path".to_string(), Value::from(path.to_string_lossy().to_string()));
+        metadata.insert(
+            "file_path".to_string(),
+            Value::from(path.to_string_lossy().to_string()),
+        );
         if let Some(file_name) = path.file_name().and_then(|f| f.to_str()) {
             metadata.insert("file_name".to_string(), Value::from(file_name));
         }
@@ -188,6 +206,40 @@ impl DirectoryLoader {
         docs
     }
 
+    /// Lenient variant of [`Self::load_files`]: collects per-file successes
+    /// and per-file `(path, error)` failures instead of short-circuiting
+    /// the whole batch on the first bad file.
+    pub fn load_files_lenient<P: AsRef<Path>>(
+        &self,
+        dir: P,
+    ) -> (Vec<Document>, Vec<(PathBuf, ChunkrError)>) {
+        let file_paths = match self.collect_files(dir.as_ref()) {
+            Ok(paths) => paths,
+            Err(e) => {
+                let dir_path = dir.as_ref().to_path_buf();
+                return (Vec::new(), vec![(dir_path, e)]);
+            }
+        };
+
+        let results: Vec<(PathBuf, Result<Document, ChunkrError>)> = file_paths
+            .par_iter()
+            .map(|path| {
+                let result = self.load_single_file(path);
+                (path.clone(), result)
+            })
+            .collect();
+
+        let mut docs = Vec::new();
+        let mut errors = Vec::new();
+        for (path, result) in results {
+            match result {
+                Ok(doc) => docs.push(doc),
+                Err(e) => errors.push((path, e)),
+            }
+        }
+        (docs, errors)
+    }
+
     /// Auto-route and chunk a single file based on its file extension
     fn chunk_single_file(&self, path: &Path) -> Result<Vec<Document>, ChunkrError> {
         let ext = path
@@ -207,10 +259,18 @@ impl DirectoryLoader {
         // Helper to attach file metadata to generated chunks
         let enrich_chunks = |mut chunks: Vec<Document>| -> Vec<Document> {
             for chunk in &mut chunks {
-                chunk.metadata.insert("file_path".to_string(), Value::from(path_str.clone()));
-                chunk.metadata.insert("file_name".to_string(), Value::from(file_name.clone()));
-                chunk.metadata.insert("file_extension".to_string(), Value::from(ext.clone()));
-                chunk.metadata.insert("file_size_bytes".to_string(), Value::from(file_size));
+                chunk
+                    .metadata
+                    .insert("file_path".to_string(), Value::from(path_str.clone()));
+                chunk
+                    .metadata
+                    .insert("file_name".to_string(), Value::from(file_name.clone()));
+                chunk
+                    .metadata
+                    .insert("file_extension".to_string(), Value::from(ext.clone()));
+                chunk
+                    .metadata
+                    .insert("file_size_bytes".to_string(), Value::from(file_size));
             }
             chunks
         };
@@ -224,7 +284,8 @@ impl DirectoryLoader {
             return Ok(enrich_chunks(chunks));
         }
 
-        let content = std::fs::read_to_string(path).map_err(|e| ChunkrError::IoError(e.to_string()))?;
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| ChunkrError::IoError(format!("{}: {}", path.display(), e)))?;
         if content.trim().is_empty() {
             return Ok(Vec::new());
         }
@@ -243,8 +304,7 @@ impl DirectoryLoader {
                 chunker.chunk(&content)?
             }
             "json" => {
-                let chunker = JsonChunker::new()
-                    .with_max_chunk_size(self.chunk_size);
+                let chunker = JsonChunker::new().with_max_chunk_size(self.chunk_size);
                 chunker.chunk(&content)?
             }
             "html" | "htm" => {
@@ -306,6 +366,40 @@ impl DirectoryLoader {
             .collect();
 
         Ok(chunk_results?.into_iter().flatten().collect())
+    }
+
+    /// Lenient variant of [`Self::load_and_chunk`]: collects per-file chunk
+    /// successes and per-file `(path, error)` failures instead of
+    /// short-circuiting the whole batch on the first bad file.
+    pub fn load_and_chunk_lenient<P: AsRef<Path>>(
+        &self,
+        dir: P,
+    ) -> (Vec<Document>, Vec<(PathBuf, ChunkrError)>) {
+        let file_paths = match self.collect_files(dir.as_ref()) {
+            Ok(paths) => paths,
+            Err(e) => {
+                let dir_path = dir.as_ref().to_path_buf();
+                return (Vec::new(), vec![(dir_path, e)]);
+            }
+        };
+
+        let results: Vec<(PathBuf, Result<Vec<Document>, ChunkrError>)> = file_paths
+            .par_iter()
+            .map(|path| {
+                let result = self.chunk_single_file(path);
+                (path.clone(), result)
+            })
+            .collect();
+
+        let mut docs = Vec::new();
+        let mut errors = Vec::new();
+        for (path, result) in results {
+            match result {
+                Ok(chunks) => docs.extend(chunks),
+                Err(e) => errors.push((path, e)),
+            }
+        }
+        (docs, errors)
     }
 }
 

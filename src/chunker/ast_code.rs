@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde_json::Value;
+use std::collections::HashMap;
 use tree_sitter::{Node, Parser};
 
 use crate::chunker::base::{BaseChunker, Chunker};
@@ -222,7 +222,8 @@ impl Chunker for AstCodeChunker {
                     let sub_chunks = self.sub_chunker.chunk(node_text)?;
                     for sub in sub_chunks {
                         let mut metadata = sub.metadata;
-                        metadata.insert("language".to_string(), Value::from(self.language.as_str()));
+                        metadata
+                            .insert("language".to_string(), Value::from(self.language.as_str()));
                         metadata.insert("node_type".to_string(), Value::from(node_type));
                         if let Some(ref name) = node_name {
                             metadata.insert("node_name".to_string(), Value::from(name.clone()));
@@ -276,6 +277,7 @@ impl BaseChunker<Result<Vec<Document>, String>> for AstCodeChunker {
     ) -> Result<Vec<Document>, String> {
         let mut cloned = self.clone();
         cloned.max_chunk_size = chunk_size;
+        cloned.sub_chunker = cloned.sub_chunker.with_chunk_size(chunk_size);
         cloned.chunk(text).map_err(|e| e.to_string())
     }
 }

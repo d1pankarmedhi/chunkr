@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use std::path::Path;
 use lopdf::Document as LopdfDoc;
 use serde_json::Value;
+use std::collections::HashMap;
+use std::path::Path;
 
 use super::base::BaseLoader;
 use crate::error::ChunkrError;
@@ -38,9 +38,15 @@ impl PDFLoader {
         let total_pages = doc.get_pages().len();
 
         let mut metadata = HashMap::new();
-        metadata.insert("source".to_string(), Value::from(path_ref.to_string_lossy().to_string()));
+        metadata.insert(
+            "source".to_string(),
+            Value::from(path_ref.to_string_lossy().to_string()),
+        );
         if let Some(file_name) = path_ref.file_name() {
-            metadata.insert("file_name".to_string(), Value::from(file_name.to_string_lossy().to_string()));
+            metadata.insert(
+                "file_name".to_string(),
+                Value::from(file_name.to_string_lossy().to_string()),
+            );
         }
         metadata.insert("total_pages".to_string(), Value::from(total_pages));
 
@@ -60,11 +66,16 @@ impl PDFLoader {
     }
 
     /// Load each page of a PDF file as an individual `Document` with page number and source metadata.
-    pub fn load_pages_from_file<P: AsRef<Path>>(&self, path: P) -> Result<Vec<Document>, ChunkrError> {
+    pub fn load_pages_from_file<P: AsRef<Path>>(
+        &self,
+        path: P,
+    ) -> Result<Vec<Document>, ChunkrError> {
         let path_ref = path.as_ref();
         let doc = LopdfDoc::load(path_ref)?;
         let source_str = path_ref.to_string_lossy().to_string();
-        let file_name_str = path_ref.file_name().map(|f| f.to_string_lossy().to_string());
+        let file_name_str = path_ref
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string());
         Self::extract_pages(&doc, Some(&source_str), file_name_str.as_deref())
     }
 
@@ -78,7 +89,7 @@ impl PDFLoader {
     fn extract_all_text(doc: &LopdfDoc) -> Result<String, ChunkrError> {
         let pages = doc.get_pages();
         let mut content = String::new();
-        for (&page_num, _) in pages.iter() {
+        for &page_num in pages.keys() {
             if let Ok(text) = doc.extract_text(&[page_num]) {
                 if !content.is_empty() && !content.ends_with('\n') {
                     content.push('\n');
@@ -99,7 +110,7 @@ impl PDFLoader {
         let total_pages = pages.len();
         let mut result = Vec::with_capacity(total_pages);
 
-        for (&page_num, _) in pages.iter() {
+        for &page_num in pages.keys() {
             let page_text = doc.extract_text(&[page_num]).unwrap_or_default();
             let mut metadata = HashMap::new();
             metadata.insert("page_number".to_string(), Value::from(page_num));

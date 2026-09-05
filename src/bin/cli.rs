@@ -88,10 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 1. If Strategy::Dir, run directory loader directly
     let mut chunks = if cli.strategy == Strategy::Dir {
-        let dir_path = cli
-            .input
-            .as_deref()
-            .unwrap_or(".");
+        let dir_path = cli.input.as_deref().unwrap_or(".");
         let loader = DirectoryLoader::new()
             .with_chunk_size(cli.chunk_size)
             .with_overlap(cli.overlap);
@@ -102,11 +99,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some("-") | None => {
                 let stdin = io::stdin();
                 let handle = stdin.lock();
-                streamer.chunk_reader(handle).collect::<Result<Vec<_>, _>>()?
+                streamer
+                    .chunk_reader(handle)
+                    .collect::<Result<Vec<_>, _>>()?
             }
-            Some(path) => {
-                streamer.chunk_file(path)?.collect::<Result<Vec<_>, _>>()?
-            }
+            Some(path) => streamer.chunk_file(path)?.collect::<Result<Vec<_>, _>>()?,
         }
     } else {
         // Read text from file or STDIN
@@ -144,19 +141,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 chunker.chunk(&raw_text)?
             }
             Strategy::Token => {
-                let chunker = TokenChunker::with_encoding(cli.chunk_size, cli.overlap, TokenEncoding::Cl100kBase)?;
+                let chunker = TokenChunker::with_encoding(
+                    cli.chunk_size,
+                    cli.overlap,
+                    TokenEncoding::Cl100kBase,
+                )?;
                 chunker.chunk(&raw_text)?
             }
             Strategy::Sentence => {
+                // SentenceChunker defaults to sentences_per_chunk=3 and rejects
+                // overlap >= count, so clamp strictly below 3 (was .min(3),
+                // which made even default flags fail with InvalidOverlap).
                 let chunker = SentenceChunker::new()
                     .with_max_characters(cli.chunk_size)
-                    .with_sentence_overlap(cli.overlap.min(3));
+                    .with_sentence_overlap(cli.overlap.min(2));
                 chunker.chunk(&raw_text)?
             }
             Strategy::Paragraph => {
+                let ppc = (cli.chunk_size / 200).max(1);
+                // Overlap must stay strictly below the paragraph count.
                 let chunker = ParagraphChunker::new()
-                    .with_paragraphs_per_chunk((cli.chunk_size / 200).max(1))
-                    .with_paragraph_overlap(cli.overlap.min(1));
+                    .with_paragraphs_per_chunk(ppc)
+                    .with_paragraph_overlap(cli.overlap.min(ppc.saturating_sub(1)));
                 chunker.chunk(&raw_text)?
             }
             Strategy::Markdown => {
@@ -172,8 +178,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 chunker.chunk(&raw_text)?
             }
             Strategy::Json => {
-                let chunker = JsonChunker::new()
-                    .with_max_chunk_size(cli.chunk_size);
+                let chunker = JsonChunker::new().with_max_chunk_size(cli.chunk_size);
                 chunker.chunk(&raw_text)?
             }
             Strategy::Html => {

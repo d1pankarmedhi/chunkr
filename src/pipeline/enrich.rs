@@ -63,7 +63,9 @@ impl MetadataEnricher {
 
         if self.compute_hash {
             let hash = Self::compute_sha256(text);
-            enriched.metadata.insert("chunk_hash".to_string(), Value::from(hash));
+            enriched
+                .metadata
+                .insert("chunk_hash".to_string(), Value::from(hash));
         }
 
         if self.compute_metrics {
@@ -73,16 +75,27 @@ impl MetadataEnricher {
             // Average adult reading speed: ~200 words per minute (approx 3.3 words/sec)
             let reading_time_secs = ((word_count as f32 / 200.0) * 60.0).round() as u64;
 
-            enriched.metadata.insert("char_count".to_string(), Value::from(char_count));
-            enriched.metadata.insert("word_count".to_string(), Value::from(word_count));
-            enriched.metadata.insert("line_count".to_string(), Value::from(line_count));
-            enriched.metadata.insert("reading_time_secs".to_string(), Value::from(reading_time_secs));
+            enriched
+                .metadata
+                .insert("char_count".to_string(), Value::from(char_count));
+            enriched
+                .metadata
+                .insert("word_count".to_string(), Value::from(word_count));
+            enriched
+                .metadata
+                .insert("line_count".to_string(), Value::from(line_count));
+            enriched.metadata.insert(
+                "reading_time_secs".to_string(),
+                Value::from(reading_time_secs),
+            );
         }
 
         if self.add_chunk_id {
             let prefix = self.id_prefix.as_deref().unwrap_or("chunk_");
             let chunk_id = format!("{}{}", prefix, index);
-            enriched.metadata.insert("chunk_id".to_string(), Value::from(chunk_id));
+            enriched
+                .metadata
+                .insert("chunk_id".to_string(), Value::from(chunk_id));
         }
 
         enriched

@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-use serde_json::Value;
 use memchr::memmem;
+use serde_json::Value;
+use std::collections::HashMap;
 
 use crate::chunker::base::{BaseChunker, Chunker};
 use crate::error::ChunkrError;
@@ -69,13 +69,20 @@ impl RecursiveChunker {
     }
 
     /// Recursively split text given a list of separator candidates directly into a buffer
-    fn split_recursive_into<'a>(&self, text: &'a str, separators: &[String], out: &mut Vec<&'a str>) {
+    fn split_recursive_into<'a>(
+        &self,
+        text: &'a str,
+        separators: &[String],
+        out: &mut Vec<&'a str>,
+    ) {
         if text.len() <= self.chunk_size {
             out.push(text);
             return;
         }
 
-        // Find the first matching separator in the priority list
+        // Find the first matching separator in the priority list.
+        // NOTE: a single `Finder::find` probe per candidate avoids the extra
+        // full-text scan that `str::contains` + `find_iter` would perform.
         let mut chosen_sep = None;
         let mut remaining_seps = &[][..];
 
@@ -85,7 +92,8 @@ impl RecursiveChunker {
                 remaining_seps = &[];
                 break;
             }
-            if text.contains(sep.as_str()) {
+            let finder = memmem::Finder::new(sep.as_bytes());
+            if finder.find(text.as_bytes()).is_some() {
                 chosen_sep = Some(sep.as_str());
                 remaining_seps = &separators[i + 1..];
                 break;
@@ -160,22 +168,48 @@ impl RecursiveChunker {
         result
     }
 
-    /// Fallback char indices splitter
+    /// Fallback char-boundary splitter.
+    ///
+    /// Streams over `char_indices` without collecting the whole index table
+    /// first (the old version allocated a `Vec` of one entry per char — i.e.
+    /// ~16 bytes/char of temporary memory on large inputs).
     fn split_by_char_indices_into<'a>(&self, text: &'a str, out: &mut Vec<&'a str>) {
-        let char_indices: Vec<(usize, char)> = text.char_indices().collect();
-        let total_chars = char_indices.len();
-        let mut start_char = 0;
+        if text.is_empty() {
+            return;
+        }
+        // Byte offsets at which each chunk starts.
+        let mut chunk_starts: Vec<usize> = Vec::new();
+        chunk_starts.push(0);
+        let mut chars_in_chunk = 0usize;
 
-        while start_char < total_chars {
-            let end_char = (start_char + self.chunk_size).min(total_chars);
-            let start_byte = char_indices[start_char].0;
-            let end_byte = if end_char < total_chars {
-                char_indices[end_char].0
+        for (byte_idx, _) in text.char_indices() {
+            chars_in_chunk += 1;
+            if chars_in_chunk == self.chunk_size {
+                // Next chunk starts at the following char boundary.
+                let next_start = text[byte_idx..]
+                    .char_indices()
+                    .nth(1)
+                    .map(|(off, _)| byte_idx + off)
+                    .unwrap_or(text.len());
+                chunk_starts.push(next_start);
+                chars_in_chunk = 0;
+            }
+        }
+
+        if chunk_starts.len() == 1 {
+            out.push(text);
+            return;
+        }
+
+        for (i, &start) in chunk_starts.iter().enumerate() {
+            let end = if i + 1 < chunk_starts.len() {
+                chunk_starts[i + 1]
             } else {
                 text.len()
             };
-            out.push(&text[start_byte..end_byte]);
-            start_char = end_char;
+            if start < end {
+                out.push(&text[start..end]);
+            }
         }
     }
 
@@ -196,8 +230,8 @@ impl RecursiveChunker {
 
             if current_len + p_len > self.chunk_size && i > start_idx {
                 let mut joined = String::with_capacity(current_len);
-                for j in start_idx..i {
-                    joined.push_str(splits[j]);
+                for s in &splits[start_idx..i] {
+                    joined.push_str(s);
                 }
                 let trimmed = joined.trim();
                 if !trimmed.is_empty() {
@@ -220,8 +254,8 @@ impl RecursiveChunker {
 
         if start_idx < n {
             let mut joined = String::with_capacity(current_len);
-            for j in start_idx..n {
-                joined.push_str(splits[j]);
+            for s in &splits[start_idx..n] {
+                joined.push_str(s);
             }
             let trimmed = joined.trim();
             if !trimmed.is_empty() {
@@ -264,10 +298,7 @@ impl Chunker for RecursiveChunker {
             metadata.insert("length".to_string(), Value::from(content.len()));
             metadata.insert("chunk_index".to_string(), Value::from(chunk_idx));
 
-            result.push(Document {
-                content,
-                metadata,
-            });
+            result.push(Document { content, metadata });
         }
 
         Ok(result)

@@ -49,28 +49,44 @@ impl ChunkPipeline {
 
     /// Filter chunks by minimum character count
     pub fn filter_min_characters(mut self, min_chars: usize) -> Self {
-        let f = self.filter.take().unwrap_or_default().with_min_characters(min_chars);
+        let f = self
+            .filter
+            .take()
+            .unwrap_or_default()
+            .with_min_characters(min_chars);
         self.filter = Some(f);
         self
     }
 
     /// Filter chunks by maximum character count
     pub fn filter_max_characters(mut self, max_chars: usize) -> Self {
-        let f = self.filter.take().unwrap_or_default().with_max_characters(max_chars);
+        let f = self
+            .filter
+            .take()
+            .unwrap_or_default()
+            .with_max_characters(max_chars);
         self.filter = Some(f);
         self
     }
 
     /// Filter chunks by minimum word count
     pub fn filter_min_words(mut self, min_words: usize) -> Self {
-        let f = self.filter.take().unwrap_or_default().with_min_words(min_words);
+        let f = self
+            .filter
+            .take()
+            .unwrap_or_default()
+            .with_min_words(min_words);
         self.filter = Some(f);
         self
     }
 
     /// Filter chunks by minimum alphanumeric ratio (e.g. 0.5 for 50% letters/digits)
     pub fn filter_min_alpha_ratio(mut self, ratio: f32) -> Self {
-        let f = self.filter.take().unwrap_or_default().with_min_alpha_ratio(ratio);
+        let f = self
+            .filter
+            .take()
+            .unwrap_or_default()
+            .with_min_alpha_ratio(ratio);
         self.filter = Some(f);
         self
     }
@@ -114,7 +130,11 @@ impl ChunkPipeline {
 
     /// Set chunk ID prefix for metadata enrichment
     pub fn with_id_prefix(mut self, prefix: impl Into<String>) -> Self {
-        let e = self.enricher.take().unwrap_or_default().with_id_prefix(prefix);
+        let e = self
+            .enricher
+            .take()
+            .unwrap_or_default()
+            .with_id_prefix(prefix);
         self.enricher = Some(e);
         self
     }

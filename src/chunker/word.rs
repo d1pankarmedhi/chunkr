@@ -34,7 +34,11 @@ impl WordChunker {
     }
 
     /// Helper to split text by word count
-    pub fn split_text(text: &str, chunk_size: usize, overlap: usize) -> Result<Vec<Document>, ChunkrError> {
+    pub fn split_text(
+        text: &str,
+        chunk_size: usize,
+        overlap: usize,
+    ) -> Result<Vec<Document>, ChunkrError> {
         if text.trim().is_empty() {
             return Err(ChunkrError::EmptyInput);
         }
@@ -42,7 +46,10 @@ impl WordChunker {
             return Err(ChunkrError::InvalidChunkSize(0));
         }
         if overlap >= chunk_size {
-            return Err(ChunkrError::InvalidOverlap { chunk_size, overlap });
+            return Err(ChunkrError::InvalidOverlap {
+                chunk_size,
+                overlap,
+            });
         }
 
         let words: Vec<&str> = text.split_whitespace().collect();

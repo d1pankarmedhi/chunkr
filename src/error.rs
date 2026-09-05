@@ -8,7 +8,9 @@ pub enum ChunkrError {
     #[error("Invalid chunk size: {0} (must be > 0)")]
     InvalidChunkSize(usize),
 
-    #[error("Invalid chunk overlap: {overlap} (must be strictly less than chunk_size {chunk_size})")]
+    #[error(
+        "Invalid chunk overlap: {overlap} (must be strictly less than chunk_size {chunk_size})"
+    )]
     InvalidOverlap { chunk_size: usize, overlap: usize },
 
     #[error("Tokenizer error: {0}")]

@@ -68,10 +68,56 @@ impl Default for HtmlChunker {
 
 impl Chunker for HtmlChunker {
     fn chunk(&self, text: &str) -> Result<Vec<Document>, ChunkrError> {
-        let mut docs = self.recursive_chunker.chunk(text)?;
-        for doc in &mut docs {
-            doc.add_metadata("format", Value::from("html"));
+        // Tag separators are lowercase-only, so chunk an ASCII-lowercased
+        // copy when the text contains uppercase and map the chunks back to
+        // the original text. `to_ascii_lowercase` preserves byte length and
+        // leaves non-ASCII bytes untouched, so byte indices located in the
+        // lowered copy are valid char boundaries in the original.
+        if !text.bytes().any(|b| b.is_ascii_uppercase()) {
+            let mut docs = self.recursive_chunker.chunk(text)?;
+            for doc in &mut docs {
+                doc.add_metadata("format", Value::from("html"));
+            }
+            return Ok(docs);
         }
+
+        let lowered = text.to_ascii_lowercase();
+        let lowered_docs = self.recursive_chunker.chunk(&lowered)?;
+        let mut docs = Vec::with_capacity(lowered_docs.len());
+        // Byte offset just past the previous chunk's start; chunks are
+        // emitted in document order, so each later chunk starts strictly
+        // after the previous chunk's start.
+        let mut search_pos = 0usize;
+        let mut first = true;
+
+        for mut doc in lowered_docs {
+            let content_len = doc.content.len();
+            let start = if first {
+                lowered.find(doc.content.as_str())
+            } else {
+                lowered[search_pos..]
+                    .find(doc.content.as_str())
+                    .map(|rel| rel + search_pos)
+                    .or_else(|| lowered.find(doc.content.as_str()))
+            };
+
+            if let Some(start) = start {
+                let end = start + content_len;
+                doc.content = text[start..end].to_string();
+                // Advance past the previous start, snapped to a boundary
+                // (start + 1 may land inside a multibyte char).
+                let mut next = start + 1;
+                while next < lowered.len() && !lowered.is_char_boundary(next) {
+                    next += 1;
+                }
+                search_pos = next;
+            }
+            first = false;
+
+            doc.add_metadata("format", Value::from("html"));
+            docs.push(doc);
+        }
+
         Ok(docs)
     }
 }

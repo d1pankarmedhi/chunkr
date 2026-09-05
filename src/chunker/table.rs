@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde_json::Value;
+use std::collections::HashMap;
 
 use crate::chunker::base::{BaseChunker, Chunker};
 use crate::chunker::recursive::RecursiveChunker;
@@ -89,7 +89,11 @@ impl TableChunker {
 
     /// Helper to detect table format from text content
     fn detect_format(text: &str) -> TableFormat {
-        let lines: Vec<&str> = text.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+        let lines: Vec<&str> = text
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .collect();
         if lines.is_empty() {
             return TableFormat::Markdown;
         }
@@ -101,14 +105,15 @@ impl TableChunker {
             }
         }
 
-        // Check for TSV or CSV in first non-empty line
+        // Check for TSV or CSV in first non-empty line. Field counts are
+        // quote-aware so delimiters inside "quoted" fields do not count.
         let first = lines[0];
-        let tab_count = first.matches('\t').count();
-        let comma_count = first.matches(',').count();
+        let tab_fields = split_quoted_fields(first, '\t').len();
+        let comma_fields = split_quoted_fields(first, ',').len();
 
-        if tab_count > 0 && tab_count >= comma_count {
+        if tab_fields > 1 && tab_fields >= comma_fields {
             TableFormat::Tsv
-        } else if comma_count > 0 {
+        } else if comma_fields > 1 {
             TableFormat::Csv
         } else {
             TableFormat::Markdown
@@ -152,12 +157,52 @@ fn parse_markdown_columns(header_line: &str) -> Vec<String> {
         .collect()
 }
 
+/// Split one CSV/TSV line into fields, respecting double-quoted fields.
+///
+/// A `"` toggles quoted mode; inside quotes the delimiter is literal and
+/// `""` is an escaped quote. Each field is then trimmed and stripped of
+/// one layer of surrounding quotes, matching the previous trimming behavior.
+fn split_quoted_fields(line: &str, delimiter: char) -> Vec<String> {
+    let mut fields = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut chars = line.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '"' {
+            if in_quotes && chars.peek() == Some(&'"') {
+                // Escaped quote inside a quoted field.
+                current.push('"');
+                chars.next();
+            } else {
+                in_quotes = !in_quotes;
+                current.push(ch);
+            }
+        } else if ch == delimiter && !in_quotes {
+            fields.push(current);
+            current = String::new();
+        } else {
+            current.push(ch);
+        }
+    }
+    fields.push(current);
+
+    fields
+        .into_iter()
+        .map(|f| {
+            let trimmed = f.trim();
+            trimmed
+                .strip_prefix('"')
+                .and_then(|s| s.strip_suffix('"'))
+                .unwrap_or(trimmed)
+                .replace("\"\"", "\"")
+        })
+        .collect()
+}
+
 /// Parse column names from a CSV or TSV header row
 fn parse_delimited_columns(header_line: &str, delimiter: char) -> Vec<String> {
-    header_line
-        .split(delimiter)
-        .map(|col| col.trim().trim_matches('"').to_string())
-        .collect()
+    split_quoted_fields(header_line, delimiter)
 }
 
 #[derive(Debug)]
@@ -186,7 +231,10 @@ impl TableChunker {
             let mut metadata = HashMap::new();
             metadata.insert("is_table".to_string(), Value::from(true));
             metadata.insert("format".to_string(), Value::from("markdown"));
-            metadata.insert("columns".to_string(), serde_json::to_value(&columns).unwrap_or(Value::Null));
+            metadata.insert(
+                "columns".to_string(),
+                serde_json::to_value(&columns).unwrap_or(Value::Null),
+            );
             metadata.insert("start_row".to_string(), Value::from(0));
             metadata.insert("end_row".to_string(), Value::from(0));
             metadata.insert("total_rows".to_string(), Value::from(0));
@@ -232,7 +280,10 @@ impl TableChunker {
             let mut metadata = HashMap::new();
             metadata.insert("is_table".to_string(), Value::from(true));
             metadata.insert("format".to_string(), Value::from("markdown"));
-            metadata.insert("columns".to_string(), serde_json::to_value(&columns).unwrap_or(Value::Null));
+            metadata.insert(
+                "columns".to_string(),
+                serde_json::to_value(&columns).unwrap_or(Value::Null),
+            );
             metadata.insert("start_row".to_string(), Value::from(start_row_num));
             metadata.insert("end_row".to_string(), Value::from(end_row_num));
             metadata.insert("total_rows".to_string(), Value::from(total_rows));
@@ -265,7 +316,11 @@ impl TableChunker {
         format_str: &'static str,
         global_chunk_idx: &mut usize,
     ) -> Result<Vec<Document>, ChunkrError> {
-        let lines: Vec<&str> = text.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+        let lines: Vec<&str> = text
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .collect();
         if lines.is_empty() {
             return Err(ChunkrError::EmptyInput);
         }
@@ -279,7 +334,10 @@ impl TableChunker {
             let mut metadata = HashMap::new();
             metadata.insert("is_table".to_string(), Value::from(true));
             metadata.insert("format".to_string(), Value::from(format_str));
-            metadata.insert("columns".to_string(), serde_json::to_value(&columns).unwrap_or(Value::Null));
+            metadata.insert(
+                "columns".to_string(),
+                serde_json::to_value(&columns).unwrap_or(Value::Null),
+            );
             metadata.insert("start_row".to_string(), Value::from(0));
             metadata.insert("end_row".to_string(), Value::from(0));
             metadata.insert("total_rows".to_string(), Value::from(0));
@@ -327,7 +385,10 @@ impl TableChunker {
             let mut metadata = HashMap::new();
             metadata.insert("is_table".to_string(), Value::from(true));
             metadata.insert("format".to_string(), Value::from(format_str));
-            metadata.insert("columns".to_string(), serde_json::to_value(&columns).unwrap_or(Value::Null));
+            metadata.insert(
+                "columns".to_string(),
+                serde_json::to_value(&columns).unwrap_or(Value::Null),
+            );
             metadata.insert("start_row".to_string(), Value::from(start_row_num));
             metadata.insert("end_row".to_string(), Value::from(end_row_num));
             metadata.insert("total_rows".to_string(), Value::from(total_rows));
@@ -437,9 +498,7 @@ impl Chunker for TableChunker {
         let mut global_chunk_idx = 0;
 
         match format {
-            TableFormat::Csv => {
-                self.chunk_delimited_table(text, ',', "csv", &mut global_chunk_idx)
-            }
+            TableFormat::Csv => self.chunk_delimited_table(text, ',', "csv", &mut global_chunk_idx),
             TableFormat::Tsv => {
                 self.chunk_delimited_table(text, '\t', "tsv", &mut global_chunk_idx)
             }
@@ -459,7 +518,10 @@ impl Chunker for TableChunker {
                                 let mut metadata = HashMap::new();
                                 metadata.insert("is_table".to_string(), Value::from(false));
                                 metadata.insert("length".to_string(), Value::from(prose.len()));
-                                metadata.insert("chunk_index".to_string(), Value::from(global_chunk_idx));
+                                metadata.insert(
+                                    "chunk_index".to_string(),
+                                    Value::from(global_chunk_idx),
+                                );
                                 global_chunk_idx += 1;
 
                                 result.push(Document {
@@ -471,7 +533,10 @@ impl Chunker for TableChunker {
                                 for sub_doc in sub_docs {
                                     let mut metadata = sub_doc.metadata;
                                     metadata.insert("is_table".to_string(), Value::from(false));
-                                    metadata.insert("chunk_index".to_string(), Value::from(global_chunk_idx));
+                                    metadata.insert(
+                                        "chunk_index".to_string(),
+                                        Value::from(global_chunk_idx),
+                                    );
                                     global_chunk_idx += 1;
 
                                     result.push(Document {

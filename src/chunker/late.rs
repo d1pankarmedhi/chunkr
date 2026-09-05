@@ -1,7 +1,7 @@
-use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 use serde_json::Value;
+use std::sync::Arc;
 use tiktoken_rs::CoreBPE;
 
 use crate::chunker::base::{BaseChunker, Chunker};
@@ -10,11 +10,17 @@ use crate::chunker::token::TokenEncoding;
 use crate::error::ChunkrError;
 use crate::structures::document::Document;
 
+/// A chunked document paired with its exact token span `[token_start, token_end)`.
+pub type ChunkSpans = Vec<(Document, (usize, usize))>;
+
 /// High-performance chunker implementing Late Chunking for LLMs and RAG.
 ///
 /// Late Chunking embeds the entire document first via a transformer encoder to maintain
 /// bidirectional attention across the whole context, then mean-pools token embeddings
 /// over chunk token spans to produce context-rich chunk embeddings.
+///
+/// See [`ChunkSpans`] for the `(document, token-span)` pairs returned by
+/// [`LateChunker::chunk_spans`].
 #[derive(Clone)]
 pub struct LateChunker {
     pub encoding: TokenEncoding,
@@ -71,16 +77,31 @@ impl LateChunker {
         self
     }
 
-    /// Build monotonic byte offset array for every token in the text
+    /// Build monotonic byte offset array for every token in the text.
+    ///
+    /// Single-token `decode` calls are cached by token id: natural text
+    /// reuses a small working vocabulary, so distinct tokens << total
+    /// tokens and repeat decodes (one heap `String` per token) collapse to
+    /// one per distinct id.
     fn build_token_offsets(&self, text: &str) -> (Vec<u32>, Vec<usize>) {
         let tokens = self.bpe.encode_ordinary(text);
         let mut offsets = Vec::with_capacity(tokens.len() + 1);
         offsets.push(0);
 
         let mut current_offset = 0;
+        let mut len_cache: std::collections::HashMap<u32, usize> =
+            std::collections::HashMap::with_capacity(1024);
         for &t in &tokens {
-            let decoded = self.bpe.decode(vec![t]).unwrap_or_default();
-            current_offset += decoded.len();
+            let t_len = match len_cache.get(&t) {
+                Some(&len) => len,
+                None => {
+                    let decoded = self.bpe.decode(&[t]).unwrap_or_default();
+                    let len = decoded.len();
+                    len_cache.insert(t, len);
+                    len
+                }
+            };
+            current_offset += t_len;
             offsets.push(current_offset);
         }
 
@@ -88,7 +109,7 @@ impl LateChunker {
     }
 
     /// Split text and compute exact token span indices [token_start, token_end) for each chunk
-    pub fn chunk_spans(&self, text: &str) -> Result<Vec<(Document, (usize, usize))>, ChunkrError> {
+    pub fn chunk_spans(&self, text: &str) -> Result<ChunkSpans, ChunkrError> {
         if text.trim().is_empty() {
             return Err(ChunkrError::EmptyInput);
         }
@@ -110,19 +131,31 @@ impl LateChunker {
                 continue;
             }
 
-            // Locate chunk content within text
+            // Locate chunk content within text, advancing past the previous
+            // match so repeated/overlapped chunks map to the NEXT occurrence
+            // instead of all collapsing onto the first one. The cursor snaps
+            // forward to a char boundary so the next slice is always valid.
+            let advance_past = |pos: usize| -> usize {
+                let mut next = pos.saturating_add(1);
+                while next < text.len() && !text.is_char_boundary(next) {
+                    next += 1;
+                }
+                next.min(text.len())
+            };
             let (char_start, char_end) = match text[search_pos..].find(content) {
                 Some(rel_idx) => {
                     let start = search_pos + rel_idx;
                     let end = start + content.len();
-                    // Advance search_pos for the next chunk, with room for potential overlap
-                    search_pos = start;
+                    search_pos = advance_past(start);
                     (start, end)
                 }
                 None => {
                     // Fallback search from the beginning if out of order
                     match text.find(content) {
-                        Some(start) => (start, start + content.len()),
+                        Some(start) => {
+                            search_pos = advance_past(start);
+                            (start, start + content.len())
+                        }
                         None => (0, text.len()),
                     }
                 }
@@ -169,8 +202,7 @@ impl LateChunker {
         let dim = token_embeddings[0].len();
         let mut pooled = vec![0.0f32; dim];
 
-        for i in start..end_idx {
-            let vec = &token_embeddings[i];
+        for vec in &token_embeddings[start..end_idx] {
             for (d, val) in vec.iter().enumerate() {
                 if d < dim {
                     pooled[d] += val;
@@ -207,19 +239,19 @@ impl LateChunker {
         let iter = docs.iter();
 
         iter.map(|doc| {
-                let start = doc
-                    .metadata
-                    .get("token_start")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as usize;
-                let end = doc
-                    .metadata
-                    .get("token_end")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as usize;
-                Self::pool_span(token_embeddings, start, end, self.normalize)
-            })
-            .collect()
+            let start = doc
+                .metadata
+                .get("token_start")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize;
+            let end = doc
+                .metadata
+                .get("token_end")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize;
+            Self::pool_span(token_embeddings, start, end, self.normalize)
+        })
+        .collect()
     }
 
     /// Mean-pool full-document token embeddings for an explicit list of (start, end) spans

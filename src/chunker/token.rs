@@ -1,5 +1,6 @@
-use std::collections::HashMap;
 use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::{Arc, OnceLock};
 use tiktoken_rs::{cl100k_base, o200k_base, p50k_base, r50k_base, CoreBPE};
 
 use crate::chunker::base::{BaseChunker, Chunker};
@@ -19,10 +20,18 @@ pub enum TokenEncoding {
 impl TokenEncoding {
     pub fn get_bpe(&self) -> Result<CoreBPE, ChunkrError> {
         match self {
-            TokenEncoding::Cl100kBase => cl100k_base().map_err(|e| ChunkrError::TokenizerError(e.to_string())),
-            TokenEncoding::O200kBase => o200k_base().map_err(|e| ChunkrError::TokenizerError(e.to_string())),
-            TokenEncoding::P50kBase => p50k_base().map_err(|e| ChunkrError::TokenizerError(e.to_string())),
-            TokenEncoding::R50kBase => r50k_base().map_err(|e| ChunkrError::TokenizerError(e.to_string())),
+            TokenEncoding::Cl100kBase => {
+                cl100k_base().map_err(|e| ChunkrError::TokenizerError(e.to_string()))
+            }
+            TokenEncoding::O200kBase => {
+                o200k_base().map_err(|e| ChunkrError::TokenizerError(e.to_string()))
+            }
+            TokenEncoding::P50kBase => {
+                p50k_base().map_err(|e| ChunkrError::TokenizerError(e.to_string()))
+            }
+            TokenEncoding::R50kBase => {
+                r50k_base().map_err(|e| ChunkrError::TokenizerError(e.to_string()))
+            }
         }
     }
 
@@ -36,12 +45,37 @@ impl TokenEncoding {
     }
 }
 
+/// Process-wide cache of fully-built BPE rank tables, one per encoding.
+///
+/// Building a `CoreBPE` from embedded data costs ~86ms, so every
+/// `TokenChunker` construction shares these instead of rebuilding them.
+/// `CoreBPE` is `Send + Sync` (and already held behind `Arc` in
+/// `TokenChunker`), so handing out cloned `Arc`s is safe.
+static CL100K_BPE: OnceLock<Arc<CoreBPE>> = OnceLock::new();
+static O200K_BPE: OnceLock<Arc<CoreBPE>> = OnceLock::new();
+static P50K_BPE: OnceLock<Arc<CoreBPE>> = OnceLock::new();
+static R50K_BPE: OnceLock<Arc<CoreBPE>> = OnceLock::new();
+
+/// Return a shared handle to the cached BPE tables for `encoding`.
+fn shared_bpe(encoding: TokenEncoding) -> Result<Arc<CoreBPE>, ChunkrError> {
+    let cell = match encoding {
+        TokenEncoding::Cl100kBase => &CL100K_BPE,
+        TokenEncoding::O200kBase => &O200K_BPE,
+        TokenEncoding::P50kBase => &P50K_BPE,
+        TokenEncoding::R50kBase => &R50K_BPE,
+    };
+    // `get_or_init` cannot return `Result`, so a failed build panics here.
+    // The embedded tables are compile-time data and must always parse.
+    let bpe = cell.get_or_init(|| Arc::new(encoding.get_bpe().expect("embedded BPE valid")));
+    Ok(Arc::clone(bpe))
+}
+
 /// Splits text into chunks by token count using fast BPE tokenizers.
 pub struct TokenChunker {
     pub chunk_size: usize,
     pub overlap: usize,
     pub encoding: TokenEncoding,
-    bpe: CoreBPE,
+    bpe: Arc<CoreBPE>,
 }
 
 impl std::fmt::Debug for TokenChunker {
@@ -56,8 +90,14 @@ impl std::fmt::Debug for TokenChunker {
 
 impl Clone for TokenChunker {
     fn clone(&self) -> Self {
-        Self::with_encoding(self.chunk_size, self.overlap, self.encoding)
-            .expect("Valid BPE clone")
+        Self {
+            chunk_size: self.chunk_size,
+            overlap: self.overlap,
+            encoding: self.encoding,
+            // Share the (expensive to construct) BPE rank tables instead of
+            // rebuilding them from embedded data on every clone.
+            bpe: Arc::clone(&self.bpe),
+        }
     }
 }
 
@@ -77,9 +117,12 @@ impl TokenChunker {
             return Err(ChunkrError::InvalidChunkSize(0));
         }
         if overlap >= chunk_size {
-            return Err(ChunkrError::InvalidOverlap { chunk_size, overlap });
+            return Err(ChunkrError::InvalidOverlap {
+                chunk_size,
+                overlap,
+            });
         }
-        let bpe = encoding.get_bpe()?;
+        let bpe = shared_bpe(encoding)?;
         Ok(Self {
             chunk_size,
             overlap,
@@ -126,6 +169,19 @@ impl Chunker for TokenChunker {
         if text.trim().is_empty() {
             return Err(ChunkrError::EmptyInput);
         }
+        // Re-validate here: `chunk_size` / `overlap` are public fields, so a
+        // caller may have mutated them after construction. Without this guard
+        // `self.chunk_size - self.overlap` would underflow and panic (or wrap
+        // to `usize::MAX` in release, hanging/OOMing the loop below).
+        if self.chunk_size == 0 {
+            return Err(ChunkrError::InvalidChunkSize(0));
+        }
+        if self.overlap >= self.chunk_size {
+            return Err(ChunkrError::InvalidOverlap {
+                chunk_size: self.chunk_size,
+                overlap: self.overlap,
+            });
+        }
 
         let tokens = self.bpe.encode_ordinary(text);
         let total_tokens = tokens.len();
@@ -145,7 +201,7 @@ impl Chunker for TokenChunker {
 
             let decoded_text = self
                 .bpe
-                .decode(token_slice.to_vec())
+                .decode(token_slice)
                 .map_err(|e| ChunkrError::TokenizerError(e.to_string()))?;
 
             let trimmed = decoded_text.trim();
@@ -181,8 +237,23 @@ impl BaseChunker<Result<Vec<Document>, String>> for TokenChunker {
         chunk_size: usize,
         overlap: usize,
     ) -> Result<Vec<Document>, String> {
-        let chunker = TokenChunker::with_encoding(chunk_size, overlap, self.encoding)
-            .map_err(|e| e.to_string())?;
+        // Share the BPE tables via Arc instead of rebuilding them.
+        if chunk_size == 0 {
+            return Err(ChunkrError::InvalidChunkSize(0).to_string());
+        }
+        if overlap >= chunk_size {
+            return Err(ChunkrError::InvalidOverlap {
+                chunk_size,
+                overlap,
+            }
+            .to_string());
+        }
+        let chunker = Self {
+            chunk_size,
+            overlap,
+            encoding: self.encoding,
+            bpe: Arc::clone(&self.bpe),
+        };
         chunker.chunk(text).map_err(|e| e.to_string())
     }
 }

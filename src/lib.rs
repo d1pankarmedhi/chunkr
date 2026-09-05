@@ -75,13 +75,13 @@ pub mod prelude {
         ContextFormat, ContextGenerator, ContextualChunker, CustomContextGenerator,
         ExtractiveContextGenerator,
     };
+    pub use crate::chunker::hf_token::HFTokenChunker;
     pub use crate::chunker::hierarchical::{
         HierarchicalChunkPair, HierarchicalChunker, HierarchyNode,
     };
-    pub use crate::chunker::hf_token::HFTokenChunker;
     pub use crate::chunker::html::HtmlChunker;
     pub use crate::chunker::json::JsonChunker;
-    pub use crate::chunker::late::LateChunker;
+    pub use crate::chunker::late::{ChunkSpans, LateChunker};
     pub use crate::chunker::markdown::MarkdownChunker;
     pub use crate::chunker::packer::ChunkPacker;
     pub use crate::chunker::proposition::{
@@ -108,4 +108,3 @@ pub mod prelude {
 }
 
 pub use prelude::*;
-

@@ -88,7 +88,10 @@ impl HierarchicalChunker {
     }
 
     /// Split text into structured pairs of parent documents with their corresponding children
-    pub fn chunk_hierarchical(&self, text: &str) -> Result<Vec<HierarchicalChunkPair>, ChunkrError> {
+    pub fn chunk_hierarchical(
+        &self,
+        text: &str,
+    ) -> Result<Vec<HierarchicalChunkPair>, ChunkrError> {
         let parent_docs = self.parent_chunker.chunk(text)?;
         let mut pairs = Vec::new();
 
@@ -110,13 +113,7 @@ impl HierarchicalChunker {
                 child_doc.add_metadata("depth", Value::from(1));
                 child_doc.add_metadata(
                     "parent_preview",
-                    Value::from(
-                        parent_doc
-                            .content
-                            .chars()
-                            .take(100)
-                            .collect::<String>(),
-                    ),
+                    Value::from(parent_doc.content.chars().take(100).collect::<String>()),
                 );
                 enriched_children.push(child_doc);
             }
@@ -209,13 +206,15 @@ impl BaseChunker<Result<Vec<Document>, String>> for HierarchicalChunker {
     ) -> Result<Vec<Document>, String> {
         let child_size = chunk_size / 4;
         let child_overlap = overlap / 4;
-        let chunker = HierarchicalChunker::with_sizes(
+        let mut chunker = HierarchicalChunker::with_sizes(
             chunk_size,
             overlap,
             child_size.max(50),
             child_overlap.min(child_size.max(50) / 2),
         )
         .map_err(|e| e.to_string())?;
+        // Preserve the caller's flag instead of resetting to the default.
+        chunker.include_parents_in_output = self.include_parents_in_output;
         chunker.chunk(text).map_err(|e| e.to_string())
     }
 }

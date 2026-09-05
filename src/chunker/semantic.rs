@@ -1,6 +1,8 @@
+#[cfg(not(target_arch = "wasm32"))]
+use rayon::prelude::*;
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
-use serde_json::Value;
 
 use crate::chunker::base::{BaseChunker, Chunker};
 use crate::chunker::sentence::SentenceChunker;
@@ -45,39 +47,62 @@ impl FastLexicalEmbedder {
     pub fn with_dim(dim: usize) -> Self {
         Self { dim }
     }
+
+    fn embed_one(text: &str, dim: usize) -> Vec<f32> {
+        let mut vec = vec![0.0f32; dim];
+
+        // Hash words without allocating a lowercased `String` per word:
+        // fold ASCII case + djb2 in a single byte pass, hashing only
+        // alphanumeric bytes (drops surrounding punctuation).
+        for word in text.split_whitespace() {
+            let mut hash: usize = 5381;
+            let mut has_content = false;
+            for b in word.bytes() {
+                let lower = if b.is_ascii_uppercase() { b + 32 } else { b };
+                if lower.is_ascii_alphanumeric() {
+                    has_content = true;
+                    hash = ((hash << 5).wrapping_add(hash)).wrapping_add(lower as usize);
+                }
+            }
+            if !has_content {
+                continue;
+            }
+            let idx = hash % dim;
+            vec[idx] += 1.0;
+        }
+
+        // L2 normalize
+        let norm_sq: f32 = vec.iter().map(|x| x * x).sum();
+        if norm_sq > 0.0 {
+            let norm = norm_sq.sqrt();
+            for x in &mut vec {
+                *x /= norm;
+            }
+        }
+
+        vec
+    }
 }
 
 impl Embedder for FastLexicalEmbedder {
     fn embed(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>, ChunkrError> {
-        let mut results = Vec::with_capacity(texts.len());
-
-        for text in texts {
-            let mut vec = vec![0.0f32; self.dim];
-            let words: Vec<&str> = text.split_whitespace().collect();
-
-            for word in &words {
-                let clean = word.to_lowercase();
-                let mut hash: usize = 5381;
-                for b in clean.bytes() {
-                    hash = ((hash << 5).wrapping_add(hash)).wrapping_add(b as usize);
-                }
-                let idx = hash % self.dim;
-                vec[idx] += 1.0;
-            }
-
-            // L2 normalize
-            let norm_sq: f32 = vec.iter().map(|x| x * x).sum();
-            if norm_sq > 0.0 {
-                let norm = norm_sq.sqrt();
-                for x in &mut vec {
-                    *x /= norm;
-                }
-            }
-
-            results.push(vec);
+        // Parallelize across sentences with Rayon: each embedding is
+        // independent, so batch latency scales with core count.
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let dim = self.dim.max(1);
+            texts
+                .par_iter()
+                .map(|text| Ok(Self::embed_one(text, dim)))
+                .collect()
         }
-
-        Ok(results)
+        #[cfg(target_arch = "wasm32")]
+        {
+            Ok(texts
+                .iter()
+                .map(|t| Self::embed_one(t, self.dim.max(1)))
+                .collect())
+        }
     }
 }
 
@@ -113,6 +138,10 @@ pub struct SemanticChunker {
     pub threshold: BreakpointThreshold,
     pub min_chunk_size: usize,
     pub max_chunk_size: usize,
+    /// Number of neighboring sentences (on each side) whose text is joined
+    /// into the embedding input for a sentence. `0` embeds each sentence
+    /// alone (legacy behavior); `1` (default) embeds each sentence together
+    /// with one neighbor on each side, which smooths noisy lexical distances.
     pub buffer_size: usize,
 }
 
@@ -170,10 +199,32 @@ impl SemanticChunker {
         self
     }
 
-    /// Compute cosine distance: 1.0 - dot_product(u, v)
+    /// Set the embedding context window: sentence `i` is embedded together
+    /// with `n` neighboring sentences on each side (clamped at the
+    /// document edges). `0` embeds each sentence alone.
+    pub fn with_buffer_size(mut self, n: usize) -> Self {
+        self.buffer_size = n;
+        self
+    }
+
+    /// Compute cosine distance: 1.0 - cosine_similarity(u, v).
+    ///
+    /// Uses true cosine normalization (not just `1 - dot`) so custom
+    /// [`Embedder`] implementations that return unnormalized vectors still
+    /// produce distances in a sane range instead of garbage thresholds.
     fn cosine_distance(u: &[f32], v: &[f32]) -> f32 {
-        let dot: f32 = u.iter().zip(v.iter()).map(|(a, b)| a * b).sum();
-        (1.0 - dot).max(0.0)
+        let mut dot = 0.0f32;
+        let mut nu = 0.0f32;
+        let mut nv = 0.0f32;
+        for (a, b) in u.iter().zip(v.iter()) {
+            dot += a * b;
+            nu += a * a;
+            nv += b * b;
+        }
+        if nu <= 0.0 || nv <= 0.0 {
+            return 1.0;
+        }
+        (1.0 - dot / (nu.sqrt() * nv.sqrt())).clamp(0.0, 2.0)
     }
 
     /// Calculate dynamic distance cutoff threshold from list of distances
@@ -233,8 +284,29 @@ impl Chunker for SemanticChunker {
             }]);
         }
 
-        // Generate embeddings for all sentences
-        let embeddings = self.embedder.embed(&sentences)?;
+        // Generate embeddings for all sentences. With buffer_size > 0 each
+        // sentence is embedded together with its neighbors to smooth
+        // noisy per-sentence distances.
+        let buffer = self.buffer_size;
+        // buffer == 0 embeds each sentence alone (legacy behavior).
+        let embedded_texts: Vec<String> = if buffer == 0 {
+            Vec::new()
+        } else {
+            let n = sentences.len();
+            (0..n)
+                .map(|i| {
+                    let lo = i.saturating_sub(buffer);
+                    let hi = (i + buffer + 1).min(n);
+                    sentences[lo..hi].join(" ")
+                })
+                .collect()
+        };
+        let embeddings = if buffer == 0 {
+            self.embedder.embed(&sentences)?
+        } else {
+            let embedded_refs: Vec<&str> = embedded_texts.iter().map(|s| s.as_str()).collect();
+            self.embedder.embed(&embedded_refs)?
+        };
 
         // Compute distances between consecutive sentences
         let mut distances = Vec::with_capacity(sentences.len() - 1);
@@ -274,7 +346,10 @@ impl Chunker for SemanticChunker {
                 if !trimmed.is_empty() {
                     let mut metadata = HashMap::with_capacity(4);
                     metadata.insert("length".to_string(), Value::from(trimmed.len()));
-                    metadata.insert("sentence_count".to_string(), Value::from(current_chunk.len()));
+                    metadata.insert(
+                        "sentence_count".to_string(),
+                        Value::from(current_chunk.len()),
+                    );
                     metadata.insert("chunk_index".to_string(), Value::from(chunk_idx));
                     metadata.insert("cutoff_threshold".to_string(), Value::from(cutoff as f64));
 

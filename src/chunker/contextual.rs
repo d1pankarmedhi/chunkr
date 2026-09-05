@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use serde_json::Value;
+use std::sync::Arc;
 
 use crate::chunker::base::{BaseChunker, Chunker};
 use crate::chunker::recursive::RecursiveChunker;
@@ -71,9 +71,20 @@ impl ContextGenerator for ExtractiveContextGenerator {
             .unwrap_or("");
 
         let context = if !header_path.is_empty() {
-            format!("Doc: {} | Section: {} | Part {}/{}", first_line, header_path, chunk_idx + 1, total_chunks)
+            format!(
+                "Doc: {} | Section: {} | Part {}/{}",
+                first_line,
+                header_path,
+                chunk_idx + 1,
+                total_chunks
+            )
         } else {
-            format!("Doc: {} | Part {}/{}", first_line, chunk_idx + 1, total_chunks)
+            format!(
+                "Doc: {} | Part {}/{}",
+                first_line,
+                chunk_idx + 1,
+                total_chunks
+            )
         };
 
         if let Some((idx, _)) = context.char_indices().nth(self.max_context_chars) {
@@ -182,7 +193,9 @@ impl Chunker for ContextualChunker {
         let mut enriched_docs = Vec::with_capacity(total_chunks);
 
         for (idx, doc) in base_docs.into_iter().enumerate() {
-            let context = self.context_generator.generate_context(text, &doc, idx, total_chunks)?;
+            let context = self
+                .context_generator
+                .generate_context(text, &doc, idx, total_chunks)?;
             let mut metadata = doc.metadata;
             metadata.insert("context".to_string(), Value::from(context.clone()));
 
@@ -191,11 +204,9 @@ impl Chunker for ContextualChunker {
                     format!("[Context: {}]\n\n{}", context, doc.content)
                 }
                 ContextFormat::MetadataOnly => doc.content,
-                ContextFormat::Custom(template) => {
-                    template
-                        .replace("{context}", &context)
-                        .replace("{content}", &doc.content)
-                }
+                ContextFormat::Custom(template) => template
+                    .replace("{context}", &context)
+                    .replace("{content}", &doc.content),
             };
 
             metadata.insert("length".to_string(), Value::from(new_content.len()));
@@ -217,8 +228,14 @@ impl BaseChunker<Result<Vec<Document>, String>> for ContextualChunker {
         chunk_size: usize,
         overlap: usize,
     ) -> Result<Vec<Document>, String> {
-        let chunker = Self::new()
-            .with_base_chunker(RecursiveChunker::new().with_chunk_size(chunk_size).with_overlap(overlap));
+        // Clone self so a custom context_generator and format are preserved;
+        // only the base chunker sizing is overridden.
+        let mut chunker = self.clone();
+        chunker.base_chunker = Arc::new(
+            RecursiveChunker::new()
+                .with_chunk_size(chunk_size)
+                .with_overlap(overlap),
+        );
         chunker.chunk(text).map_err(|e| e.to_string())
     }
 }
