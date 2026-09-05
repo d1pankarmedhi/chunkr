@@ -246,7 +246,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          pattern: wheels-*
+          # This job runs on ubuntu and can only install a linux wheel, so
+          # fetch ONLY the linux artifacts — downloading macos/windows wheels
+          # here leaks them into the glob below.
+          pattern: wheels-linux-*
           merge-multiple: true
           path: dist
       - uses: actions/setup-python@v5
@@ -256,7 +259,8 @@ jobs:
         run: |
           # maturin manylinux wheels are named e.g.
           # chunkr_rs-1.4.0-...-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
-          # — there is no literal `linux_x86_64` segment, so match on the arch.
+          # — no literal `linux_x86_64` segment, so match on the arch. The
+          # dir now only contains linux wheels, so x86_64 selects the right one.
           WHEEL=$(ls dist/*x86_64*.whl | head -1)
           if [ -z "$WHEEL" ]; then
             echo "::error::No linux x86_64 wheel found in dist/: $(ls dist || true)"
