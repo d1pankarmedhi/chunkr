@@ -1,6 +1,6 @@
 {
   "name": "chunkr-wasm",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Blazingly fast document and text chunking library for LLMs, RAG, and AI agents in WebAssembly (Browser, Cloudflare Workers, Node.js)",
   "main": "nodejs/chunkr.js",
   "module": "bundler/chunkr.js",

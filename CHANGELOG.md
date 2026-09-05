@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [1.4.0] - 2026-09-05
+
+### Added
+- **Lenient batch loading**: `DirectoryLoader::load_files_lenient` and `load_and_chunk_lenient` (Rust + Python) return `(documents, errors)` instead of failing the whole batch on one bad file; `DirectoryLoader` skips symlinks and reports path-qualified IO errors.
+- **Semantic context window**: `SemanticChunker::with_buffer_size` builder (Rust) and `buffer_size` parameter (Python, default `1`) — each sentence is embedded together with neighboring-sentence context for stabler breakpoints (`0` restores legacy isolated embedding).
+- **`ChunkSpans`**: public type alias for the `(document, token-span)` pairs returned by `LateChunker::chunk_spans`, re-exported in the prelude.
+
+### Changed
+- `tiktoken-rs` 0.6 → 0.12: identical BPE tables, faster encoding (TokenChunker BPE throughput up, `to_vec` clone removed).
 
 ### Fixed & Improved (chunking efficiency + robustness)
 - **Efficiency**:
@@ -21,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Robustness**:
   - `TokenChunker`, `HFTokenChunker`, `PropositionChunker`, `QueryAwareChunker` re-validate `chunk_size`/`overlap` in `chunk()` so post-construction mutation of public fields returns `InvalidChunkSize`/`InvalidOverlap` instead of underflow panic/hang.
   - `MarkdownChunker` honors `include_header_in_content = false` (previously a dead flag) and detects headers under CRLF line endings.
+  - CLI sentence/paragraph overlap values are clamped instead of erroring on defaults; `Contextual`/`Hierarchical`/`AstCode` legacy-path configs preserved.
   - Research grounding: late-chunking flow follows Günther et al. (2024, arXiv:2409.04701) — full-text token stream + mean-pool over spans; delimiter fast-path rationale per memchr/SIMD backward-search analysis.
 
 ---
