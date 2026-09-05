@@ -73,6 +73,11 @@ jobs:
         env:
           TAG_NAME: ${{ github.ref_name }}
         run: |
+          # actions/checkout can materialize the trigger tag as a plain
+          # commit ref on tag-push events, making an annotated tag look
+          # lightweight. Force-refetch the real ref first so the object
+          # type check below sees the true tag object.
+          git fetch origin "+refs/tags/$TAG_NAME:refs/tags/$TAG_NAME" --force
           TYPE=$(git cat-file -t "$TAG_NAME")
           if [ "$TYPE" != "tag" ]; then
             echo "::error::Tag $TAG_NAME is lightweight ($TYPE). Re-create it annotated: git tag -a $TAG_NAME -m \"...\""
