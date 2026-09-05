@@ -28,7 +28,7 @@ Why data engineers and AI developers choose Chunkr over pure-Python chunking lib
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Core Architecture** | **Rust + PyO3 (Native)** | Pure Python | Pure Python | Python / Rust partial | Pure Python |
 | **Recursive Split Throughput** | **500 – 1,000+ MB/s** | 200 – 350 MB/s | 150 – 300 MB/s | ~400 MB/s | ~100 MB/s |
-| **Fixed Char Throughput** | **100 – 140 MB/s** | 7 – 10 MB/s | 8 – 12 MB/s | ~50 MB/s | ~10 MB/s |
+| **Fixed Char Throughput** | **300+ MB/s** | 7 – 10 MB/s | 8 – 12 MB/s | ~50 MB/s | ~10 MB/s |
 | **Memory Strategy** | **Zero-Copy Slices** | String Duplication | Object Churn | String Duplication | String Duplication |
 | **Multithreading** | **Rayon (True Multi-core)** | ThreadPool (GIL bound) | Async / GIL bound | None | ProcessPool |
 | **Built-in Strategies** | **18+ Strategies** | ~5 Splitters | ~6 Node Parsers | 4 Chonkers | 1 Strategy |
@@ -499,14 +499,17 @@ Direct in-memory Python runtime comparison (`import chunkr` vs. `langchain-text-
 
 | Strategy & Test Case | Document Size | LangChain (ms) | Chunkr (ms) | LangChain Throughput | Chunkr Throughput | Speedup Factor |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Fixed Char (100 KB)** | 100 KB | 14.12 ms | **0.69 ms** | 6.9 MB/s | **141.3 MB/s** | **20.5x Faster** |
-| **Fixed Char (1 MB)** | 1 MB | 113.72 ms | **9.36 ms** | 8.8 MB/s | **106.8 MB/s** | **12.1x Faster** |
-| **Recursive Char (100 KB)** | 100 KB | 0.27 ms | **0.09 ms** | 359.8 MB/s | **1,064.1 MB/s** | **3.0x Faster** |
-| **Recursive Char (1 MB)** | 1 MB | 3.19 ms | **1.57 ms** | 312.9 MB/s | **635.0 MB/s** | **2.0x Faster** |
-| **Recursive Char (5 MB)** | 5 MB | 23.75 ms | **9.78 ms** | 210.5 MB/s | **511.0 MB/s** | **2.4x Faster** |
-| **Markdown Split (500 KB)** | 500 KB | 2.43 ms | **0.75 ms** | 200.9 MB/s | **654.3 MB/s** | **3.3x Faster** |
-| **Markdown Header Parser** | 500 KB | 35.31 ms | **2.59 ms** | 13.8 MB/s | **188.6 MB/s** | **13.6x Faster** |
-| **Python Code (200 KB)** | 200 KB | 0.44 ms | **0.18 ms** | 445.1 MB/s | **1,063.2 MB/s** | **2.4x Faster** |
+| **Fixed Char (100 KB)** | 100 KB | 8.45 ms | **0.23 ms** | 11.5 MB/s | **427.7 MB/s** | **37.1x Faster** |
+| **Fixed Char (1 MB)** | 1 MB | 95.30 ms | **3.09 ms** | 10.5 MB/s | **323.1 MB/s** | **30.8x Faster** |
+| **Recursive Char (100 KB)** | 100 KB | 0.27 ms | **0.10 ms** | 359.9 MB/s | **996.7 MB/s** | **2.8x Faster** |
+| **Recursive Char (1 MB)** | 1 MB | 2.87 ms | **1.58 ms** | 348.8 MB/s | **631.2 MB/s** | **1.8x Faster** |
+| **Recursive Char (5 MB)** | 5 MB | 21.47 ms | **11.50 ms** | 232.8 MB/s | **434.6 MB/s** | **1.9x Faster** |
+| **Markdown Split (500 KB)** | 500 KB | 1.99 ms | **0.79 ms** | 245.4 MB/s | **616.5 MB/s** | **2.5x Faster** |
+| **Markdown Header Parser** | 500 KB | 34.94 ms | **2.34 ms** | 14.0 MB/s | **208.7 MB/s** | **14.9x Faster** |
+| **Python Code (200 KB)** | 200 KB | 0.41 ms | **0.16 ms** | 474.2 MB/s | **1,185.7 MB/s** | **2.5x Faster** |
+| **Token BPE (200 KB)** | 200 KB | 11.67 ms | 18.80 ms | 16.7 MB/s | 10.4 MB/s | 0.62x |
+
+> **Note on Token BPE:** single-text BPE throughput trails LangChain's Python `tiktoken` (~10 vs ~17 MB/s, up from ~6 on `tiktoken-rs` 0.6) because encoding dominates chunk time and is bound by the `tiktoken-rs` encoder, not chunkr's windowing overhead (~1 ms for 89 chunks). `TokenChunker` construction/clone cost is cached process-wide, so repeated chunkers are cheap to create.
 
 ### PDF Extraction & End-to-End Pipeline Latency
 

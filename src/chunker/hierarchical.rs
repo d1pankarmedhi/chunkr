@@ -209,13 +209,15 @@ impl BaseChunker<Result<Vec<Document>, String>> for HierarchicalChunker {
     ) -> Result<Vec<Document>, String> {
         let child_size = chunk_size / 4;
         let child_overlap = overlap / 4;
-        let chunker = HierarchicalChunker::with_sizes(
+        let mut chunker = HierarchicalChunker::with_sizes(
             chunk_size,
             overlap,
             child_size.max(50),
             child_overlap.min(child_size.max(50) / 2),
         )
         .map_err(|e| e.to_string())?;
+        // Preserve the caller's flag instead of resetting to the default.
+        chunker.include_parents_in_output = self.include_parents_in_output;
         chunker.chunk(text).map_err(|e| e.to_string())
     }
 }

@@ -44,6 +44,37 @@ impl JsonChunker {
         }
     }
 
+    /// Length (in chars) that `item_str` — the standalone serialization of one
+    /// array element — occupies once embedded in a standalone serialized batch.
+    ///
+    /// Compact mode embeds items verbatim. Pretty mode adds 2 spaces to every
+    /// newline already inside the item from the extra nesting level (the
+    /// per-item `"  "` base indent is accounted in `batch_total_chars`).
+    fn embedded_item_chars(item_str: &str, pretty: bool) -> usize {
+        let chars = item_str.chars().count();
+        if !pretty {
+            return chars;
+        }
+        let newlines = item_str.bytes().filter(|&b| b == b'\n').count();
+        chars + 2 * newlines
+    }
+
+    /// Standalone serialized char length of a batch holding `count` items whose
+    /// embedded lengths sum to `body`.
+    ///
+    /// Compact: `"[" + items.join(",") + "]"`. Pretty: `"[\n" + ("  " + item)
+    /// joined by ",\n" + "\n]"`.
+    fn batch_total_chars(count: usize, body: usize, pretty: bool) -> usize {
+        if count == 0 {
+            return 0;
+        }
+        if pretty {
+            body + 4 * count + 2
+        } else {
+            body + count + 1
+        }
+    }
+
     fn chunk_json_value(
         &self,
         value: &Value,
@@ -78,63 +109,36 @@ impl JsonChunker {
                 }
             }
             Value::Array(arr) => {
-                let mut current_batch = Vec::new();
+                // Incremental batch-size tracking: each item is serialized
+                // exactly once, and the batch is serialized only when flushed.
+                // (Previously the whole growing batch was cloned + re-serialized
+                // per item — quadratic on large arrays.) `batch_body` tracks the
+                // sum of per-item embedded lengths so the standalone batch char
+                // length is exact; debug builds verify this at every flush.
+                let mut current_batch: Vec<Value> = Vec::new();
+                let mut batch_body: usize = 0;
                 let mut start_idx = 0;
 
-                for (idx, item) in arr.iter().enumerate() {
-                    let item_str = self.serialize_value(item);
-                    if item_str.chars().count() > self.max_chunk_size {
-                        if !current_batch.is_empty() {
-                            let batch_val = Value::Array(current_batch.clone());
-                            let batch_str = self.serialize_value(&batch_val);
-                            let batch_path = format!("{}[{}..{}]", path, start_idx, idx);
-
-                            let mut metadata = HashMap::new();
-                            metadata.insert("path".to_string(), Value::from(batch_path));
-                            metadata.insert("length".to_string(), Value::from(batch_str.len()));
-                            metadata.insert("chunk_index".to_string(), Value::from(docs.len()));
-                            metadata.insert("is_json".to_string(), Value::from(true));
-
-                            docs.push(Document {
-                                content: batch_str,
-                                metadata,
-                            });
-                            current_batch.clear();
-                        }
-                        let item_path = format!("{}[{}]", path, idx);
-                        self.chunk_json_value(item, &item_path, docs)?;
-                        start_idx = idx + 1;
-                    } else {
-                        current_batch.push(item.clone());
-                        let batch_val = Value::Array(current_batch.clone());
-                        let batch_str = self.serialize_value(&batch_val);
-
-                        if batch_str.chars().count() > self.max_chunk_size {
-                            current_batch.pop();
-                            let prev_val = Value::Array(current_batch.clone());
-                            let prev_str = self.serialize_value(&prev_val);
-                            let batch_path = format!("{}[{}..{}]", path, start_idx, idx);
-
-                            let mut metadata = HashMap::new();
-                            metadata.insert("path".to_string(), Value::from(batch_path));
-                            metadata.insert("length".to_string(), Value::from(prev_str.len()));
-                            metadata.insert("chunk_index".to_string(), Value::from(docs.len()));
-                            metadata.insert("is_json".to_string(), Value::from(true));
-
-                            docs.push(Document {
-                                content: prev_str,
-                                metadata,
-                            });
-                            current_batch = vec![item.clone()];
-                            start_idx = idx;
-                        }
+                // Flush helper shared by the loop and the trailing batch.
+                // `body` is the tracked sum of embedded item lengths; the
+                // debug assertion proves tracking matches real serialization.
+                let flush_batch = |batch: &mut Vec<Value>,
+                                       body: &mut usize,
+                                       start: usize,
+                                       end: usize,
+                                       docs: &mut Vec<Document>| {
+                    if batch.is_empty() {
+                        return;
                     }
-                }
-
-                if !current_batch.is_empty() {
-                    let batch_val = Value::Array(current_batch);
+                    let count = batch.len();
+                    let batch_val = Value::Array(std::mem::take(batch));
                     let batch_str = self.serialize_value(&batch_val);
-                    let batch_path = format!("{}[{}..{}]", path, start_idx, arr.len());
+                    debug_assert_eq!(
+                        batch_str.chars().count(),
+                        Self::batch_total_chars(count, *body, self.pretty),
+                        "tracked batch length diverged from serialized length"
+                    );
+                    let batch_path = format!("{}[{}..{}]", path, start, end);
 
                     let mut metadata = HashMap::new();
                     metadata.insert("path".to_string(), Value::from(batch_path));
@@ -146,7 +150,53 @@ impl JsonChunker {
                         content: batch_str,
                         metadata,
                     });
+                    *body = 0;
+                };
+
+                for (idx, item) in arr.iter().enumerate() {
+                    let item_str = self.serialize_value(item);
+                    if item_str.chars().count() > self.max_chunk_size {
+                        flush_batch(
+                            &mut current_batch,
+                            &mut batch_body,
+                            start_idx,
+                            idx,
+                            docs,
+                        );
+                        let item_path = format!("{}[{}]", path, idx);
+                        self.chunk_json_value(item, &item_path, docs)?;
+                        start_idx = idx + 1;
+                    } else {
+                        // Embedded length of this item inside a standalone batch.
+                        let emb = Self::embedded_item_chars(&item_str, self.pretty);
+                        let projected = Self::batch_total_chars(
+                            current_batch.len() + 1,
+                            batch_body + emb,
+                            self.pretty,
+                        );
+                        if !current_batch.is_empty() && projected > self.max_chunk_size {
+                            flush_batch(
+                                &mut current_batch,
+                                &mut batch_body,
+                                start_idx,
+                                idx,
+                                docs,
+                            );
+                            start_idx = idx;
+                        }
+                        // Single clone per item; batch serialized only on flush.
+                        batch_body += emb;
+                        current_batch.push(item.clone());
+                    }
                 }
+
+                flush_batch(
+                    &mut current_batch,
+                    &mut batch_body,
+                    start_idx,
+                    arr.len(),
+                    docs,
+                );
             }
             _ => {
                 // Scalar primitive larger than max_chunk_size

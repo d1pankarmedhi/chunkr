@@ -148,15 +148,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 chunker.chunk(&raw_text)?
             }
             Strategy::Sentence => {
+                // SentenceChunker defaults to sentences_per_chunk=3 and rejects
+                // overlap >= count, so clamp strictly below 3 (was .min(3),
+                // which made even default flags fail with InvalidOverlap).
                 let chunker = SentenceChunker::new()
                     .with_max_characters(cli.chunk_size)
-                    .with_sentence_overlap(cli.overlap.min(3));
+                    .with_sentence_overlap(cli.overlap.min(2));
                 chunker.chunk(&raw_text)?
             }
             Strategy::Paragraph => {
+                let ppc = (cli.chunk_size / 200).max(1);
+                // Overlap must stay strictly below the paragraph count.
                 let chunker = ParagraphChunker::new()
-                    .with_paragraphs_per_chunk((cli.chunk_size / 200).max(1))
-                    .with_paragraph_overlap(cli.overlap.min(1));
+                    .with_paragraphs_per_chunk(ppc)
+                    .with_paragraph_overlap(cli.overlap.min(ppc.saturating_sub(1)));
                 chunker.chunk(&raw_text)?
             }
             Strategy::Markdown => {

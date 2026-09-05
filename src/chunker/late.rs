@@ -89,7 +89,7 @@ impl LateChunker {
             let t_len = match len_cache.get(&t) {
                 Some(&len) => len,
                 None => {
-                    let decoded = self.bpe.decode(vec![t]).unwrap_or_default();
+                    let decoded = self.bpe.decode(&[t]).unwrap_or_default();
                     let len = decoded.len();
                     len_cache.insert(t, len);
                     len
@@ -125,19 +125,31 @@ impl LateChunker {
                 continue;
             }
 
-            // Locate chunk content within text
+            // Locate chunk content within text, advancing past the previous
+            // match so repeated/overlapped chunks map to the NEXT occurrence
+            // instead of all collapsing onto the first one. The cursor snaps
+            // forward to a char boundary so the next slice is always valid.
+            let advance_past = |pos: usize| -> usize {
+                let mut next = pos.saturating_add(1);
+                while next < text.len() && !text.is_char_boundary(next) {
+                    next += 1;
+                }
+                next.min(text.len())
+            };
             let (char_start, char_end) = match text[search_pos..].find(content) {
                 Some(rel_idx) => {
                     let start = search_pos + rel_idx;
                     let end = start + content.len();
-                    // Advance search_pos for the next chunk, with room for potential overlap
-                    search_pos = start;
+                    search_pos = advance_past(start);
                     (start, end)
                 }
                 None => {
                     // Fallback search from the beginning if out of order
                     match text.find(content) {
-                        Some(start) => (start, start + content.len()),
+                        Some(start) => {
+                            search_pos = advance_past(start);
+                            (start, start + content.len())
+                        }
                         None => (0, text.len()),
                     }
                 }

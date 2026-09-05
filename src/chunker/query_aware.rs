@@ -56,8 +56,16 @@ impl QueryAwareChunker {
         self
     }
 
-    /// Calculate query relevance score and matched terms for a sentence
-    fn score_sentence(&self, sentence: &str, query_terms: &HashSet<String>) -> (f64, Vec<String>) {
+    /// Calculate query relevance score and matched terms for a sentence.
+    ///
+    /// `query_lower` is the lowercased query, hoisted by the caller so it is
+    /// computed once per `chunk()` call instead of once per sentence.
+    fn score_sentence(
+        &self,
+        sentence: &str,
+        query_terms: &HashSet<String>,
+        query_lower: &str,
+    ) -> (f64, Vec<String>) {
         let words: Vec<String> = sentence
             .split_whitespace()
             .map(|w| {
@@ -85,9 +93,8 @@ impl QueryAwareChunker {
         }
 
         // Exact phrase bonus if whole query appears in sentence
-        let query_lower = self.query.to_lowercase();
         let sent_lower = sentence.to_lowercase();
-        let phrase_bonus = if sent_lower.contains(&query_lower) { 0.5 } else { 0.0 };
+        let phrase_bonus = if sent_lower.contains(query_lower) { 0.5 } else { 0.0 };
 
         let term_density = match_count as f64 / words.len() as f64;
         let score = (term_density + phrase_bonus).min(1.0);
@@ -135,9 +142,12 @@ impl Chunker for QueryAwareChunker {
             return Err(ChunkrError::EmptyInput);
         }
 
+        // Lowercase the query once; `score_sentence` is called per sentence.
+        let query_lower = self.query.to_lowercase();
+
         let mut scored_sentences: Vec<(&str, f64, Vec<String>)> = Vec::with_capacity(sentences.len());
         for &sent in &sentences {
-            let (score, matched) = self.score_sentence(sent, &query_terms);
+            let (score, matched) = self.score_sentence(sent, &query_terms, &query_lower);
             scored_sentences.push((sent, score, matched));
         }
 

@@ -36,6 +36,31 @@ pub struct HeuristicAgenticDecisionMaker {
     pub min_chunk_characters: usize,
 }
 
+/// Stop words excluded from content-word extraction.
+///
+/// Module-level slice so `extract_content_words` does not rebuild a
+/// `HashSet` on every call (once per sentence).
+static STOP_WORDS: &[&str] = &[
+    "the", "a", "an", "is", "are", "was", "were", "and", "or", "in",
+    "on", "at", "to", "for", "with", "of", "by", "from", "as", "it", "this", "that",
+];
+
+/// Discourse transition markers as (marker, comma_marker, topic_label).
+///
+/// Comma-prefixed forms are precomputed literals so `decide` does not
+/// allocate a `format!(", {}", marker)` string per marker per sentence.
+static TRANSITIONS: &[(&str, &str, &str)] = &[
+    ("in conclusion", ", in conclusion", "Conclusion"),
+    ("in summary", ", in summary", "Summary"),
+    ("on the other hand", ", on the other hand", "Counter-argument"),
+    ("in contrast", ", in contrast", "Contrast"),
+    ("furthermore", ", furthermore", "Continuation"),
+    ("secondly", ", secondly", "Subsequent Point"),
+    ("finally", ", finally", "Final Section"),
+    ("moving on to", ", moving on to", "Topic Shift"),
+    ("meanwhile", ", meanwhile", "Parallel Topic"),
+];
+
 impl HeuristicAgenticDecisionMaker {
     pub fn new() -> Self {
         Self {
@@ -51,21 +76,13 @@ impl HeuristicAgenticDecisionMaker {
     }
 
     fn extract_content_words(text: &str) -> HashSet<String> {
-        let stop_words: HashSet<&str> = [
-            "the", "a", "an", "is", "are", "was", "were", "and", "or", "in",
-            "on", "at", "to", "for", "with", "of", "by", "from", "as", "it", "this", "that",
-        ]
-        .iter()
-        .copied()
-        .collect();
-
         text.split_whitespace()
             .map(|w| {
                 w.to_lowercase()
                     .trim_matches(|c: char| !c.is_alphanumeric())
                     .to_string()
             })
-            .filter(|w| w.len() > 2 && !stop_words.contains(w.as_str()))
+            .filter(|w| w.len() > 2 && !STOP_WORDS.contains(&w.as_str()))
             .collect()
     }
 }
@@ -103,21 +120,9 @@ impl AgenticDecisionMaker for HeuristicAgenticDecisionMaker {
         }
 
         // 1. Discourse transition markers indicating new topic or conclusion
-        let transition_markers = [
-            ("in conclusion", "Conclusion"),
-            ("in summary", "Summary"),
-            ("on the other hand", "Counter-argument"),
-            ("in contrast", "Contrast"),
-            ("furthermore", "Continuation"),
-            ("secondly", "Subsequent Point"),
-            ("finally", "Final Section"),
-            ("moving on to", "Topic Shift"),
-            ("meanwhile", "Parallel Topic"),
-        ];
-
         let lower_next = next_sentence.to_lowercase();
-        for &(marker, label) in &transition_markers {
-            if lower_next.starts_with(marker) || lower_next.contains(&format!(", {}", marker)) {
+        for &(marker, comma_marker, label) in TRANSITIONS {
+            if lower_next.starts_with(marker) || lower_next.contains(comma_marker) {
                 return Ok(AgenticDecision::SplitAndStartNew {
                     topic_label: label.to_string(),
                     reason: format!("Detected discourse transition marker '{}'", marker),

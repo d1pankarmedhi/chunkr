@@ -135,6 +135,10 @@ pub struct SemanticChunker {
     pub threshold: BreakpointThreshold,
     pub min_chunk_size: usize,
     pub max_chunk_size: usize,
+    /// Number of neighboring sentences (on each side) whose text is joined
+    /// into the embedding input for a sentence. `0` embeds each sentence
+    /// alone (legacy behavior); `1` (default) embeds each sentence together
+    /// with one neighbor on each side, which smooths noisy lexical distances.
     pub buffer_size: usize,
 }
 
@@ -189,6 +193,14 @@ impl SemanticChunker {
     pub fn with_size_bounds(mut self, min_size: usize, max_size: usize) -> Self {
         self.min_chunk_size = min_size;
         self.max_chunk_size = max_size;
+        self
+    }
+
+    /// Set the embedding context window: sentence `i` is embedded together
+    /// with `n` neighboring sentences on each side (clamped at the
+    /// document edges). `0` embeds each sentence alone.
+    pub fn with_buffer_size(mut self, n: usize) -> Self {
+        self.buffer_size = n;
         self
     }
 
@@ -269,8 +281,30 @@ impl Chunker for SemanticChunker {
             }]);
         }
 
-        // Generate embeddings for all sentences
-        let embeddings = self.embedder.embed(&sentences)?;
+        // Generate embeddings for all sentences. With buffer_size > 0 each
+        // sentence is embedded together with its neighbors to smooth
+        // noisy per-sentence distances.
+        let buffer = self.buffer_size;
+        // buffer == 0 embeds each sentence alone (legacy behavior).
+        let embedded_texts: Vec<String> = if buffer == 0 {
+            Vec::new()
+        } else {
+            let n = sentences.len();
+            (0..n)
+                .map(|i| {
+                    let lo = i.saturating_sub(buffer);
+                    let hi = (i + buffer + 1).min(n);
+                    sentences[lo..hi].join(" ")
+                })
+                .collect()
+        };
+        let embeddings = if buffer == 0 {
+            self.embedder.embed(&sentences)?
+        } else {
+            let embedded_refs: Vec<&str> =
+                embedded_texts.iter().map(|s| s.as_str()).collect();
+            self.embedder.embed(&embedded_refs)?
+        };
 
         // Compute distances between consecutive sentences
         let mut distances = Vec::with_capacity(sentences.len() - 1);

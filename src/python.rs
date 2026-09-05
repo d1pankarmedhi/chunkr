@@ -413,12 +413,13 @@ pub struct PySemanticChunker {
 #[pymethods]
 impl PySemanticChunker {
     #[new]
-    #[pyo3(signature = (percentile=90.0, min_size=100, max_size=2000))]
-    pub fn new(percentile: f32, min_size: usize, max_size: usize) -> Self {
+    #[pyo3(signature = (percentile=90.0, min_size=100, max_size=2000, buffer_size=1))]
+    pub fn new(percentile: f32, min_size: usize, max_size: usize, buffer_size: usize) -> Self {
         Self {
             inner: SemanticChunker::new()
                 .with_threshold(BreakpointThreshold::Percentile(percentile))
-                .with_size_bounds(min_size, max_size),
+                .with_size_bounds(min_size, max_size)
+                .with_buffer_size(buffer_size),
         }
     }
 
@@ -1229,6 +1230,28 @@ impl PyDirectoryLoader {
             .load_and_chunk(path)
             .map(wrap_docs)
             .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    #[pyo3(signature = (path))]
+    pub fn load_files_lenient(&self, path: &str) -> (Vec<PyDocument>, Vec<(String, String)>) {
+        let (docs, errors) = self.inner.load_files_lenient(path);
+        let docs = wrap_docs(docs);
+        let errors = errors
+            .into_iter()
+            .map(|(path, err)| (path.display().to_string(), err.to_string()))
+            .collect();
+        (docs, errors)
+    }
+
+    #[pyo3(signature = (path))]
+    pub fn load_and_chunk_lenient(&self, path: &str) -> (Vec<PyDocument>, Vec<(String, String)>) {
+        let (docs, errors) = self.inner.load_and_chunk_lenient(path);
+        let docs = wrap_docs(docs);
+        let errors = errors
+            .into_iter()
+            .map(|(path, err)| (path.display().to_string(), err.to_string()))
+            .collect();
+        (docs, errors)
     }
 }
 

@@ -217,8 +217,12 @@ impl BaseChunker<Result<Vec<Document>, String>> for ContextualChunker {
         chunk_size: usize,
         overlap: usize,
     ) -> Result<Vec<Document>, String> {
-        let chunker = Self::new()
-            .with_base_chunker(RecursiveChunker::new().with_chunk_size(chunk_size).with_overlap(overlap));
+        // Clone self so a custom context_generator and format are preserved;
+        // only the base chunker sizing is overridden.
+        let mut chunker = self.clone();
+        chunker.base_chunker = Arc::new(
+            RecursiveChunker::new().with_chunk_size(chunk_size).with_overlap(overlap),
+        );
         chunker.chunk(text).map_err(|e| e.to_string())
     }
 }

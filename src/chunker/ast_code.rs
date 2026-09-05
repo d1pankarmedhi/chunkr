@@ -276,6 +276,7 @@ impl BaseChunker<Result<Vec<Document>, String>> for AstCodeChunker {
     ) -> Result<Vec<Document>, String> {
         let mut cloned = self.clone();
         cloned.max_chunk_size = chunk_size;
+        cloned.sub_chunker = cloned.sub_chunker.with_chunk_size(chunk_size);
         cloned.chunk(text).map_err(|e| e.to_string())
     }
 }
