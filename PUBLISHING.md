@@ -24,44 +24,36 @@ Two workflows automate everything (see [.github/workflows/](.github/workflows/))
 
 ## 1. One-time setup (maintainers only)
 
-### 1a. PyPI — Trusted Publishing (OIDC, no token)
+Publishing uses long-lived tokens stored as GitHub secrets. (Upgrade path:
+[Trusted Publishing / OIDC](https://docs.pypi.org/trusted-publishers/) for
+PyPI/crates.io and npm provenance — no rotatable secrets. Tracked as a TODO
+in `release.yml`; migrate when convenient.)
 
-Long-lived `PYPI_API_TOKEN` secrets are legacy. Industry standard is
-[Trusted Publishing](https://docs.pypi.org/trusted-publishers/): GitHub mints a
-short-lived OIDC token per release run, PyPI verifies it. Nothing to rotate,
-nothing to leak.
+Token hygiene rules (all three): scope each token to the single package,
+store it as an **environment secret** (not repo-wide) so a leak elsewhere
+can't publish your packages, and rotate yearly or on any suspected exposure.
 
-1. Go to PyPI → your `chunkr-rs` project → **Settings → Publishing → Add a new trusted publisher**:
-   - Owner: `d1pankarmedhi`, Repository: `chunkr`
-   - Workflow name: `release.yml`, Environment: `pypi`
+### 1a. PyPI — `PYPI_API_TOKEN`
+
+1. PyPI → Account settings → **API tokens → Add API token**, scope it to the
+   `chunkr-rs` project (not your whole account).
 2. In GitHub: **Settings → Environments → New environment** named `pypi`
    (no reviewers required; optionally restrict deployment branches to tags `v*`).
-3. Delete the old `PYPI_API_TOKEN` secret if it still exists.
-4. (Recommended) Do the same on **TestPyPI** first and practice with a `v…-rc.1` prerelease tag.
+3. In that environment: **Add environment secret** → `PYPI_API_TOKEN`.
+4. (Recommended) Mint a second token on **TestPyPI** first and practice with
+a `v…-rc.1` prerelease tag before touching production PyPI.
 
-The `pypi` job in `release.yml` passes **no username/password** — if OIDC isn't
-configured yet the job fails loudly with a "trusted publisher not configured"
-error, which is exactly what you want (never silently skip a publish).
+### 1b. crates.io — `CARGO_REGISTRY_TOKEN`
 
-### 1b. crates.io — Trusted Publishing (fallback: API token)
+1. crates.io → Account Settings → **API Tokens → New Token**, scope: publish
+   (select the `chunkr` crate if scoping is offered).
+2. In GitHub create environment `crates-io`, add secret `CARGO_REGISTRY_TOKEN`.
 
-1. Go to crates.io → your account → **Trusted Publishing → Add**, authorize the
-   GitHub repo `d1pankarmedhi/chunkr`, workflow `release.yml`, environment `crates-io`.
-2. In GitHub create environment `crates-io` (same pattern as above).
-3. Fallback only: if Trusted Publishing isn't enabled yet, add secret
-   `CARGO_REGISTRY_TOKEN`. The workflow prefers OIDC and uses the token only
-   when the secret exists. Remove the secret once OIDC works.
+### 1c. npm — `NPM_TOKEN`
 
-### 1c. npm — provenance + automation token
-
-1. On npmjs.com → package `chunkr-wasm` → **Settings → Publishing access / provenance**:
-   link the repo so `npm publish --provenance` (Sigstore-signed, shows a
-   "verified" badge) works. Requires the package to be public.
-2. In GitHub create environment `npm`. The workflow uses OIDC-backed
-   provenance, so **no `NPM_TOKEN` is needed** when provenance is linked.
-   Keep a classic **Automation** token as `NPM_TOKEN` secret only as fallback
-   for incident recovery (Automation tokens bypass 2FA by design — never use a
-   "Publish" token in CI).
+1. npmjs.com → Access Tokens → **Generate New Token → Automation** (classic).
+   Automation tokens bypass 2FA by design — never use one locally, only in CI.
+2. In GitHub create environment `npm`, add secret `NPM_TOKEN`.
 
 ### 1d. Branch protection (do this today)
 
@@ -147,7 +139,7 @@ git push origin v1.4.0
 | Broken wheels can't ship | `smoke-wheels` installs the real built wheel and runs the Python suite **before** any publish |
 | Loud failures | No `continue-on-error` on any publish step. A failed publish fails the workflow so the release is never "half-green" |
 | Concurrency safety | `concurrency: release-${{ ref }}` with `cancel-in-progress: false` — two pushes of the same tag queue instead of racing; a release is never cancelled mid-publish |
-| Minimal credentials | OIDC everywhere; per-job `permissions: {}`-least-privilege; secrets only as documented fallbacks |
+| Credentials | Scoped API tokens as environment secrets; per-job `permissions: {}`-least-privilege; OIDC/provenance tracked as upgrade TODOs in `release.yml` |
 
 **Architecture matrix (deliberate, not maximal):** Linux `x86_64 + aarch64`,
 Windows `x64`, macOS `x86_64 + aarch64`, plus sdist. The old matrix also built

@@ -302,7 +302,10 @@ jobs:
             dist/*
           fail_on_unmatched_files: true
 
-  # ── 5a. PyPI via Trusted Publishing (OIDC — no long-lived token) ─────────
+  # ── 5a. PyPI via API token ──────────────────────────────────────────────
+  # Token: PyPI → Account settings → API tokens (scope: chunkr-rs project).
+  # Stored as repo/environment secret PYPI_API_TOKEN. See PUBLISHING.md §1.
+  # TODO: migrate to Trusted Publishing (OIDC) — no long-lived secret.
   pypi:
     name: Publish to PyPI
     needs: [validate, smoke-wheels, wheels-windows, wheels-macos, github]
@@ -312,9 +315,8 @@ jobs:
       (inputs.target == 'all' || inputs.target == 'pypi')
     runs-on: ubuntu-latest
     permissions:
-      id-token: write # OIDC for Trusted Publishing
       contents: read
-    environment: pypi # gate: requires approval + restricts to tags (see PUBLISHING.md)
+    environment: pypi # gate + secret scope (see PUBLISHING.md)
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -323,10 +325,14 @@ jobs:
           path: dist
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        # No username/password: OIDC Trusted Publisher must be configured
-        # on PyPI (project settings) for this repo + workflow. No token needed.
+        with:
+          packages-dir: dist/
+          password: ${{ secrets.PYPI_API_TOKEN }}
 
-  # ── 5b. crates.io via Trusted Publishing (fallback: API token) ───────────
+  # ── 5b. crates.io via API token ─────────────────────────────────────────
+  # Token: crates.io → Account Settings → API Tokens (scope: publish chunkr).
+  # Stored as repo/environment secret CARGO_REGISTRY_TOKEN. See PUBLISHING.md §1.
+  # TODO: migrate to crates.io Trusted Publishing (OIDC) — no long-lived secret.
   crates:
     name: Publish to crates.io
     needs: [validate, github]
@@ -336,7 +342,6 @@ jobs:
       (inputs.target == 'all' || inputs.target == 'crates')
     runs-on: ubuntu-latest
     permissions:
-      id-token: write # OIDC for crates.io Trusted Publishing
       contents: read
     environment: crates-io
     steps:
@@ -347,16 +352,13 @@ jobs:
       - name: cargo publish (dry-run gate first)
         run: cargo publish --locked --dry-run
       - name: cargo publish
-        # Prefers OIDC Trusted Publishing (no token). If your crate hasn't
-        # enabled it yet, set CARGO_REGISTRY_TOKEN secret as fallback.
-        run: |
-          if [ -n "${{ secrets.CARGO_REGISTRY_TOKEN }}" ]; then
-            cargo publish --locked --token "${{ secrets.CARGO_REGISTRY_TOKEN }}"
-          else
-            cargo publish --locked --trusted-publishing
-          fi
+        run: cargo publish --locked --token "${{ secrets.CARGO_REGISTRY_TOKEN }}"
 
-  # ── 5c. npm with OIDC provenance ─────────────────────────────────────────
+  # ── 5c. npm via automation token ────────────────────────────────────────
+  # Token: npmjs.com → Access Tokens → Generate New Token → Automation
+  # (Automation bypasses 2FA by design; keep it secret). Stored as
+  # repo/environment secret NPM_TOKEN. See PUBLISHING.md §1.
+  # TODO: migrate to npm provenance (OIDC) for Sigstore-signed publishes.
   npm:
     name: Publish to npm
     needs: [validate, wasm, github]
@@ -366,7 +368,6 @@ jobs:
       (inputs.target == 'all' || inputs.target == 'npm')
     runs-on: ubuntu-latest
     permissions:
-      id-token: write # npm provenance (Sigstore)
       contents: read
     environment: npm
     steps:
@@ -378,9 +379,9 @@ jobs:
         with:
           name: wasm-package
           path: dist
-      - name: Publish to npm (with provenance)
-        # NOTE: `npm publish --provenance` requires the package to be public
-        # and the repo↔package linkage set on npmjs.com. Falls back cleanly
-        # without it; never `continue-on-error` — a failed publish must fail
-        # the workflow loudly so the release isn't half-green.
-        run: npm publish dist/chunkr-wasm-*.tgz --access public --provenance
+      - name: Publish to npm
+        # Never `continue-on-error` — a failed publish must fail the
+        # workflow loudly so the release isn't half-green.
+        run: npm publish dist/chunkr-wasm-*.tgz --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
