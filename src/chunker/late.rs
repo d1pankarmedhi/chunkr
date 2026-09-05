@@ -1,7 +1,7 @@
-use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 use serde_json::Value;
+use std::sync::Arc;
 use tiktoken_rs::CoreBPE;
 
 use crate::chunker::base::{BaseChunker, Chunker};
@@ -234,19 +234,19 @@ impl LateChunker {
         let iter = docs.iter();
 
         iter.map(|doc| {
-                let start = doc
-                    .metadata
-                    .get("token_start")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as usize;
-                let end = doc
-                    .metadata
-                    .get("token_end")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as usize;
-                Self::pool_span(token_embeddings, start, end, self.normalize)
-            })
-            .collect()
+            let start = doc
+                .metadata
+                .get("token_start")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize;
+            let end = doc
+                .metadata
+                .get("token_end")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize;
+            Self::pool_span(token_embeddings, start, end, self.normalize)
+        })
+        .collect()
     }
 
     /// Mean-pool full-document token embeddings for an explicit list of (start, end) spans

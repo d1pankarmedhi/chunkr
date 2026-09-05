@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
 
-use serde::Serialize;
 use crate::prelude::*;
+use serde::Serialize;
 
 #[inline]
 fn err_to_js(e: impl std::fmt::Display) -> JsValue {
@@ -112,7 +112,8 @@ impl WasmDocument {
 
     #[wasm_bindgen(js_name = addMetadata)]
     pub fn add_metadata(&mut self, key: String, value: JsValue) -> Result<(), JsValue> {
-        let json_val: serde_json::Value = serde_wasm_bindgen::from_value(value).map_err(err_to_js)?;
+        let json_val: serde_json::Value =
+            serde_wasm_bindgen::from_value(value).map_err(err_to_js)?;
         self.inner.add_metadata(key, json_val);
         Ok(())
     }
@@ -149,9 +150,7 @@ impl WasmRecursiveChunker {
         let cs = chunk_size.unwrap_or(1000);
         let ov = overlap.unwrap_or(150);
         Self {
-            inner: RecursiveChunker::new()
-                .with_chunk_size(cs)
-                .with_overlap(ov),
+            inner: RecursiveChunker::new().with_chunk_size(cs).with_overlap(ov),
         }
     }
 
@@ -192,9 +191,7 @@ impl WasmCharacterChunker {
         let cs = chunk_size.unwrap_or(1000);
         let ov = overlap.unwrap_or(200);
         Self {
-            inner: CharacterChunker::new()
-                .with_chunk_size(cs)
-                .with_overlap(ov),
+            inner: CharacterChunker::new().with_chunk_size(cs).with_overlap(ov),
         }
     }
 
@@ -224,9 +221,7 @@ impl WasmWordChunker {
         let cs = chunk_size.unwrap_or(200);
         let ov = overlap.unwrap_or(20);
         Self {
-            inner: WordChunker::new()
-                .with_chunk_size(cs)
-                .with_overlap(ov),
+            inner: WordChunker::new().with_chunk_size(cs).with_overlap(ov),
         }
     }
 
@@ -294,10 +289,7 @@ pub struct WasmParagraphChunker {
 #[wasm_bindgen(js_class = ParagraphChunker)]
 impl WasmParagraphChunker {
     #[wasm_bindgen(constructor)]
-    pub fn new(
-        paragraphs_per_chunk: Option<usize>,
-        paragraph_overlap: Option<usize>,
-    ) -> Self {
+    pub fn new(paragraphs_per_chunk: Option<usize>, paragraph_overlap: Option<usize>) -> Self {
         let ppc = paragraphs_per_chunk.unwrap_or(2);
         let pov = paragraph_overlap.unwrap_or(0);
         Self {
@@ -340,9 +332,7 @@ impl WasmMarkdownChunker {
     ) -> Self {
         let cs = chunk_size.unwrap_or(1000);
         let ov = overlap.unwrap_or(150);
-        let mut inner = MarkdownChunker::new()
-            .with_chunk_size(cs)
-            .with_overlap(ov);
+        let mut inner = MarkdownChunker::new().with_chunk_size(cs).with_overlap(ov);
         if let Some(inc) = include_headers {
             inner = inner.with_include_header_in_content(inc);
         }
@@ -375,9 +365,7 @@ impl WasmHtmlChunker {
         let cs = chunk_size.unwrap_or(1200);
         let ov = overlap.unwrap_or(150);
         Self {
-            inner: HtmlChunker::new()
-                .with_chunk_size(cs)
-                .with_overlap(ov),
+            inner: HtmlChunker::new().with_chunk_size(cs).with_overlap(ov),
         }
     }
 
@@ -609,11 +597,7 @@ impl WasmLateChunker {
         let cs = chunk_size.unwrap_or(500);
         let ov = overlap.unwrap_or(50);
         let mut inner = LateChunker::new().with_encoding(enc).map_err(err_to_js)?;
-        inner.base_chunker = Arc::new(
-            RecursiveChunker::new()
-                .with_chunk_size(cs)
-                .with_overlap(ov),
-        );
+        inner.base_chunker = Arc::new(RecursiveChunker::new().with_chunk_size(cs).with_overlap(ov));
         Ok(Self { inner })
     }
 
@@ -681,8 +665,7 @@ impl WasmHierarchicalChunker {
         let p_ov = parent_overlap.unwrap_or(200);
         let c_cs = child_chunk_size.unwrap_or(400);
         let c_ov = child_overlap.unwrap_or(50);
-        let inner = HierarchicalChunker::with_sizes(p_cs, p_ov, c_cs, c_ov)
-            .map_err(err_to_js)?;
+        let inner = HierarchicalChunker::with_sizes(p_cs, p_ov, c_cs, c_ov).map_err(err_to_js)?;
         Ok(Self { inner })
     }
 
@@ -729,7 +712,10 @@ pub struct WasmStreamChunker {
 #[wasm_bindgen(js_class = StreamChunker)]
 impl WasmStreamChunker {
     #[wasm_bindgen(constructor)]
-    pub fn new(chunk_size: Option<usize>, overlap: Option<usize>) -> Result<WasmStreamChunker, JsValue> {
+    pub fn new(
+        chunk_size: Option<usize>,
+        overlap: Option<usize>,
+    ) -> Result<WasmStreamChunker, JsValue> {
         let cs = chunk_size.unwrap_or(1000);
         let ov = overlap.unwrap_or(150);
         let inner = StreamChunker::new(cs, ov).map_err(err_to_js)?;
@@ -771,7 +757,10 @@ impl WasmPDFLoader {
 
     #[wasm_bindgen(js_name = loadDocumentFromBytes)]
     pub fn load_document_from_bytes(&self, bytes: &[u8]) -> Result<JsValue, JsValue> {
-        let doc = self.inner.load_document_from_bytes(bytes).map_err(err_to_js)?;
+        let doc = self
+            .inner
+            .load_document_from_bytes(bytes)
+            .map_err(err_to_js)?;
         to_js_val(&doc)
     }
 

@@ -1,7 +1,7 @@
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use crate::chunker::base::{BaseChunker, Chunker};
 use crate::chunker::sentence::SentenceChunker;
@@ -14,10 +14,7 @@ pub enum AgenticDecision {
     /// Append sentence to current chunk
     Append,
     /// Split and begin a new chunk under the given topic
-    SplitAndStartNew {
-        topic_label: String,
-        reason: String,
-    },
+    SplitAndStartNew { topic_label: String, reason: String },
 }
 
 /// Interface for autonomous or model-based chunking decisions
@@ -41,8 +38,8 @@ pub struct HeuristicAgenticDecisionMaker {
 /// Module-level slice so `extract_content_words` does not rebuild a
 /// `HashSet` on every call (once per sentence).
 static STOP_WORDS: &[&str] = &[
-    "the", "a", "an", "is", "are", "was", "were", "and", "or", "in",
-    "on", "at", "to", "for", "with", "of", "by", "from", "as", "it", "this", "that",
+    "the", "a", "an", "is", "are", "was", "were", "and", "or", "in", "on", "at", "to", "for",
+    "with", "of", "by", "from", "as", "it", "this", "that",
 ];
 
 /// Discourse transition markers as (marker, comma_marker, topic_label).
@@ -52,7 +49,11 @@ static STOP_WORDS: &[&str] = &[
 static TRANSITIONS: &[(&str, &str, &str)] = &[
     ("in conclusion", ", in conclusion", "Conclusion"),
     ("in summary", ", in summary", "Summary"),
-    ("on the other hand", ", on the other hand", "Counter-argument"),
+    (
+        "on the other hand",
+        ", on the other hand",
+        "Counter-argument",
+    ),
     ("in contrast", ", in contrast", "Contrast"),
     ("furthermore", ", furthermore", "Continuation"),
     ("secondly", ", secondly", "Subsequent Point"),
@@ -247,12 +248,18 @@ impl Chunker for AgenticChunker {
                 AgenticDecision::Append => {
                     current_sentences.push(sentence);
                 }
-                AgenticDecision::SplitAndStartNew { topic_label, reason } => {
+                AgenticDecision::SplitAndStartNew {
+                    topic_label,
+                    reason,
+                } => {
                     if !current_sentences.is_empty() {
                         let content = current_sentences.join(" ");
                         let mut metadata = HashMap::with_capacity(5);
                         metadata.insert("length".to_string(), Value::from(content.len()));
-                        metadata.insert("sentence_count".to_string(), Value::from(current_sentences.len()));
+                        metadata.insert(
+                            "sentence_count".to_string(),
+                            Value::from(current_sentences.len()),
+                        );
                         metadata.insert("topic_label".to_string(), Value::from(current_topic));
                         metadata.insert("split_reason".to_string(), Value::from(current_reason));
                         metadata.insert("chunk_index".to_string(), Value::from(chunk_idx));
@@ -273,7 +280,10 @@ impl Chunker for AgenticChunker {
             let content = current_sentences.join(" ");
             let mut metadata = HashMap::with_capacity(5);
             metadata.insert("length".to_string(), Value::from(content.len()));
-            metadata.insert("sentence_count".to_string(), Value::from(current_sentences.len()));
+            metadata.insert(
+                "sentence_count".to_string(),
+                Value::from(current_sentences.len()),
+            );
             metadata.insert("topic_label".to_string(), Value::from(current_topic));
             metadata.insert("split_reason".to_string(), Value::from(current_reason));
             metadata.insert("chunk_index".to_string(), Value::from(chunk_idx));

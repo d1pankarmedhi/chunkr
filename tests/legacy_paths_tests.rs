@@ -92,16 +92,11 @@ fn test_hierarchical_chunk_text_preserves_include_parents_false() {
     let docs = chunker.chunk_text(text, 120, 10).unwrap();
     assert!(!docs.is_empty());
     assert!(
-        docs.iter().all(|d| {
-            d.metadata
-                .get("chunk_type")
-                .and_then(|v| v.as_str())
-                != Some("parent")
-        }),
+        docs.iter()
+            .all(|d| { d.metadata.get("chunk_type").and_then(|v| v.as_str()) != Some("parent") }),
         "parents must be excluded when include_parents_in_output is false"
     );
-    assert!(
-        docs.iter()
-            .any(|d| d.metadata.get("chunk_type").and_then(|v| v.as_str()) == Some("child"))
-    );
+    assert!(docs
+        .iter()
+        .any(|d| d.metadata.get("chunk_type").and_then(|v| v.as_str()) == Some("child")));
 }

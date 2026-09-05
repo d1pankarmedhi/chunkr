@@ -9,9 +9,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 1. Recursive Chunking
     println!("--- 1. Recursive Chunker ---");
-    let recursive_chunker = RecursiveChunker::new()
-        .with_chunk_size(80)
-        .with_overlap(15);
+    let recursive_chunker = RecursiveChunker::new().with_chunk_size(80).with_overlap(15);
     let chunks = recursive_chunker.chunk(text)?;
     println!("Generated {} recursive chunks:", chunks.len());
     for (i, c) in chunks.iter().enumerate() {
@@ -36,7 +34,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_sentences_per_chunk(2)
         .with_sentence_overlap(1);
     let sentence_chunks = sentence_chunker.chunk(sentence_doc)?;
-    println!("Generated {} sentence chunks (abbreviations protected):", sentence_chunks.len());
+    println!(
+        "Generated {} sentence chunks (abbreviations protected):",
+        sentence_chunks.len()
+    );
     for (i, c) in sentence_chunks.iter().enumerate() {
         println!("  [{}] {:?}", i + 1, c.content);
     }
@@ -78,10 +79,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n--- 7. Contextual Chunker ---");
     let doc_with_context = "# Cloud Database Architecture\n\nPostgreSQL handles transactional ACID data.\n\nRedis cache provides sub-millisecond query responses.";
     let contextual_chunker = ContextualChunker::new()
-        .with_base_chunker(ParagraphChunker::new().with_paragraphs_per_chunk(1).with_paragraph_overlap(0))
+        .with_base_chunker(
+            ParagraphChunker::new()
+                .with_paragraphs_per_chunk(1)
+                .with_paragraph_overlap(0),
+        )
         .with_format(ContextFormat::Prefix);
     let context_chunks = contextual_chunker.chunk(doc_with_context)?;
-    println!("Generated {} context-enriched chunks:", context_chunks.len());
+    println!(
+        "Generated {} context-enriched chunks:",
+        context_chunks.len()
+    );
     for (i, c) in context_chunks.iter().enumerate() {
         println!("  [{}]\n{}", i + 1, c.content);
     }
@@ -98,7 +106,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (i, c) in query_chunks.iter().enumerate() {
         let is_hotspot = c.metadata.get("is_hotspot").unwrap().as_bool().unwrap();
         let tag = if is_hotspot { "HOTSPOT" } else { "CONTEXT" };
-        println!("  [{}] [{}] (Score: {}) {:?}", i + 1, tag, c.metadata.get("relevance_score").unwrap(), c.content);
+        println!(
+            "  [{}] [{}] (Score: {}) {:?}",
+            i + 1,
+            tag,
+            c.metadata.get("relevance_score").unwrap(),
+            c.content
+        );
     }
 
     // 9. Agentic / Model-Based Chunker
@@ -109,7 +123,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let agentic_chunks = agentic_chunker.chunk(agentic_doc)?;
     println!("Generated {} agentic topic chunks:", agentic_chunks.len());
     for (i, c) in agentic_chunks.iter().enumerate() {
-        println!("  [{}] Topic: {} | Reason: {} | Content: {:?}",
+        println!(
+            "  [{}] Topic: {} | Reason: {} | Content: {:?}",
             i + 1,
             c.metadata.get("topic_label").unwrap(),
             c.metadata.get("split_reason").unwrap(),
@@ -124,9 +139,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Generated Hierarchical Tree:");
     println!("  Root: {} (children: {})", tree.id, tree.children.len());
     for parent in &tree.children {
-        println!("    ├─ Parent [{}]: {:?} (children: {})", parent.id, parent.document.content, parent.children.len());
+        println!(
+            "    ├─ Parent [{}]: {:?} (children: {})",
+            parent.id,
+            parent.document.content,
+            parent.children.len()
+        );
         for child in &parent.children {
-            println!("    │   └─ Child [{}]: {:?}", child.id, child.document.content);
+            println!(
+                "    │   └─ Child [{}]: {:?}",
+                child.id, child.document.content
+            );
         }
     }
 
@@ -173,11 +196,18 @@ impl ChunkerEngine {
     }
 }
 "#;
-    let code_chunker = CodeChunker::new(CodeLanguage::Rust).with_chunk_size(80).with_overlap(10);
+    let code_chunker = CodeChunker::new(CodeLanguage::Rust)
+        .with_chunk_size(80)
+        .with_overlap(10);
     let code_chunks = code_chunker.chunk(code_sample)?;
     println!("Generated {} code chunks:", code_chunks.len());
     for (i, c) in code_chunks.iter().enumerate() {
-        println!("  [{}] Language: {} | {:?}", i + 1, c.metadata.get("language").unwrap(), c.content);
+        println!(
+            "  [{}] Language: {} | {:?}",
+            i + 1,
+            c.metadata.get("language").unwrap(),
+            c.content
+        );
     }
 
     println!("\n=== All 12 Chunking Strategies Executed Successfully! ===");

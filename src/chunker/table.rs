@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde_json::Value;
+use std::collections::HashMap;
 
 use crate::chunker::base::{BaseChunker, Chunker};
 use crate::chunker::recursive::RecursiveChunker;
@@ -89,7 +89,11 @@ impl TableChunker {
 
     /// Helper to detect table format from text content
     fn detect_format(text: &str) -> TableFormat {
-        let lines: Vec<&str> = text.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+        let lines: Vec<&str> = text
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .collect();
         if lines.is_empty() {
             return TableFormat::Markdown;
         }
@@ -227,7 +231,10 @@ impl TableChunker {
             let mut metadata = HashMap::new();
             metadata.insert("is_table".to_string(), Value::from(true));
             metadata.insert("format".to_string(), Value::from("markdown"));
-            metadata.insert("columns".to_string(), serde_json::to_value(&columns).unwrap_or(Value::Null));
+            metadata.insert(
+                "columns".to_string(),
+                serde_json::to_value(&columns).unwrap_or(Value::Null),
+            );
             metadata.insert("start_row".to_string(), Value::from(0));
             metadata.insert("end_row".to_string(), Value::from(0));
             metadata.insert("total_rows".to_string(), Value::from(0));
@@ -273,7 +280,10 @@ impl TableChunker {
             let mut metadata = HashMap::new();
             metadata.insert("is_table".to_string(), Value::from(true));
             metadata.insert("format".to_string(), Value::from("markdown"));
-            metadata.insert("columns".to_string(), serde_json::to_value(&columns).unwrap_or(Value::Null));
+            metadata.insert(
+                "columns".to_string(),
+                serde_json::to_value(&columns).unwrap_or(Value::Null),
+            );
             metadata.insert("start_row".to_string(), Value::from(start_row_num));
             metadata.insert("end_row".to_string(), Value::from(end_row_num));
             metadata.insert("total_rows".to_string(), Value::from(total_rows));
@@ -306,7 +316,11 @@ impl TableChunker {
         format_str: &'static str,
         global_chunk_idx: &mut usize,
     ) -> Result<Vec<Document>, ChunkrError> {
-        let lines: Vec<&str> = text.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+        let lines: Vec<&str> = text
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .collect();
         if lines.is_empty() {
             return Err(ChunkrError::EmptyInput);
         }
@@ -320,7 +334,10 @@ impl TableChunker {
             let mut metadata = HashMap::new();
             metadata.insert("is_table".to_string(), Value::from(true));
             metadata.insert("format".to_string(), Value::from(format_str));
-            metadata.insert("columns".to_string(), serde_json::to_value(&columns).unwrap_or(Value::Null));
+            metadata.insert(
+                "columns".to_string(),
+                serde_json::to_value(&columns).unwrap_or(Value::Null),
+            );
             metadata.insert("start_row".to_string(), Value::from(0));
             metadata.insert("end_row".to_string(), Value::from(0));
             metadata.insert("total_rows".to_string(), Value::from(0));
@@ -368,7 +385,10 @@ impl TableChunker {
             let mut metadata = HashMap::new();
             metadata.insert("is_table".to_string(), Value::from(true));
             metadata.insert("format".to_string(), Value::from(format_str));
-            metadata.insert("columns".to_string(), serde_json::to_value(&columns).unwrap_or(Value::Null));
+            metadata.insert(
+                "columns".to_string(),
+                serde_json::to_value(&columns).unwrap_or(Value::Null),
+            );
             metadata.insert("start_row".to_string(), Value::from(start_row_num));
             metadata.insert("end_row".to_string(), Value::from(end_row_num));
             metadata.insert("total_rows".to_string(), Value::from(total_rows));
@@ -478,9 +498,7 @@ impl Chunker for TableChunker {
         let mut global_chunk_idx = 0;
 
         match format {
-            TableFormat::Csv => {
-                self.chunk_delimited_table(text, ',', "csv", &mut global_chunk_idx)
-            }
+            TableFormat::Csv => self.chunk_delimited_table(text, ',', "csv", &mut global_chunk_idx),
             TableFormat::Tsv => {
                 self.chunk_delimited_table(text, '\t', "tsv", &mut global_chunk_idx)
             }
@@ -500,7 +518,10 @@ impl Chunker for TableChunker {
                                 let mut metadata = HashMap::new();
                                 metadata.insert("is_table".to_string(), Value::from(false));
                                 metadata.insert("length".to_string(), Value::from(prose.len()));
-                                metadata.insert("chunk_index".to_string(), Value::from(global_chunk_idx));
+                                metadata.insert(
+                                    "chunk_index".to_string(),
+                                    Value::from(global_chunk_idx),
+                                );
                                 global_chunk_idx += 1;
 
                                 result.push(Document {
@@ -512,7 +533,10 @@ impl Chunker for TableChunker {
                                 for sub_doc in sub_docs {
                                     let mut metadata = sub_doc.metadata;
                                     metadata.insert("is_table".to_string(), Value::from(false));
-                                    metadata.insert("chunk_index".to_string(), Value::from(global_chunk_idx));
+                                    metadata.insert(
+                                        "chunk_index".to_string(),
+                                        Value::from(global_chunk_idx),
+                                    );
                                     global_chunk_idx += 1;
 
                                     result.push(Document {

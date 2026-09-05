@@ -88,7 +88,10 @@ impl HierarchicalChunker {
     }
 
     /// Split text into structured pairs of parent documents with their corresponding children
-    pub fn chunk_hierarchical(&self, text: &str) -> Result<Vec<HierarchicalChunkPair>, ChunkrError> {
+    pub fn chunk_hierarchical(
+        &self,
+        text: &str,
+    ) -> Result<Vec<HierarchicalChunkPair>, ChunkrError> {
         let parent_docs = self.parent_chunker.chunk(text)?;
         let mut pairs = Vec::new();
 
@@ -110,13 +113,7 @@ impl HierarchicalChunker {
                 child_doc.add_metadata("depth", Value::from(1));
                 child_doc.add_metadata(
                     "parent_preview",
-                    Value::from(
-                        parent_doc
-                            .content
-                            .chars()
-                            .take(100)
-                            .collect::<String>(),
-                    ),
+                    Value::from(parent_doc.content.chars().take(100).collect::<String>()),
                 );
                 enriched_children.push(child_doc);
             }

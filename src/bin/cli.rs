@@ -88,10 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 1. If Strategy::Dir, run directory loader directly
     let mut chunks = if cli.strategy == Strategy::Dir {
-        let dir_path = cli
-            .input
-            .as_deref()
-            .unwrap_or(".");
+        let dir_path = cli.input.as_deref().unwrap_or(".");
         let loader = DirectoryLoader::new()
             .with_chunk_size(cli.chunk_size)
             .with_overlap(cli.overlap);
@@ -102,11 +99,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some("-") | None => {
                 let stdin = io::stdin();
                 let handle = stdin.lock();
-                streamer.chunk_reader(handle).collect::<Result<Vec<_>, _>>()?
+                streamer
+                    .chunk_reader(handle)
+                    .collect::<Result<Vec<_>, _>>()?
             }
-            Some(path) => {
-                streamer.chunk_file(path)?.collect::<Result<Vec<_>, _>>()?
-            }
+            Some(path) => streamer.chunk_file(path)?.collect::<Result<Vec<_>, _>>()?,
         }
     } else {
         // Read text from file or STDIN
@@ -144,7 +141,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 chunker.chunk(&raw_text)?
             }
             Strategy::Token => {
-                let chunker = TokenChunker::with_encoding(cli.chunk_size, cli.overlap, TokenEncoding::Cl100kBase)?;
+                let chunker = TokenChunker::with_encoding(
+                    cli.chunk_size,
+                    cli.overlap,
+                    TokenEncoding::Cl100kBase,
+                )?;
                 chunker.chunk(&raw_text)?
             }
             Strategy::Sentence => {
@@ -177,8 +178,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 chunker.chunk(&raw_text)?
             }
             Strategy::Json => {
-                let chunker = JsonChunker::new()
-                    .with_max_chunk_size(cli.chunk_size);
+                let chunker = JsonChunker::new().with_max_chunk_size(cli.chunk_size);
                 chunker.chunk(&raw_text)?
             }
             Strategy::Html => {

@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde_json::Value;
+use std::collections::HashMap;
 
 use crate::structures::document::Document;
 
@@ -151,10 +151,7 @@ impl ChunkPacker {
         source_metas: &[HashMap<String, Value>],
     ) {
         for key in SPAN_SENSITIVE_KEYS {
-            let present: Vec<&Value> = source_metas
-                .iter()
-                .filter_map(|m| m.get(*key))
-                .collect();
+            let present: Vec<&Value> = source_metas.iter().filter_map(|m| m.get(*key)).collect();
             if present.is_empty() {
                 continue;
             }

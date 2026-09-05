@@ -4,7 +4,10 @@ use chunkr::chunker::base::BaseChunker;
 fn oversized_rust_function() -> String {
     let mut code = String::from("fn big_function() {\n");
     for i in 0..200 {
-        code.push_str(&format!("    let value_{} = compute_something({});\n", i, i));
+        code.push_str(&format!(
+            "    let value_{} = compute_something({});\n",
+            i, i
+        ));
     }
     code.push_str("}\n");
     code

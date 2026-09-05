@@ -1,5 +1,5 @@
-use std::collections::{HashMap, HashSet};
 use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 
 use crate::structures::document::Document;
 
@@ -73,7 +73,9 @@ impl ChunkDeduplicator {
                 let idx = result.len();
                 let mut new_doc = doc.clone();
                 if self.track_duplicates {
-                    new_doc.metadata.insert("duplicate_count".to_string(), Value::from(1));
+                    new_doc
+                        .metadata
+                        .insert("duplicate_count".to_string(), Value::from(1));
                 }
                 result.push(new_doc);
                 key_to_index.insert(key, idx);

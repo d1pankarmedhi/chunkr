@@ -1,8 +1,8 @@
+use serde_json::Value;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
-use serde_json::Value;
 
 use crate::error::ChunkrError;
 use crate::structures::document::Document;
@@ -165,14 +165,16 @@ impl<R: BufRead> Iterator for ChunkReaderIterator<R> {
         while !self.eof {
             // Check if buffer has accumulated enough text for a chunk
             if self.available_len() >= self.chunk_size {
-                let cut = Self::find_cut_point(&self.buffer[self.start..], self.chunk_size, self.overlap);
+                let cut =
+                    Self::find_cut_point(&self.buffer[self.start..], self.chunk_size, self.overlap);
                 let chunk_text = self.buffer[self.start..self.start + cut].trim().to_string();
 
                 let advance = if cut > self.overlap {
                     cut - self.overlap
                 } else {
                     cut
-                }.max(1);
+                }
+                .max(1);
 
                 self.advance(advance);
 
@@ -198,14 +200,16 @@ impl<R: BufRead> Iterator for ChunkReaderIterator<R> {
         // EOF reached: yield any residual text
         while self.start < self.buffer.len() {
             let avail = self.available_len();
-            let cut = Self::find_cut_point(&self.buffer[self.start..], self.chunk_size, self.overlap);
+            let cut =
+                Self::find_cut_point(&self.buffer[self.start..], self.chunk_size, self.overlap);
             let chunk_text = self.buffer[self.start..self.start + cut].trim().to_string();
 
             let advance = if cut > self.overlap && avail > self.chunk_size {
                 cut - self.overlap
             } else {
                 cut
-            }.max(1);
+            }
+            .max(1);
 
             self.advance(advance);
 

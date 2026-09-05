@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde_json::Value;
+use std::collections::HashMap;
 
 use crate::chunker::base::{BaseChunker, Chunker};
 use crate::error::ChunkrError;
@@ -7,10 +7,10 @@ use crate::structures::document::Document;
 
 /// Known common abbreviations that should NOT trigger sentence boundaries
 const KNOWN_ABBREVIATIONS: &[&str] = &[
-    "mr.", "mrs.", "ms.", "dr.", "prof.", "sr.", "jr.", "vs.", "etc.", "e.g.",
-    "i.e.", "inc.", "corp.", "co.", "ltd.", "u.s.", "u.k.", "u.s.a.", "p.m.", "a.m.",
-    "jan.", "feb.", "mar.", "apr.", "jun.", "jul.", "aug.", "sep.", "sept.", "oct.",
-    "nov.", "dec.", "dept.", "approx.", "est.", "fig.", "al.", "no.", "vol.", "pp.",
+    "mr.", "mrs.", "ms.", "dr.", "prof.", "sr.", "jr.", "vs.", "etc.", "e.g.", "i.e.", "inc.",
+    "corp.", "co.", "ltd.", "u.s.", "u.k.", "u.s.a.", "p.m.", "a.m.", "jan.", "feb.", "mar.",
+    "apr.", "jun.", "jul.", "aug.", "sep.", "sept.", "oct.", "nov.", "dec.", "dept.", "approx.",
+    "est.", "fig.", "al.", "no.", "vol.", "pp.",
 ];
 
 /// Check whether the word ending at the current period is a known abbreviation.
@@ -94,10 +94,20 @@ impl SentenceChunker {
                 } else {
                     let next_byte = bytes[i + 1];
                     // Followed by whitespace, newline, or quote + whitespace
-                    if next_byte == b' ' || next_byte == b'\n' || next_byte == b'\r' || next_byte == b'\t' {
+                    if next_byte == b' '
+                        || next_byte == b'\n'
+                        || next_byte == b'\r'
+                        || next_byte == b'\t'
+                    {
                         true
-                    } else if (next_byte == b'"' || next_byte == b'\'' || next_byte == b')' || next_byte == b']')
-                        && (i + 2 >= len || bytes[i + 2] == b' ' || bytes[i + 2] == b'\n' || bytes[i + 2] == b'\r')
+                    } else if (next_byte == b'"'
+                        || next_byte == b'\''
+                        || next_byte == b')'
+                        || next_byte == b']')
+                        && (i + 2 >= len
+                            || bytes[i + 2] == b' '
+                            || bytes[i + 2] == b'\n'
+                            || bytes[i + 2] == b'\r')
                     {
                         true
                     } else {
@@ -115,7 +125,9 @@ impl SentenceChunker {
                     }
 
                     // Check if period is part of ellipsis (...)
-                    if b == b'.' && (i + 1 < len && bytes[i + 1] == b'.' || (i > 0 && bytes[i - 1] == b'.')) {
+                    if b == b'.'
+                        && (i + 1 < len && bytes[i + 1] == b'.' || (i > 0 && bytes[i - 1] == b'.'))
+                    {
                         i += 1;
                         continue;
                     }
@@ -131,7 +143,12 @@ impl SentenceChunker {
 
                     // Determine split end position including trailing quote if present
                     let mut split_end = i + 1;
-                    if split_end < len && (bytes[split_end] == b'"' || bytes[split_end] == b'\'' || bytes[split_end] == b')' || bytes[split_end] == b']') {
+                    if split_end < len
+                        && (bytes[split_end] == b'"'
+                            || bytes[split_end] == b'\''
+                            || bytes[split_end] == b')'
+                            || bytes[split_end] == b']')
+                    {
                         split_end += 1;
                     }
 
@@ -209,15 +226,15 @@ impl Chunker for SentenceChunker {
 
             let mut metadata = HashMap::with_capacity(4);
             metadata.insert("length".to_string(), Value::from(content.len()));
-            metadata.insert("sentence_count".to_string(), Value::from(end_idx - start_idx));
+            metadata.insert(
+                "sentence_count".to_string(),
+                Value::from(end_idx - start_idx),
+            );
             metadata.insert("start_sentence".to_string(), Value::from(start_idx));
             metadata.insert("end_sentence".to_string(), Value::from(end_idx));
             metadata.insert("chunk_index".to_string(), Value::from(chunk_idx));
 
-            result.push(Document {
-                content,
-                metadata,
-            });
+            result.push(Document { content, metadata });
             chunk_idx += 1;
 
             if end_idx == total_sentences {
@@ -319,15 +336,15 @@ impl Chunker for ParagraphChunker {
 
             let mut metadata = HashMap::with_capacity(4);
             metadata.insert("length".to_string(), Value::from(content.len()));
-            metadata.insert("paragraph_count".to_string(), Value::from(end_idx - start_idx));
+            metadata.insert(
+                "paragraph_count".to_string(),
+                Value::from(end_idx - start_idx),
+            );
             metadata.insert("start_paragraph".to_string(), Value::from(start_idx));
             metadata.insert("end_paragraph".to_string(), Value::from(end_idx));
             metadata.insert("chunk_index".to_string(), Value::from(chunk_idx));
 
-            result.push(Document {
-                content,
-                metadata,
-            });
+            result.push(Document { content, metadata });
             chunk_idx += 1;
 
             if end_idx == total_paragraphs {

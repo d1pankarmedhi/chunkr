@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use rayon::prelude::*;
 use serde_json::Value;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use crate::chunker::base::Chunker;
 use crate::chunker::code::{CodeChunker, CodeLanguage};
@@ -93,7 +93,9 @@ impl DirectoryLoader {
         for part in path.components() {
             let name = part.as_os_str().to_string_lossy();
             for ex in &self.excludes {
-                if name.eq_ignore_ascii_case(ex) || (name.starts_with('.') && name != "." && name != "..") {
+                if name.eq_ignore_ascii_case(ex)
+                    || (name.starts_with('.') && name != "." && name != "..")
+                {
                     return true;
                 }
             }
@@ -117,7 +119,10 @@ impl DirectoryLoader {
     /// Recursive directory scan collecting matching file paths
     fn scan_dir(&self, dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), ChunkrError> {
         if !dir.is_dir() {
-            return Err(ChunkrError::IoError(format!("Path is not a directory: {:?}", dir)));
+            return Err(ChunkrError::IoError(format!(
+                "Path is not a directory: {:?}",
+                dir
+            )));
         }
 
         let entries = std::fs::read_dir(dir).map_err(|e| ChunkrError::IoError(e.to_string()))?;
@@ -176,7 +181,10 @@ impl DirectoryLoader {
         let file_size = metadata_fs.map(|m| m.len()).unwrap_or(0);
 
         let mut metadata = HashMap::new();
-        metadata.insert("file_path".to_string(), Value::from(path.to_string_lossy().to_string()));
+        metadata.insert(
+            "file_path".to_string(),
+            Value::from(path.to_string_lossy().to_string()),
+        );
         if let Some(file_name) = path.file_name().and_then(|f| f.to_str()) {
             metadata.insert("file_name".to_string(), Value::from(file_name));
         }
@@ -251,10 +259,18 @@ impl DirectoryLoader {
         // Helper to attach file metadata to generated chunks
         let enrich_chunks = |mut chunks: Vec<Document>| -> Vec<Document> {
             for chunk in &mut chunks {
-                chunk.metadata.insert("file_path".to_string(), Value::from(path_str.clone()));
-                chunk.metadata.insert("file_name".to_string(), Value::from(file_name.clone()));
-                chunk.metadata.insert("file_extension".to_string(), Value::from(ext.clone()));
-                chunk.metadata.insert("file_size_bytes".to_string(), Value::from(file_size));
+                chunk
+                    .metadata
+                    .insert("file_path".to_string(), Value::from(path_str.clone()));
+                chunk
+                    .metadata
+                    .insert("file_name".to_string(), Value::from(file_name.clone()));
+                chunk
+                    .metadata
+                    .insert("file_extension".to_string(), Value::from(ext.clone()));
+                chunk
+                    .metadata
+                    .insert("file_size_bytes".to_string(), Value::from(file_size));
             }
             chunks
         };
@@ -288,8 +304,7 @@ impl DirectoryLoader {
                 chunker.chunk(&content)?
             }
             "json" => {
-                let chunker = JsonChunker::new()
-                    .with_max_chunk_size(self.chunk_size);
+                let chunker = JsonChunker::new().with_max_chunk_size(self.chunk_size);
                 chunker.chunk(&content)?
             }
             "html" | "htm" => {

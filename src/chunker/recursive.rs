@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-use serde_json::Value;
 use memchr::memmem;
+use serde_json::Value;
+use std::collections::HashMap;
 
 use crate::chunker::base::{BaseChunker, Chunker};
 use crate::error::ChunkrError;
@@ -69,7 +69,12 @@ impl RecursiveChunker {
     }
 
     /// Recursively split text given a list of separator candidates directly into a buffer
-    fn split_recursive_into<'a>(&self, text: &'a str, separators: &[String], out: &mut Vec<&'a str>) {
+    fn split_recursive_into<'a>(
+        &self,
+        text: &'a str,
+        separators: &[String],
+        out: &mut Vec<&'a str>,
+    ) {
         if text.len() <= self.chunk_size {
             out.push(text);
             return;
@@ -293,10 +298,7 @@ impl Chunker for RecursiveChunker {
             metadata.insert("length".to_string(), Value::from(content.len()));
             metadata.insert("chunk_index".to_string(), Value::from(chunk_idx));
 
-            result.push(Document {
-                content,
-                metadata,
-            });
+            result.push(Document { content, metadata });
         }
 
         Ok(result)

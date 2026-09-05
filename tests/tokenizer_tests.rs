@@ -1,6 +1,7 @@
 use chunkr::prelude::*;
 
-const PARAGRAPH: &str = "Retrieval-Augmented Generation grounds large language models on external knowledge. \
+const PARAGRAPH: &str =
+    "Retrieval-Augmented Generation grounds large language models on external knowledge. \
     Chunking splits documents into semantically coherent segments for vector indexing. \
     High-performance chunking preserves sentence and paragraph boundaries without excess latency. ";
 
@@ -49,12 +50,14 @@ fn test_late_spans_advance_on_repeated_text() {
     let sentence = "The quick brown fox jumps over the lazy dog. ";
     let text = sentence.repeat(4);
 
-    let base = RecursiveChunker::new()
-        .with_chunk_size(60)
-        .with_overlap(15);
+    let base = RecursiveChunker::new().with_chunk_size(60).with_overlap(15);
     let late = LateChunker::new().with_base_chunker(base);
     let chunks = late.chunk(&text).unwrap();
-    assert!(chunks.len() >= 2, "expected several chunks, got {}", chunks.len());
+    assert!(
+        chunks.len() >= 2,
+        "expected several chunks, got {}",
+        chunks.len()
+    );
 
     let starts: Vec<u64> = chunks
         .iter()

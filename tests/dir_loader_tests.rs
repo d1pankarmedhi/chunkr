@@ -53,11 +53,9 @@ fn test_lenient_chunk_skips_bad_file() {
     let (chunks, errors) = loader.load_and_chunk_lenient(&dir);
 
     assert!(!chunks.is_empty(), "good file should produce chunks");
-    assert!(chunks.iter().all(|c| c
-        .metadata
-        .get("file_name")
-        .and_then(|v| v.as_str())
-        == Some("good.md")));
+    assert!(chunks
+        .iter()
+        .all(|c| c.metadata.get("file_name").and_then(|v| v.as_str()) == Some("good.md")));
     assert_eq!(errors.len(), 1, "exactly one error expected");
     assert_eq!(errors[0].0, bad, "error should name the bad path");
 

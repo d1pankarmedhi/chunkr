@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde_json::Value;
+use std::collections::HashMap;
 
 use crate::chunker::base::{BaseChunker, Chunker};
 use crate::error::ChunkrError;
@@ -34,7 +34,11 @@ impl CharacterChunker {
     }
 
     /// Helper to split text using given chunk_size and overlap
-    pub fn split_text(text: &str, chunk_size: usize, overlap: usize) -> Result<Vec<Document>, ChunkrError> {
+    pub fn split_text(
+        text: &str,
+        chunk_size: usize,
+        overlap: usize,
+    ) -> Result<Vec<Document>, ChunkrError> {
         if text.trim().is_empty() {
             return Err(ChunkrError::EmptyInput);
         }
@@ -42,7 +46,10 @@ impl CharacterChunker {
             return Err(ChunkrError::InvalidChunkSize(0));
         }
         if overlap >= chunk_size {
-            return Err(ChunkrError::InvalidOverlap { chunk_size, overlap });
+            return Err(ChunkrError::InvalidOverlap {
+                chunk_size,
+                overlap,
+            });
         }
 
         let mut result = Vec::new();

@@ -32,7 +32,11 @@ fn test_cli_sentence_default_flags_succeed() {
         String::from_utf8_lossy(&out.stderr)
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("keynote"), "expected chunk output, got: {}", stdout);
+    assert!(
+        stdout.contains("keynote"),
+        "expected chunk output, got: {}",
+        stdout
+    );
 }
 
 #[test]
@@ -45,7 +49,11 @@ fn test_cli_paragraph_small_chunk_size_succeeds() {
         String::from_utf8_lossy(&out.stderr)
     );
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("Para one"), "expected chunk output, got: {}", stdout);
+    assert!(
+        stdout.contains("Para one"),
+        "expected chunk output, got: {}",
+        stdout
+    );
 }
 
 #[test]

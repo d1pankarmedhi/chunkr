@@ -1,6 +1,6 @@
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
-use serde_json::Value;
 use tiktoken_rs::{cl100k_base, o200k_base, p50k_base, r50k_base, CoreBPE};
 
 use crate::chunker::base::{BaseChunker, Chunker};
@@ -20,10 +20,18 @@ pub enum TokenEncoding {
 impl TokenEncoding {
     pub fn get_bpe(&self) -> Result<CoreBPE, ChunkrError> {
         match self {
-            TokenEncoding::Cl100kBase => cl100k_base().map_err(|e| ChunkrError::TokenizerError(e.to_string())),
-            TokenEncoding::O200kBase => o200k_base().map_err(|e| ChunkrError::TokenizerError(e.to_string())),
-            TokenEncoding::P50kBase => p50k_base().map_err(|e| ChunkrError::TokenizerError(e.to_string())),
-            TokenEncoding::R50kBase => r50k_base().map_err(|e| ChunkrError::TokenizerError(e.to_string())),
+            TokenEncoding::Cl100kBase => {
+                cl100k_base().map_err(|e| ChunkrError::TokenizerError(e.to_string()))
+            }
+            TokenEncoding::O200kBase => {
+                o200k_base().map_err(|e| ChunkrError::TokenizerError(e.to_string()))
+            }
+            TokenEncoding::P50kBase => {
+                p50k_base().map_err(|e| ChunkrError::TokenizerError(e.to_string()))
+            }
+            TokenEncoding::R50kBase => {
+                r50k_base().map_err(|e| ChunkrError::TokenizerError(e.to_string()))
+            }
         }
     }
 
@@ -58,13 +66,7 @@ fn shared_bpe(encoding: TokenEncoding) -> Result<Arc<CoreBPE>, ChunkrError> {
     };
     // `get_or_init` cannot return `Result`, so a failed build panics here.
     // The embedded tables are compile-time data and must always parse.
-    let bpe = cell.get_or_init(|| {
-        Arc::new(
-            encoding
-                .get_bpe()
-                .expect("embedded BPE valid"),
-        )
-    });
+    let bpe = cell.get_or_init(|| Arc::new(encoding.get_bpe().expect("embedded BPE valid")));
     Ok(Arc::clone(bpe))
 }
 
@@ -115,7 +117,10 @@ impl TokenChunker {
             return Err(ChunkrError::InvalidChunkSize(0));
         }
         if overlap >= chunk_size {
-            return Err(ChunkrError::InvalidOverlap { chunk_size, overlap });
+            return Err(ChunkrError::InvalidOverlap {
+                chunk_size,
+                overlap,
+            });
         }
         let bpe = shared_bpe(encoding)?;
         Ok(Self {
@@ -237,7 +242,11 @@ impl BaseChunker<Result<Vec<Document>, String>> for TokenChunker {
             return Err(ChunkrError::InvalidChunkSize(0).to_string());
         }
         if overlap >= chunk_size {
-            return Err(ChunkrError::InvalidOverlap { chunk_size, overlap }.to_string());
+            return Err(ChunkrError::InvalidOverlap {
+                chunk_size,
+                overlap,
+            }
+            .to_string());
         }
         let chunker = Self {
             chunk_size,

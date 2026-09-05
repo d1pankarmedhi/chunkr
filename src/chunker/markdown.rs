@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde_json::Value;
+use std::collections::HashMap;
 
 use crate::chunker::base::{BaseChunker, Chunker};
 use crate::chunker::recursive::RecursiveChunker;
@@ -166,10 +166,7 @@ fn strip_leading_headers(body: &str) -> &str {
     loop {
         // Skip blank lines.
         let stripped = rest.trim_start_matches(|c| c == '\n' || c == '\r');
-        let line_end = stripped
-            .find('\n')
-            .map(|i| i + 1)
-            .unwrap_or(stripped.len());
+        let line_end = stripped.find('\n').map(|i| i + 1).unwrap_or(stripped.len());
         let (line, tail) = stripped.split_at(line_end);
         if parse_header_slice(line).is_some() {
             rest = tail;
@@ -200,7 +197,8 @@ impl Chunker for MarkdownChunker {
         let mut chunk_idx = 0;
 
         for section in sections {
-            let header_titles: Vec<String> = section.headers.iter().map(|(_, t)| t.to_string()).collect();
+            let header_titles: Vec<String> =
+                section.headers.iter().map(|(_, t)| t.to_string()).collect();
             let header_path = header_titles.join(" > ");
             // Honor `include_header_in_content`: when disabled, strip the
             // section's own opening header line(s) from the emitted text
@@ -216,9 +214,15 @@ impl Chunker for MarkdownChunker {
                 if !trimmed.is_empty() {
                     let mut metadata = HashMap::new();
                     metadata.insert("length".to_string(), Value::from(trimmed.len()));
-                    metadata.insert("headers".to_string(), serde_json::to_value(&header_titles).unwrap_or(Value::Null));
+                    metadata.insert(
+                        "headers".to_string(),
+                        serde_json::to_value(&header_titles).unwrap_or(Value::Null),
+                    );
                     metadata.insert("header_path".to_string(), Value::from(header_path));
-                    metadata.insert("has_code_block".to_string(), Value::from(section.has_code_block));
+                    metadata.insert(
+                        "has_code_block".to_string(),
+                        Value::from(section.has_code_block),
+                    );
                     metadata.insert("chunk_index".to_string(), Value::from(chunk_idx));
 
                     result.push(Document {
@@ -233,9 +237,15 @@ impl Chunker for MarkdownChunker {
                 for sub_doc in sub_docs {
                     let mut metadata = HashMap::new();
                     metadata.insert("length".to_string(), Value::from(sub_doc.content.len()));
-                    metadata.insert("headers".to_string(), serde_json::to_value(&header_titles).unwrap_or(Value::Null));
+                    metadata.insert(
+                        "headers".to_string(),
+                        serde_json::to_value(&header_titles).unwrap_or(Value::Null),
+                    );
                     metadata.insert("header_path".to_string(), Value::from(header_path.clone()));
-                    metadata.insert("has_code_block".to_string(), Value::from(section.has_code_block));
+                    metadata.insert(
+                        "has_code_block".to_string(),
+                        Value::from(section.has_code_block),
+                    );
                     metadata.insert("chunk_index".to_string(), Value::from(chunk_idx));
 
                     result.push(Document {

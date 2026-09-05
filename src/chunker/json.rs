@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde_json::Value;
+use std::collections::HashMap;
 
 use crate::chunker::base::{BaseChunker, Chunker};
 use crate::chunker::recursive::RecursiveChunker;
@@ -85,7 +85,10 @@ impl JsonChunker {
 
         if serialized.chars().count() <= self.max_chunk_size {
             let mut metadata = HashMap::new();
-            metadata.insert("path".to_string(), Value::from(if path.is_empty() { "$" } else { path }));
+            metadata.insert(
+                "path".to_string(),
+                Value::from(if path.is_empty() { "$" } else { path }),
+            );
             metadata.insert("length".to_string(), Value::from(serialized.len()));
             metadata.insert("chunk_index".to_string(), Value::from(docs.len()));
             metadata.insert("is_json".to_string(), Value::from(true));
@@ -123,10 +126,10 @@ impl JsonChunker {
                 // `body` is the tracked sum of embedded item lengths; the
                 // debug assertion proves tracking matches real serialization.
                 let flush_batch = |batch: &mut Vec<Value>,
-                                       body: &mut usize,
-                                       start: usize,
-                                       end: usize,
-                                       docs: &mut Vec<Document>| {
+                                   body: &mut usize,
+                                   start: usize,
+                                   end: usize,
+                                   docs: &mut Vec<Document>| {
                     if batch.is_empty() {
                         return;
                     }
@@ -156,13 +159,7 @@ impl JsonChunker {
                 for (idx, item) in arr.iter().enumerate() {
                     let item_str = self.serialize_value(item);
                     if item_str.chars().count() > self.max_chunk_size {
-                        flush_batch(
-                            &mut current_batch,
-                            &mut batch_body,
-                            start_idx,
-                            idx,
-                            docs,
-                        );
+                        flush_batch(&mut current_batch, &mut batch_body, start_idx, idx, docs);
                         let item_path = format!("{}[{}]", path, idx);
                         self.chunk_json_value(item, &item_path, docs)?;
                         start_idx = idx + 1;
@@ -175,13 +172,7 @@ impl JsonChunker {
                             self.pretty,
                         );
                         if !current_batch.is_empty() && projected > self.max_chunk_size {
-                            flush_batch(
-                                &mut current_batch,
-                                &mut batch_body,
-                                start_idx,
-                                idx,
-                                docs,
-                            );
+                            flush_batch(&mut current_batch, &mut batch_body, start_idx, idx, docs);
                             start_idx = idx;
                         }
                         // Single clone per item; batch serialized only on flush.
@@ -242,9 +233,7 @@ impl BaseChunker<Result<Vec<Document>, String>> for JsonChunker {
         chunk_size: usize,
         _overlap: usize,
     ) -> Result<Vec<Document>, String> {
-        let chunker = self
-            .clone()
-            .with_max_chunk_size(chunk_size);
+        let chunker = self.clone().with_max_chunk_size(chunk_size);
         chunker.chunk(text).map_err(|e| e.to_string())
     }
 }

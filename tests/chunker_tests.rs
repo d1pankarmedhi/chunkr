@@ -1,5 +1,5 @@
-use chunkr::prelude::*;
 use chunkr::loader::pdf::PDFLoader;
+use chunkr::prelude::*;
 
 #[test]
 fn test_character_chunker_legacy() {
@@ -37,7 +37,8 @@ fn test_character_chunker_modern() {
     let chunker = CharacterChunker::new()
         .with_chunk_size(100)
         .with_overlap(20);
-    let text = "Hello world! This is a test for unicode characters: 🦀 Rust 🚀 is fast and safe. ".repeat(5);
+    let text = "Hello world! This is a test for unicode characters: 🦀 Rust 🚀 is fast and safe. "
+        .repeat(5);
     let chunks = chunker.chunk(&text).unwrap();
 
     assert!(!chunks.is_empty());
@@ -45,15 +46,16 @@ fn test_character_chunker_modern() {
         assert!(!chunk.content.is_empty());
         assert!(chunk.metadata.contains_key("start_char"));
         assert!(chunk.metadata.contains_key("end_char"));
-        assert_eq!(chunk.metadata.get("chunk_index").unwrap().as_u64().unwrap(), i as u64);
+        assert_eq!(
+            chunk.metadata.get("chunk_index").unwrap().as_u64().unwrap(),
+            i as u64
+        );
     }
 }
 
 #[test]
 fn test_word_chunker_modern() {
-    let chunker = WordChunker::new()
-        .with_chunk_size(10)
-        .with_overlap(2);
+    let chunker = WordChunker::new().with_chunk_size(10).with_overlap(2);
     let text = "The quick brown fox jumps over the lazy dog. Chunkr makes document chunking super fast and easy for all LLMs.";
     let chunks = chunker.chunk(text).unwrap();
 
@@ -67,14 +69,18 @@ fn test_word_chunker_modern() {
 #[test]
 fn test_token_chunker() {
     let chunker = TokenChunker::with_encoding(50, 10, TokenEncoding::Cl100kBase).unwrap();
-    let text = "Large language models require accurate token counts for prompt window management. ".repeat(10);
+    let text = "Large language models require accurate token counts for prompt window management. "
+        .repeat(10);
     let chunks = chunker.chunk(&text).unwrap();
 
     assert!(!chunks.is_empty());
     for chunk in &chunks {
         let tokens = chunker.count_tokens(&chunk.content);
         assert!(tokens <= 55);
-        assert_eq!(chunk.metadata.get("encoding").unwrap().as_str().unwrap(), "cl100k_base");
+        assert_eq!(
+            chunk.metadata.get("encoding").unwrap().as_str().unwrap(),
+            "cl100k_base"
+        );
     }
 }
 
@@ -102,13 +108,29 @@ fn test_hierarchical_chunker() {
 
     assert!(!pairs.is_empty());
     for pair in pairs {
-        assert_eq!(pair.parent.metadata.get("chunk_type").unwrap().as_str().unwrap(), "parent");
+        assert_eq!(
+            pair.parent
+                .metadata
+                .get("chunk_type")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "parent"
+        );
         assert!(!pair.children.is_empty());
         for child in pair.children {
-            assert_eq!(child.metadata.get("chunk_type").unwrap().as_str().unwrap(), "child");
+            assert_eq!(
+                child.metadata.get("chunk_type").unwrap().as_str().unwrap(),
+                "child"
+            );
             assert_eq!(
                 child.metadata.get("parent_id").unwrap().as_str().unwrap(),
-                pair.parent.metadata.get("parent_id").unwrap().as_str().unwrap()
+                pair.parent
+                    .metadata
+                    .get("parent_id")
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
             );
         }
     }
@@ -138,7 +160,9 @@ fn test_sentence_chunker() {
 
     let sentences = SentenceChunker::split_sentences(text);
     assert_eq!(sentences.len(), 5);
-    assert!(sentences[0].contains("Dr. Smith arrived at 3.14 p.m. at Google Inc. to give a keynote!"));
+    assert!(
+        sentences[0].contains("Dr. Smith arrived at 3.14 p.m. at Google Inc. to give a keynote!")
+    );
 
     let chunker = SentenceChunker::new()
         .with_sentences_per_chunk(2)
@@ -146,7 +170,15 @@ fn test_sentence_chunker() {
 
     let chunks = chunker.chunk(text).unwrap();
     assert_eq!(chunks.len(), 4);
-    assert_eq!(chunks[0].metadata.get("sentence_count").unwrap().as_u64().unwrap(), 2);
+    assert_eq!(
+        chunks[0]
+            .metadata
+            .get("sentence_count")
+            .unwrap()
+            .as_u64()
+            .unwrap(),
+        2
+    );
 }
 
 #[test]
@@ -159,7 +191,15 @@ fn test_paragraph_chunker() {
 
     let chunks = chunker.chunk(text).unwrap();
     assert_eq!(chunks.len(), 2);
-    assert_eq!(chunks[0].metadata.get("paragraph_count").unwrap().as_u64().unwrap(), 2);
+    assert_eq!(
+        chunks[0]
+            .metadata
+            .get("paragraph_count")
+            .unwrap()
+            .as_u64()
+            .unwrap(),
+        2
+    );
 }
 
 #[test]
@@ -194,7 +234,11 @@ fn test_contextual_chunker() {
     let document = "# ACME Corp Technical Architecture\n\nSection 1: Database Layer.\nACME uses distributed PostgreSQL with replication.\n\nSection 2: Caching Layer.\nACME uses Redis cluster for sub-millisecond retrieval.";
 
     let chunker = ContextualChunker::new()
-        .with_base_chunker(ParagraphChunker::new().with_paragraphs_per_chunk(1).with_paragraph_overlap(0))
+        .with_base_chunker(
+            ParagraphChunker::new()
+                .with_paragraphs_per_chunk(1)
+                .with_paragraph_overlap(0),
+        )
         .with_format(ContextFormat::Prefix);
 
     let chunks = chunker.chunk(document).unwrap();
@@ -218,10 +262,23 @@ fn test_query_aware_chunker() {
     let chunks = chunker.chunk(document).unwrap();
     assert!(!chunks.is_empty());
 
-    let hotspot_chunks: Vec<_> = chunks.iter().filter(|c| c.metadata.get("is_hotspot").unwrap().as_bool().unwrap()).collect();
+    let hotspot_chunks: Vec<_> = chunks
+        .iter()
+        .filter(|c| c.metadata.get("is_hotspot").unwrap().as_bool().unwrap())
+        .collect();
     assert!(!hotspot_chunks.is_empty());
-    assert!(hotspot_chunks.iter().any(|c| c.content.contains("Convolutional neural networks")));
-    assert_eq!(hotspot_chunks[0].metadata.get("chunk_type").unwrap().as_str().unwrap(), "hotspot");
+    assert!(hotspot_chunks
+        .iter()
+        .any(|c| c.content.contains("Convolutional neural networks")));
+    assert_eq!(
+        hotspot_chunks[0]
+            .metadata
+            .get("chunk_type")
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        "hotspot"
+    );
 }
 
 #[test]
@@ -266,16 +323,28 @@ Details on recursive text splitting.
 Details on BPE token level splitting.
 "#;
 
-    let chunker = MarkdownChunker::new()
-        .with_chunk_size(250)
-        .with_overlap(30);
+    let chunker = MarkdownChunker::new().with_chunk_size(250).with_overlap(30);
 
     let chunks = chunker.chunk(markdown_text).unwrap();
     assert!(!chunks.is_empty());
 
-    let code_chunk = chunks.iter().find(|c| c.content.contains("fn main()")).unwrap();
-    assert!(code_chunk.metadata.get("has_code_block").unwrap().as_bool().unwrap());
-    assert!(code_chunk.metadata.get("header_path").unwrap().as_str().unwrap().contains("Getting Started"));
+    let code_chunk = chunks
+        .iter()
+        .find(|c| c.content.contains("fn main()"))
+        .unwrap();
+    assert!(code_chunk
+        .metadata
+        .get("has_code_block")
+        .unwrap()
+        .as_bool()
+        .unwrap());
+    assert!(code_chunk
+        .metadata
+        .get("header_path")
+        .unwrap()
+        .as_str()
+        .unwrap()
+        .contains("Getting Started"));
 }
 
 #[test]
@@ -308,7 +377,10 @@ pub fn greet_user(user: &User) -> String {
     let chunks = chunker.chunk(code).unwrap();
     assert!(!chunks.is_empty());
     for chunk in &chunks {
-        assert_eq!(chunk.metadata.get("language").unwrap().as_str().unwrap(), "rust");
+        assert_eq!(
+            chunk.metadata.get("language").unwrap().as_str().unwrap(),
+            "rust"
+        );
     }
 }
 
@@ -333,7 +405,10 @@ def helper_func(x: int) -> int:
     let chunks = chunker.chunk(py_code).unwrap();
     assert!(!chunks.is_empty());
     for chunk in &chunks {
-        assert_eq!(chunk.metadata.get("language").unwrap().as_str().unwrap(), "python");
+        assert_eq!(
+            chunk.metadata.get("language").unwrap().as_str().unwrap(),
+            "python"
+        );
     }
 }
 
@@ -381,14 +456,15 @@ fn test_html_chunker() {
 </html>
 "#;
 
-    let chunker = HtmlChunker::new()
-        .with_chunk_size(120)
-        .with_overlap(20);
+    let chunker = HtmlChunker::new().with_chunk_size(120).with_overlap(20);
 
     let chunks = chunker.chunk(html_content).unwrap();
     assert!(!chunks.is_empty());
     for chunk in &chunks {
-        assert_eq!(chunk.metadata.get("format").unwrap().as_str().unwrap(), "html");
+        assert_eq!(
+            chunk.metadata.get("format").unwrap().as_str().unwrap(),
+            "html"
+        );
     }
 }
 
@@ -419,7 +495,9 @@ fn test_parallel_batch_chunking() {
 #[test]
 fn test_pdf_loader_from_file() {
     let loader = PDFLoader::new();
-    let text = loader.load_from_file("tests/test_files/sample_doc.pdf").unwrap();
+    let text = loader
+        .load_from_file("tests/test_files/sample_doc.pdf")
+        .unwrap();
     assert!(!text.is_empty());
     assert!(text.contains("Sample") || text.len() > 100);
 }
@@ -435,17 +513,24 @@ fn test_pdf_loader_from_bytes() {
 #[test]
 fn test_pdf_loader_document() {
     let loader = PDFLoader::new();
-    let doc = loader.load_document("tests/test_files/sample_doc.pdf").unwrap();
+    let doc = loader
+        .load_document("tests/test_files/sample_doc.pdf")
+        .unwrap();
     assert!(!doc.content.is_empty());
     assert!(doc.metadata.contains_key("total_pages"));
     assert!(doc.metadata.contains_key("source"));
-    assert_eq!(doc.metadata.get("file_name").unwrap().as_str().unwrap(), "sample_doc.pdf");
+    assert_eq!(
+        doc.metadata.get("file_name").unwrap().as_str().unwrap(),
+        "sample_doc.pdf"
+    );
 }
 
 #[test]
 fn test_pdf_loader_pages() {
     let loader = PDFLoader::new();
-    let pages = loader.load_pages_from_file("tests/test_files/sample_doc.pdf").unwrap();
+    let pages = loader
+        .load_pages_from_file("tests/test_files/sample_doc.pdf")
+        .unwrap();
     assert!(!pages.is_empty());
     for (i, page) in pages.iter().enumerate() {
         let expected_page = (i + 1) as u64;
@@ -468,7 +553,12 @@ fn test_pdf_loader_pages_from_bytes() {
     let pages = loader.load_pages_from_bytes(&bytes).unwrap();
     assert!(!pages.is_empty());
     assert_eq!(
-        pages[0].metadata.get("page_number").unwrap().as_u64().unwrap(),
+        pages[0]
+            .metadata
+            .get("page_number")
+            .unwrap()
+            .as_u64()
+            .unwrap(),
         1
     );
 }
@@ -492,7 +582,9 @@ fn test_pdf_loader_error_handling() {
 #[test]
 fn test_pdf_chunking_pipeline() {
     let loader = PDFLoader::new();
-    let pages = loader.load_pages_from_file("tests/test_files/sample_doc.pdf").unwrap();
+    let pages = loader
+        .load_pages_from_file("tests/test_files/sample_doc.pdf")
+        .unwrap();
 
     let chunker = RecursiveChunker::new()
         .with_chunk_size(500)
@@ -541,7 +633,10 @@ fn test_proposition_extractor_relative_clause() {
     let sentence = "The Eiffel Tower, which was constructed in 1889, is located in Paris and welcomes millions of tourists every year.";
     let props = SyntacticPropositionExtractor::decompose_sentence(sentence);
     assert_eq!(props.len(), 2);
-    assert_eq!(props[0], "The Eiffel Tower is located in Paris and welcomes millions of tourists every year.");
+    assert_eq!(
+        props[0],
+        "The Eiffel Tower is located in Paris and welcomes millions of tourists every year."
+    );
     assert_eq!(props[1], "The Eiffel Tower was constructed in 1889.");
 }
 
@@ -564,11 +659,22 @@ fn test_table_chunker_markdown_pure() {
 
     // Every chunk must contain the table header and separator line
     for chunk in &chunks {
-        assert!(chunk.content.contains("| Quarter | Revenue | Profit | Margin |"));
+        assert!(chunk
+            .content
+            .contains("| Quarter | Revenue | Profit | Margin |"));
         assert!(chunk.content.contains("| :--- | :--- | :--- | :--- |"));
-        assert_eq!(chunk.metadata.get("is_table").unwrap().as_bool().unwrap(), true);
-        assert_eq!(chunk.metadata.get("format").unwrap().as_str().unwrap(), "markdown");
-        assert_eq!(chunk.metadata.get("total_rows").unwrap().as_u64().unwrap(), 5);
+        assert_eq!(
+            chunk.metadata.get("is_table").unwrap().as_bool().unwrap(),
+            true
+        );
+        assert_eq!(
+            chunk.metadata.get("format").unwrap().as_str().unwrap(),
+            "markdown"
+        );
+        assert_eq!(
+            chunk.metadata.get("total_rows").unwrap().as_u64().unwrap(),
+            5
+        );
         let cols = chunk.metadata.get("columns").unwrap().as_array().unwrap();
         assert_eq!(cols.len(), 4);
         assert_eq!(cols[0].as_str().unwrap(), "Quarter");
@@ -577,14 +683,36 @@ fn test_table_chunker_markdown_pure() {
     // First chunk has Q1 2023 and Q2 2023
     assert!(chunks[0].content.contains("Q1 2023"));
     assert!(chunks[0].content.contains("Q2 2023"));
-    assert_eq!(chunks[0].metadata.get("start_row").unwrap().as_u64().unwrap(), 1);
-    assert_eq!(chunks[0].metadata.get("end_row").unwrap().as_u64().unwrap(), 2);
+    assert_eq!(
+        chunks[0]
+            .metadata
+            .get("start_row")
+            .unwrap()
+            .as_u64()
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        chunks[0].metadata.get("end_row").unwrap().as_u64().unwrap(),
+        2
+    );
 
     // Second chunk overlaps Q2 2023 and has Q3 2023
     assert!(chunks[1].content.contains("Q2 2023"));
     assert!(chunks[1].content.contains("Q3 2023"));
-    assert_eq!(chunks[1].metadata.get("start_row").unwrap().as_u64().unwrap(), 2);
-    assert_eq!(chunks[1].metadata.get("end_row").unwrap().as_u64().unwrap(), 3);
+    assert_eq!(
+        chunks[1]
+            .metadata
+            .get("start_row")
+            .unwrap()
+            .as_u64()
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        chunks[1].metadata.get("end_row").unwrap().as_u64().unwrap(),
+        3
+    );
 }
 
 #[test]
@@ -601,9 +729,18 @@ fn test_table_chunker_csv() {
 
     for chunk in &chunks {
         assert!(chunk.content.starts_with("Product,Category,Price,Stock"));
-        assert_eq!(chunk.metadata.get("is_table").unwrap().as_bool().unwrap(), true);
-        assert_eq!(chunk.metadata.get("format").unwrap().as_str().unwrap(), "csv");
-        assert_eq!(chunk.metadata.get("total_rows").unwrap().as_u64().unwrap(), 5);
+        assert_eq!(
+            chunk.metadata.get("is_table").unwrap().as_bool().unwrap(),
+            true
+        );
+        assert_eq!(
+            chunk.metadata.get("format").unwrap().as_str().unwrap(),
+            "csv"
+        );
+        assert_eq!(
+            chunk.metadata.get("total_rows").unwrap().as_u64().unwrap(),
+            5
+        );
     }
 
     assert!(chunks[0].content.contains("Laptop"));
@@ -636,8 +773,14 @@ In conclusion, all fiscal targets for the fiscal year have been exceeded."#;
     assert!(chunks.len() >= 3);
 
     // Check that prose has is_table: false and table chunks have is_table: true
-    let table_chunks: Vec<_> = chunks.iter().filter(|c| c.metadata.get("is_table").unwrap().as_bool().unwrap()).collect();
-    let prose_chunks: Vec<_> = chunks.iter().filter(|c| !c.metadata.get("is_table").unwrap().as_bool().unwrap()).collect();
+    let table_chunks: Vec<_> = chunks
+        .iter()
+        .filter(|c| c.metadata.get("is_table").unwrap().as_bool().unwrap())
+        .collect();
+    let prose_chunks: Vec<_> = chunks
+        .iter()
+        .filter(|c| !c.metadata.get("is_table").unwrap().as_bool().unwrap())
+        .collect();
 
     assert_eq!(table_chunks.len(), 2);
     assert!(!prose_chunks.is_empty());
@@ -655,8 +798,7 @@ fn test_late_chunker_spans() {
         .with_sentences_per_chunk(2)
         .with_sentence_overlap(0);
 
-    let late_chunker = LateChunker::new()
-        .with_base_chunker(base);
+    let late_chunker = LateChunker::new().with_base_chunker(base);
 
     let chunks = late_chunker.chunk(text).unwrap();
     assert_eq!(chunks.len(), 2);
@@ -676,8 +818,18 @@ fn test_late_chunker_spans() {
     }
 
     // Chunk 0 precedes Chunk 1 in token index space
-    let end_0 = chunks[0].metadata.get("token_end").unwrap().as_u64().unwrap();
-    let start_1 = chunks[1].metadata.get("token_start").unwrap().as_u64().unwrap();
+    let end_0 = chunks[0]
+        .metadata
+        .get("token_end")
+        .unwrap()
+        .as_u64()
+        .unwrap();
+    let start_1 = chunks[1]
+        .metadata
+        .get("token_start")
+        .unwrap()
+        .as_u64()
+        .unwrap();
     assert!(end_0 <= start_1);
 }
 
@@ -715,8 +867,7 @@ fn test_late_chunker_pooling() {
 
 #[test]
 fn test_directory_loader() {
-    let loader = DirectoryLoader::new()
-        .with_extensions(vec!["pdf".to_string(), "rs".to_string()]);
+    let loader = DirectoryLoader::new().with_extensions(vec!["pdf".to_string(), "rs".to_string()]);
 
     let docs = loader.load_and_chunk("tests/test_files").unwrap();
     assert!(!docs.is_empty());
@@ -726,7 +877,14 @@ fn test_directory_loader() {
         assert!(doc.metadata.contains_key("file_name"));
         assert!(doc.metadata.contains_key("file_extension"));
         assert!(doc.metadata.contains_key("file_size_bytes"));
-        assert_eq!(doc.metadata.get("file_extension").unwrap().as_str().unwrap(), "pdf");
+        assert_eq!(
+            doc.metadata
+                .get("file_extension")
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "pdf"
+        );
     }
 }
 
@@ -765,7 +923,10 @@ fn test_hf_token_chunker() {
     assert_eq!(chunks.len(), 3); // 6 tokens / step 2 = 3 chunks
 
     for chunk in &chunks {
-        assert_eq!(chunk.metadata.get("tokenizer").unwrap().as_str().unwrap(), "huggingface");
+        assert_eq!(
+            chunk.metadata.get("tokenizer").unwrap().as_str().unwrap(),
+            "huggingface"
+        );
         assert!(chunk.metadata.contains_key("token_start"));
         assert!(chunk.metadata.contains_key("token_end"));
         assert!(chunk.metadata.contains_key("token_count"));
@@ -859,7 +1020,10 @@ fn test_chunk_packer() {
         Document::new("Short heading 1", std::collections::HashMap::new()),
         Document::new("Sentence A", std::collections::HashMap::new()),
         Document::new("Sentence B", std::collections::HashMap::new()),
-        Document::new("Another long paragraph that will push past the max characters budget.", std::collections::HashMap::new()),
+        Document::new(
+            "Another long paragraph that will push past the max characters budget.",
+            std::collections::HashMap::new(),
+        ),
     ];
 
     let packer = ChunkPacker::new(50);
@@ -869,7 +1033,12 @@ fn test_chunk_packer() {
     // Next item is 69 chars > 50 -> goes into next chunk
     assert_eq!(packed.len(), 2);
     assert_eq!(
-        packed[0].metadata.get("merged_chunk_count").unwrap().as_u64().unwrap(),
+        packed[0]
+            .metadata
+            .get("merged_chunk_count")
+            .unwrap()
+            .as_u64()
+            .unwrap(),
         3
     );
     assert!(packed[0].content.contains("Short heading 1"));
@@ -882,7 +1051,10 @@ fn test_chunk_filter() {
         Document::new("   ", std::collections::HashMap::new()),
         Document::new("Tiny", std::collections::HashMap::new()),
         Document::new("!@#$%^&*()_+", std::collections::HashMap::new()),
-        Document::new("Valid high quality chunk with enough text content.", std::collections::HashMap::new()),
+        Document::new(
+            "Valid high quality chunk with enough text content.",
+            std::collections::HashMap::new(),
+        ),
     ];
 
     let filter = ChunkFilter::new()
@@ -905,23 +1077,44 @@ fn test_chunk_deduplicator() {
     ];
 
     // Exact dedup
-    let exact_dedup = ChunkDeduplicator::new().with_exact(true).with_case_sensitive(true);
+    let exact_dedup = ChunkDeduplicator::new()
+        .with_exact(true)
+        .with_case_sensitive(true);
     let deduped = exact_dedup.deduplicate(&docs);
     assert_eq!(deduped.len(), 3);
-    assert_eq!(deduped[0].metadata.get("duplicate_count").unwrap().as_u64().unwrap(), 2);
+    assert_eq!(
+        deduped[0]
+            .metadata
+            .get("duplicate_count")
+            .unwrap()
+            .as_u64()
+            .unwrap(),
+        2
+    );
 
     // Case-insensitive normalized dedup
-    let norm_dedup = ChunkDeduplicator::new().with_exact(false).with_case_sensitive(false);
+    let norm_dedup = ChunkDeduplicator::new()
+        .with_exact(false)
+        .with_case_sensitive(false);
     let deduped_norm = norm_dedup.deduplicate(&docs);
     assert_eq!(deduped_norm.len(), 2);
-    assert_eq!(deduped_norm[0].metadata.get("duplicate_count").unwrap().as_u64().unwrap(), 3);
+    assert_eq!(
+        deduped_norm[0]
+            .metadata
+            .get("duplicate_count")
+            .unwrap()
+            .as_u64()
+            .unwrap(),
+        3
+    );
 }
 
 #[test]
 fn test_metadata_enricher() {
-    let docs = vec![
-        Document::new("Antigravity powers advanced agentic coding systems.", std::collections::HashMap::new()),
-    ];
+    let docs = vec![Document::new(
+        "Antigravity powers advanced agentic coding systems.",
+        std::collections::HashMap::new(),
+    )];
 
     let enricher = MetadataEnricher::new().with_id_prefix("doc_test_");
     let enriched = enricher.enrich(&docs);
@@ -932,7 +1125,10 @@ fn test_metadata_enricher() {
     assert_eq!(meta.get("chunk_hash").unwrap().as_str().unwrap().len(), 64); // SHA-256 is 64 hex chars
     assert_eq!(meta.get("word_count").unwrap().as_u64().unwrap(), 6);
     assert!(meta.contains_key("char_count"));
-    assert_eq!(meta.get("chunk_id").unwrap().as_str().unwrap(), "doc_test_0");
+    assert_eq!(
+        meta.get("chunk_id").unwrap().as_str().unwrap(),
+        "doc_test_0"
+    );
 }
 
 #[test]
@@ -957,7 +1153,10 @@ fn test_chunk_pipeline_end_to_end() {
     assert!(doc.content.contains("Short chunk A."));
     assert!(doc.content.contains("Short chunk B."));
     assert!(doc.metadata.contains_key("chunk_hash"));
-    assert_eq!(doc.metadata.get("chunk_id").unwrap().as_str().unwrap(), "rag_0");
+    assert_eq!(
+        doc.metadata.get("chunk_id").unwrap().as_str().unwrap(),
+        "rag_0"
+    );
 }
 
 #[test]
@@ -970,7 +1169,10 @@ fn test_stream_chunker() {
 
     assert!(chunks.len() >= 2);
     for chunk in &chunks {
-        assert_eq!(chunk.metadata.get("strategy").unwrap().as_str().unwrap(), "stream");
+        assert_eq!(
+            chunk.metadata.get("strategy").unwrap().as_str().unwrap(),
+            "stream"
+        );
         assert!(chunk.metadata.contains_key("chunk_index"));
         assert!(chunk.metadata.contains_key("length"));
         assert!(!chunk.content.is_empty());
@@ -1025,7 +1227,9 @@ fn test_markdown_include_header_toggle() {
     let with_chunks = with.chunk(md).unwrap();
     let without_chunks = without.chunk(md).unwrap();
     assert!(with_chunks.iter().any(|c| c.content.contains("## Setup")));
-    assert!(!without_chunks.iter().any(|c| c.content.contains("## Setup")));
+    assert!(!without_chunks
+        .iter()
+        .any(|c| c.content.contains("## Setup")));
     // Breadcrumb metadata is preserved in both modes.
     assert!(without_chunks[0].metadata.contains_key("header_path"));
 }
@@ -1035,14 +1239,20 @@ fn test_stream_chunker_large_input_progresses() {
     // 20k lines exercises the offset-based cursor (no per-chunk memmove).
     let mut big = String::new();
     for i in 0..20_000 {
-        big.push_str(&format!("Line {}: streaming chunker throughput probe sentence.\n", i));
+        big.push_str(&format!(
+            "Line {}: streaming chunker throughput probe sentence.\n",
+            i
+        ));
     }
     let cursor = std::io::Cursor::new(big);
     let chunker = StreamChunker::new(1000, 100).unwrap();
     let chunks: Vec<Document> = chunker.chunk_reader(cursor).map(|r| r.unwrap()).collect();
     assert!(chunks.len() > 100);
     for (i, chunk) in chunks.iter().enumerate() {
-        assert_eq!(chunk.metadata.get("chunk_index").unwrap().as_u64().unwrap(), i as u64);
+        assert_eq!(
+            chunk.metadata.get("chunk_index").unwrap().as_u64().unwrap(),
+            i as u64
+        );
         assert!(!chunk.content.is_empty());
     }
 }

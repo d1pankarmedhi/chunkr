@@ -8,7 +8,11 @@ fn test_hotloop_agentic_multi_topic_splits() {
         .with_decision_maker(HeuristicAgenticDecisionMaker::new().with_size_limits(50, 500));
 
     let chunks = chunker.chunk(document).unwrap();
-    assert!(chunks.len() >= 2, "expected topic splits, got {}", chunks.len());
+    assert!(
+        chunks.len() >= 2,
+        "expected topic splits, got {}",
+        chunks.len()
+    );
     for chunk in &chunks {
         assert!(chunk.metadata.contains_key("topic_label"));
         assert!(chunk.metadata.contains_key("split_reason"));
@@ -37,7 +41,12 @@ fn test_hotloop_query_aware_hotspots() {
         .iter()
         .any(|c| c.content.contains("Convolutional neural networks")));
     assert_eq!(
-        hotspot_chunks[0].metadata.get("chunk_type").unwrap().as_str().unwrap(),
+        hotspot_chunks[0]
+            .metadata
+            .get("chunk_type")
+            .unwrap()
+            .as_str()
+            .unwrap(),
         "hotspot"
     );
 }
@@ -55,15 +64,16 @@ fn test_hotloop_html_uppercase_tags() {
 </body>
 </html>"#;
 
-    let chunker = HtmlChunker::new()
-        .with_chunk_size(120)
-        .with_overlap(20);
+    let chunker = HtmlChunker::new().with_chunk_size(120).with_overlap(20);
 
     let chunks = chunker.chunk(html_content).unwrap();
     assert!(chunks.len() >= 2, "expected splits, got {}", chunks.len());
 
     for chunk in &chunks {
-        assert_eq!(chunk.metadata.get("format").unwrap().as_str().unwrap(), "html");
+        assert_eq!(
+            chunk.metadata.get("format").unwrap().as_str().unwrap(),
+            "html"
+        );
         assert!(!chunk.content.is_empty());
         // Offset mapping must yield verbatim slices of the original text.
         assert!(
@@ -74,8 +84,16 @@ fn test_hotloop_html_uppercase_tags() {
     }
 
     // Original case is preserved (not lowercased).
-    let combined: String = chunks.iter().map(|c| c.content.as_str()).collect::<Vec<_>>().join("\n");
-    assert!(combined.contains("<DIV"), "uppercase DIV lost: {}", combined);
+    let combined: String = chunks
+        .iter()
+        .map(|c| c.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        combined.contains("<DIV"),
+        "uppercase DIV lost: {}",
+        combined
+    );
     assert!(combined.contains("<H1"), "uppercase H1 lost: {}", combined);
 
     // At least one chunk boundary aligns with a tag boundary.

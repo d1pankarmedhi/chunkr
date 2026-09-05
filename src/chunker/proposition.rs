@@ -1,6 +1,6 @@
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
-use serde_json::Value;
 
 use crate::chunker::base::{BaseChunker, Chunker};
 use crate::chunker::sentence::SentenceChunker;
@@ -31,14 +31,34 @@ impl SyntacticPropositionExtractor {
 
         // Search for common verbs (is, was, are, were, has, had, constructed, located, contains, etc.)
         let verb_markers = [
-            "is", "was", "are", "were", "has", "have", "had", "can", "will",
-            "built", "located", "designed", "created", "published", "released",
-            "serves", "provides", "features", "includes", "supports", "uses",
+            "is",
+            "was",
+            "are",
+            "were",
+            "has",
+            "have",
+            "had",
+            "can",
+            "will",
+            "built",
+            "located",
+            "designed",
+            "created",
+            "published",
+            "released",
+            "serves",
+            "provides",
+            "features",
+            "includes",
+            "supports",
+            "uses",
         ];
 
         let mut verb_idx = None;
         for (i, word) in words.iter().enumerate() {
-            let clean = word.trim_matches(|c: char| !c.is_alphabetic()).to_lowercase();
+            let clean = word
+                .trim_matches(|c: char| !c.is_alphabetic())
+                .to_lowercase();
             if verb_markers.contains(&clean.as_str()) && i > 0 {
                 verb_idx = Some(i);
                 break;
@@ -97,7 +117,11 @@ impl SyntacticPropositionExtractor {
                         .next()
                         .map(|w| {
                             let clean = w.to_lowercase();
-                            ["is", "was", "are", "were", "has", "have", "had", "built", "located", "created", "features", "serves", "supports"].contains(&clean.as_str())
+                            [
+                                "is", "was", "are", "were", "has", "have", "had", "built",
+                                "located", "created", "features", "serves", "supports",
+                            ]
+                            .contains(&clean.as_str())
                         })
                         .unwrap_or(false);
                     if starts_with_verb {
@@ -111,7 +135,14 @@ impl SyntacticPropositionExtractor {
         }
 
         // 2. Check coordinating conjunction clauses: ", and ", ", but ", "; ", ", while "
-        let coord_markers = ["; ", ", and ", ", but ", ", however, ", ", whereas ", ", while "];
+        let coord_markers = [
+            "; ",
+            ", and ",
+            ", but ",
+            ", however, ",
+            ", whereas ",
+            ", while ",
+        ];
         for marker in &coord_markers {
             if base_text.contains(marker) {
                 let parts: Vec<&str> = base_text.split(marker).collect();
@@ -131,7 +162,11 @@ impl SyntacticPropositionExtractor {
                         .next()
                         .map(|w| {
                             let clean = w.to_lowercase();
-                            ["is", "was", "are", "were", "has", "have", "had", "welcomes", "provides", "features", "serves", "supports"].contains(&clean.as_str())
+                            [
+                                "is", "was", "are", "were", "has", "have", "had", "welcomes",
+                                "provides", "features", "serves", "supports",
+                            ]
+                            .contains(&clean.as_str())
                         })
                         .unwrap_or(false);
 
@@ -293,15 +328,15 @@ impl Chunker for PropositionChunker {
 
             let mut metadata = HashMap::with_capacity(4);
             metadata.insert("length".to_string(), Value::from(content.len()));
-            metadata.insert("proposition_count".to_string(), Value::from(end_idx - start_idx));
+            metadata.insert(
+                "proposition_count".to_string(),
+                Value::from(end_idx - start_idx),
+            );
             metadata.insert("start_prop_idx".to_string(), Value::from(start_idx));
             metadata.insert("end_prop_idx".to_string(), Value::from(end_idx));
             metadata.insert("chunk_index".to_string(), Value::from(chunk_idx));
 
-            result.push(Document {
-                content,
-                metadata,
-            });
+            result.push(Document { content, metadata });
             chunk_idx += 1;
 
             if end_idx == total {

@@ -123,7 +123,12 @@ fn test_packer_merged_page_numbers() {
     );
     // Shared key keeps first-wins inheritance.
     assert_eq!(
-        packed[0].metadata.get("file_path").unwrap().as_str().unwrap(),
+        packed[0]
+            .metadata
+            .get("file_path")
+            .unwrap()
+            .as_str()
+            .unwrap(),
         "doc.pdf"
     );
     assert_eq!(
@@ -142,13 +147,21 @@ fn test_packer_identical_page_number_kept() {
     let docs = vec![
         doc_with("Chunk one.", &[("page_number", serde_json::Value::from(5))]),
         doc_with("Chunk two.", &[("page_number", serde_json::Value::from(5))]),
-        doc_with("Chunk three.", &[("page_number", serde_json::Value::from(5))]),
+        doc_with(
+            "Chunk three.",
+            &[("page_number", serde_json::Value::from(5))],
+        ),
     ];
 
     let packed = ChunkPacker::new(1000).pack(&docs);
     assert_eq!(packed.len(), 1);
     assert_eq!(
-        packed[0].metadata.get("page_number").unwrap().as_u64().unwrap(),
+        packed[0]
+            .metadata
+            .get("page_number")
+            .unwrap()
+            .as_u64()
+            .unwrap(),
         5
     );
     assert!(!packed[0]
@@ -167,7 +180,12 @@ fn test_packer_single_source_unchanged() {
     let packed = ChunkPacker::new(1000).pack(&docs);
     assert_eq!(packed.len(), 1);
     assert_eq!(
-        packed[0].metadata.get("page_number").unwrap().as_u64().unwrap(),
+        packed[0]
+            .metadata
+            .get("page_number")
+            .unwrap()
+            .as_u64()
+            .unwrap(),
         7
     );
     // Only the standard merge counters may use the merged_ prefix.

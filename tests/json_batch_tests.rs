@@ -27,10 +27,7 @@ fn test_json_large_array_round_trips_in_order() {
             "missing is_json flag"
         );
         assert_eq!(
-            chunk
-                .metadata
-                .get("chunk_index")
-                .and_then(|v| v.as_u64()),
+            chunk.metadata.get("chunk_index").and_then(|v| v.as_u64()),
             Some(idx as u64),
             "chunk_index must sequence"
         );

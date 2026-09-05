@@ -1,8 +1,8 @@
-use std::collections::HashMap;
-use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 use serde_json::Value;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 use crate::chunker::base::{BaseChunker, Chunker};
 use crate::chunker::sentence::SentenceChunker;
@@ -98,7 +98,10 @@ impl Embedder for FastLexicalEmbedder {
         }
         #[cfg(target_arch = "wasm32")]
         {
-            Ok(texts.iter().map(|t| Self::embed_one(t, self.dim.max(1))).collect())
+            Ok(texts
+                .iter()
+                .map(|t| Self::embed_one(t, self.dim.max(1)))
+                .collect())
         }
     }
 }
@@ -301,8 +304,7 @@ impl Chunker for SemanticChunker {
         let embeddings = if buffer == 0 {
             self.embedder.embed(&sentences)?
         } else {
-            let embedded_refs: Vec<&str> =
-                embedded_texts.iter().map(|s| s.as_str()).collect();
+            let embedded_refs: Vec<&str> = embedded_texts.iter().map(|s| s.as_str()).collect();
             self.embedder.embed(&embedded_refs)?
         };
 
@@ -344,7 +346,10 @@ impl Chunker for SemanticChunker {
                 if !trimmed.is_empty() {
                     let mut metadata = HashMap::with_capacity(4);
                     metadata.insert("length".to_string(), Value::from(trimmed.len()));
-                    metadata.insert("sentence_count".to_string(), Value::from(current_chunk.len()));
+                    metadata.insert(
+                        "sentence_count".to_string(),
+                        Value::from(current_chunk.len()),
+                    );
                     metadata.insert("chunk_index".to_string(), Value::from(chunk_idx));
                     metadata.insert("cutoff_threshold".to_string(), Value::from(cutoff as f64));
 

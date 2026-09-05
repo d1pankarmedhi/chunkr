@@ -1,7 +1,7 @@
+use serde_json::Value;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
-use serde_json::Value;
 use tokenizers::Tokenizer;
 
 use crate::chunker::base::{BaseChunker, Chunker};
@@ -39,8 +39,8 @@ impl HFTokenChunker {
                 overlap,
             });
         }
-        let tokenizer = Tokenizer::from_file(path)
-            .map_err(|e| ChunkrError::TokenizerError(e.to_string()))?;
+        let tokenizer =
+            Tokenizer::from_file(path).map_err(|e| ChunkrError::TokenizerError(e.to_string()))?;
         Ok(Self {
             chunk_size,
             overlap,
@@ -183,7 +183,11 @@ impl BaseChunker<Result<Vec<Document>, String>> for HFTokenChunker {
             return Err(ChunkrError::InvalidChunkSize(0).to_string());
         }
         if overlap >= chunk_size {
-            return Err(ChunkrError::InvalidOverlap { chunk_size, overlap }.to_string());
+            return Err(ChunkrError::InvalidOverlap {
+                chunk_size,
+                overlap,
+            }
+            .to_string());
         }
         let mut cloned = self.clone();
         cloned.chunk_size = chunk_size;
