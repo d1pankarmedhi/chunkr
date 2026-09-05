@@ -29,27 +29,27 @@ wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "dep:js-sys"]
 cli = ["dep:clap"]
 
 [dependencies]
-lopdf = { version = "0.32.0", features = ["pom", "pom_parser"] }
+lopdf = { version = "0.34.0", features = ["pom", "pom_parser"] }
 serde = { version = "1.0.202", features = ["derive"] }
 serde_json = "1.0.117"
 tiktoken-rs = "0.12"
 regex = "1.10"
 memchr = "2.7"
 rayon = "1.10"
-thiserror = "1.0"
-tokenizers = { version = "0.21", default-features = false, features = ["fancy-regex"] }
-sha2 = "0.10"
+thiserror = "2.0"
+tokenizers = { version = "0.23", default-features = false, features = ["fancy-regex"] }
+sha2 = "0.11"
 clap = { version = "4.5", features = ["derive"], optional = true }
-pyo3 = { version = "0.22", features = ["abi3-py38"], optional = true }
+pyo3 = { version = "0.25", features = ["abi3-py38"], optional = true }
 wasm-bindgen = { version = "0.2.92", optional = true }
 serde-wasm-bindgen = { version = "0.6", optional = true }
 js-sys = { version = "0.3.69", optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-tree-sitter = "0.24"
-tree-sitter-rust = "0.23.2"
-tree-sitter-python = "0.23"
+tree-sitter = "0.27"
+tree-sitter-rust = "0.24.2"
+tree-sitter-python = "0.25"
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
-getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom = { version = "0.4", features = ["wasm_js"] }
 
