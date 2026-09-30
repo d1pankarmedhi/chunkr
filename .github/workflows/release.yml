@@ -386,10 +386,19 @@ jobs:
   npm:
     name: Publish to npm
     needs: [validate, wasm, github]
+    # `github` is tag-only, so it is skipped on workflow_dispatch; a skipped
+    # dependency skips this job too, which made `target: npm` recovery
+    # impossible. Tag pushes still require a green GitHub Release first, so a
+    # registry never receives an artifact the release does not have.
     if: >-
-      github.event_name != 'workflow_dispatch' ||
-      inputs.dry_run == false &&
-      (inputs.target == 'all' || inputs.target == 'npm')
+      always() &&
+      needs.validate.result == 'success' &&
+      needs.wasm.result == 'success' &&
+      (github.event_name == 'workflow_dispatch' ||
+       needs.github.result == 'success') &&
+      (github.event_name != 'workflow_dispatch' ||
+       inputs.dry_run == false &&
+       (inputs.target == 'all' || inputs.target == 'npm'))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -406,6 +415,12 @@ jobs:
       - name: Publish to npm
         # Never `continue-on-error` — a failed publish must fail the
         # workflow loudly so the release isn't half-green.
-        run: npm publish dist/chunkr-wasm-*.tgz --access public
+        # The `./` prefix is load-bearing: npm parses a bare `dist/x.tgz` as a
+        # GitHub shorthand spec (`npa`) and fails in `git ls-remote`, never
+        # reaching the registry.
+        run: |
+          TARBALL=$(ls ./dist/chunkr-wasm-*.tgz 2>/dev/null || true)
+          [ -n "$TARBALL" ] || { echo "::error::No wasm tarball in dist/"; ls -la dist; exit 1; }
+          npm publish "$TARBALL" --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
