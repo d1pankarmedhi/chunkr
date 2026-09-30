@@ -9,7 +9,7 @@
 
 </div>
 
-**Chunkr** (`chunkr-rs` on PyPI, `import chunkr`) is an ultra-high-performance document chunking and text-splitting engine written in Rust with native Python C-ABI bindings. Engineered specifically for Large Language Models (LLMs), Vector Databases (Chroma, Qdrant, Pinecone, Weaviate, Milvus), and Retrieval-Augmented Generation (RAG) pipelines, Chunkr delivers **up to 1,000+ MB/s throughput** with zero superfluous heap allocations — operating **2x to 20x faster** than pure-Python splitters like LangChain's `RecursiveCharacterTextSplitter` and LlamaIndex node parsers.
+**Chunkr** (`chunkr-rs` on PyPI, `import chunkr`) is an ultra-high-performance document chunking and text-splitting engine written in Rust with native Python C-ABI bindings. Engineered specifically for Large Language Models (LLMs), Vector Databases (Chroma, Qdrant, Pinecone, Weaviate, Milvus), and Retrieval-Augmented Generation (RAG) pipelines, Chunkr delivers **2,000+ MB/s on prose and up to 3,200+ MB/s on source code** with zero superfluous heap allocations — **2.9x to 33x faster** than LangChain, Chonkie, `semchunk`, and the Rust `text-splitter` at matched chunk sizes, and **up to 200x faster** than LlamaIndex node parsers (BPE token chunking is the one exception; see [Performance Benchmarks](#-performance-benchmarks)).
 
 > [!TIP]
 > **Quick Package Disambiguation**:
@@ -27,8 +27,8 @@ Why data engineers and AI developers choose Chunkr over pure-Python chunking lib
 | Feature / Capability | Chunkr (`chunkr-rs`) | LangChain Splitters | LlamaIndex Node Parsers | Chonkie | Semchunk |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Core Architecture** | **Rust + PyO3 (Native)** | Pure Python | Pure Python | Python / Rust partial | Pure Python |
-| **Recursive Split Throughput** | **500 – 1,000+ MB/s** | 200 – 350 MB/s | 150 – 300 MB/s | ~400 MB/s | ~100 MB/s |
-| **Fixed Char Throughput** | **300+ MB/s** | 7 – 10 MB/s | 8 – 12 MB/s | ~50 MB/s | ~10 MB/s |
+| **Recursive Split Throughput** | **2,264 MB/s** | 769 MB/s | 10 MB/s | 225 MB/s | 42 MB/s |
+| **Fixed Char Throughput** | **750 MB/s** | 1.7 MB/s | — | 22 MB/s | — |
 | **Memory Strategy** | **Zero-Copy Slices** | String Duplication | Object Churn | String Duplication | String Duplication |
 | **Multithreading** | **Rayon (True Multi-core)** | ThreadPool (GIL bound) | Async / GIL bound | None | ProcessPool |
 | **Built-in Strategies** | **18+ Strategies** | ~5 Splitters | ~6 Node Parsers | 4 Chonkers | 1 Strategy |
@@ -36,11 +36,13 @@ Why data engineers and AI developers choose Chunkr over pure-Python chunking lib
 | **Tree-sitter AST Code Chunking** | **Built-in (Python & Rust)** | Regex-based | ❌ None | ❌ None | ❌ None |
 | **Markdown Header Breadcrumbs** | **Full `#`–`######` Hierarchy** | Basic Split | Basic Markdown | ❌ None | ❌ None |
 | **Table Chunking (CSV/TSV/MD)** | **Header Preserving/Repeating** | ❌ None | Limited | ❌ None | ❌ None |
-| **Native PDF Extraction Engine** | **Built-in (600+ pgs/s)** | External (`pypdf`, `fitz`) | External (`pypdf`) | ❌ None | ❌ None |
+| **Native PDF Extraction Engine** | **Built-in (2,700+ pgs/s)** | External (`pypdf`, `fitz`) | External (`pypdf`) | ❌ None | ❌ None |
 | **Parent-Child / Hierarchical** | **Built-in (`HierarchicalChunker`)** | Multi-class setup | Class pipeline | ❌ None | ❌ None |
 | **Post-Processing Pipeline** | **Built-in (`ChunkPipeline`)** | Manual code | IngestionPipeline | ❌ None | ❌ None |
 | **Constant-Memory Streaming** | **Built-in (`StreamChunker`)** | ❌ None | ❌ None | ❌ None | ❌ None |
 | **Ecosystem Bridges** | **`to_langchain`, `to_llamaindex`** | Native | Native | Conversion helper | ❌ None |
+
+> Throughput rows measured on Apple M4 (10 threads), Python 3.12.11, chunkr built from source; median of 15 runs on 1 MB prose with matched chunk sizes. LlamaIndex ships no fixed-width splitter. Reproduce with [`benchmarks/`](benchmarks/README.md).
 
 ---
 
@@ -118,8 +120,8 @@ Or build all Wasm bindings directly from source:
 
 | Strategy | Chunker Class | Description |
 | :--- | :--- | :--- |
-| **Recursive** | `RecursiveChunker` | SIMD recursive separator splitting (**~1,000+ MB/s**) |
-| **Token BPE** | `TokenChunker` | OpenAI BPE token splitting (`cl100k_base`, `o200k_base`) |
+| **Recursive** | `RecursiveChunker` | SIMD recursive separator splitting (**~2,000+ MB/s**) |
+| **Token BPE** | `TokenChunker` | OpenAI BPE token splitting (`cl100k_base`, `o200k_base`); BPE-bound, so slower than `tiktoken`-based alternatives |
 | **Universal HF Token** | `HFTokenChunker` | Hugging Face token splitting (Llama 3, Mistral, Qwen, BGE, BERT) |
 | **Sentence** | `SentenceChunker` | Multi-byte UTF-8 safe sentence splitting with abbreviation guards |
 | **Paragraph** | `ParagraphChunker` | Multi-paragraph grouping across `\n\n` |
@@ -313,7 +315,7 @@ import chunkr
 from langchain_community.vectorstores import Chroma
 from langchain_openai import OpenAIEmbeddings
 
-# 1. High-speed native PDF parsing (17x faster than pypdf)
+# 1. High-speed native PDF parsing (16–23x faster than pypdf)
 loader = chunkr.PDFLoader()
 pages = loader.load_pages("annual_report.pdf")
 
@@ -493,35 +495,70 @@ chunkr ./docs -s dir --format jsonl --out-file chunks.jsonl
 
 ## 📊 Performance Benchmarks
 
-Direct in-memory Python runtime comparison (`import chunkr` vs. `langchain-text-splitters`, `pypdf`, and `PyMuPDF`):
+Every number below is reproducible with the harness in [`benchmarks/`](benchmarks/README.md)
+(`.venv/bin/python benchmarks/bench_chunking.py --reps 15`). Measured on **Apple M4 (10 threads),
+macOS 15.7.9, Python 3.12.11**, chunkr built from source. Each implementation runs on
+byte-identical corpora with the same chunk-size/overlap parameters, chunker construction is
+excluded from timing, and the **median of 15 round-robin repetitions** is reported.
 
 ### Text Chunking Throughput Comparison
 
-| Strategy & Test Case | Document Size | LangChain (ms) | Chunkr (ms) | LangChain Throughput | Chunkr Throughput | Speedup Factor |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Fixed Char (100 KB)** | 100 KB | 8.45 ms | **0.23 ms** | 11.5 MB/s | **427.7 MB/s** | **37.1x Faster** |
-| **Fixed Char (1 MB)** | 1 MB | 95.30 ms | **3.09 ms** | 10.5 MB/s | **323.1 MB/s** | **30.8x Faster** |
-| **Recursive Char (100 KB)** | 100 KB | 0.27 ms | **0.10 ms** | 359.9 MB/s | **996.7 MB/s** | **2.8x Faster** |
-| **Recursive Char (1 MB)** | 1 MB | 2.87 ms | **1.58 ms** | 348.8 MB/s | **631.2 MB/s** | **1.8x Faster** |
-| **Recursive Char (5 MB)** | 5 MB | 21.47 ms | **11.50 ms** | 232.8 MB/s | **434.6 MB/s** | **1.9x Faster** |
-| **Markdown Split (500 KB)** | 500 KB | 1.99 ms | **0.79 ms** | 245.4 MB/s | **616.5 MB/s** | **2.5x Faster** |
-| **Markdown Header Parser** | 500 KB | 34.94 ms | **2.34 ms** | 14.0 MB/s | **208.7 MB/s** | **14.9x Faster** |
-| **Python Code (200 KB)** | 200 KB | 0.41 ms | **0.16 ms** | 474.2 MB/s | **1,185.7 MB/s** | **2.5x Faster** |
-| **Token BPE (200 KB)** | 200 KB | 11.67 ms | 18.80 ms | 16.7 MB/s | 10.4 MB/s | 0.62x |
+MB/s = 10^6 bytes / wall time; higher is better. `—` = no equivalent splitter in that library.
 
-> **Note on Token BPE:** single-text BPE throughput trails LangChain's Python `tiktoken` (~10 vs ~17 MB/s, up from ~6 on `tiktoken-rs` 0.6) because encoding dominates chunk time and is bound by the `tiktoken-rs` encoder, not chunkr's windowing overhead (~1 ms for 89 chunks). `TokenChunker` construction/clone cost is cached process-wide, so repeated chunkers are cheap to create.
+| Test Case (matched parameters) | Chunkr | LangChain | LlamaIndex | Chonkie | semchunk | text-splitter |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Recursive (1 MB, 1000/200)** | **2,264 MB/s** | 769 MB/s | 10 MB/s | 225 MB/s | 42 MB/s | 175 MB/s |
+| **Recursive (5 MB, 1000/200)** | **2,039 MB/s** | 696 MB/s | — | 201 MB/s | 40 MB/s | 46 MB/s |
+| **Fixed Char (1 MB, 1000/200)** | **750 MB/s** | 1.7 MB/s | — | 22 MB/s | — | — |
+| **Markdown (500 KB, 1000/150)** | **819 MB/s** | 67 MB/s | 19 MB/s | — | — | 40 MB/s |
+| **Python Code (200 KB, 1500/200)** | **3,232 MB/s** | 622 MB/s | — | — | — | 5.7 MB/s |
+| **Sentence (500 KB)** | **622 MB/s** | — | 10 MB/s | 20 MB/s | — | — |
+| **BPE Tokens (200 KB, cl100k_base, 512/50)** | 38 MB/s | 43 MB/s | 2.0 MB/s | **151 MB/s** | — | 7.2 MB/s |
+| **100 docs x 50 KB (parallel batch)** | **3,224 MB/s** | 679 MB/s | — | 213 MB/s | — | — |
+
+> **Reading the table.** Chunk counts matched chunkr's within 2% except where noted. LlamaIndex rows
+> use `SentenceSplitter` / `MarkdownNodeParser` / `TokenTextSplitter`, which build `Document`/`Node`
+> objects and re-tokenize candidate splits. LangChain's markdown splitter and LlamaIndex's markdown
+> parser split on headers only and assign no size budget (113 and 130 chunks vs chunkr's 715), so
+> their throughput is not like-for-like. Chunkr's `SentenceChunker` counts sentences, not characters
+> (2124 chunks vs Chonkie's 534). `semchunk` emits ~26% more, smaller chunks at the same nominal
+> size. The batch row is chunkr's Rayon path (`par_chunk_texts`) against each library's best
+> available loop; it is 1.8x faster than chunkr's own sequential loop on the same data.
+> `chunkr.AstCodeChunker` (tree-sitter, syntax boundaries) runs at 12 MB/s — 260x slower than the
+> regex-based `CodeChunker` row above, which is the price of AST-correct splits.
+
+> **Note on Token BPE:** BPE is chunkr's weakest strategy: 38 MB/s vs 151 MB/s for Chonkie and
+> 43 MB/s for LangChain's Python `tiktoken` wrapper, at identical chunk counts (62 each). Encoding
+> dominates the run, and `TokenChunker` decodes every 512-token window separately, so per-chunk
+> decode cost dominates its windowing overhead. Construction is cached process-wide, so repeated
+> chunkers are cheap: first use in a fresh interpreter is 22 ms for chunkr vs 43 ms for LangChain
+> and 457 ms for Chonkie. Use `RecursiveChunker` when exact token bounds are not required.
 
 ### PDF Extraction & End-to-End Pipeline Latency
 
+**10-page sample** (`tests/test_files/sample_doc.pdf`):
+
 | Extractor / Pipeline | Latency | Throughput | Speedup vs PyPDF |
 | :--- | :--- | :--- | :--- |
-| **Chunkr PDFLoader (Full Text)** | **5.78 ms** | **1,730.5 pgs/s** | **16.7x Faster** |
-| **Chunkr PDFLoader (Page Documents)** | **5.51 ms** | **1,816.5 pgs/s** | **17.5x Faster** |
-| PyMuPDF (`fitz`) | 33.58 ms | 297.8 pgs/s | 2.9x Faster |
-| pypdf (pure Python) | 96.27 ms | 103.9 pgs/s | 1.0x (baseline) |
-| **Chunkr End-to-End (PDF + Recursive)** | **5.82 ms** | **1,718.8 pgs/s** | **18.7x Faster** |
-| PyMuPDF + LangChain RecursiveTextSplitter | 27.33 ms | 365.9 pgs/s | 4.0x Faster |
-| pypdf + LangChain RecursiveTextSplitter | 109.04 ms | 91.7 pgs/s | 1.0x (baseline) |
+| **Chunkr PDFLoader (Full Text)** | **1.07 ms** | **9,344 pgs/s** | **22.8x Faster** |
+| **Chunkr PDFLoader (Page Documents)** | **1.07 ms** | **9,362 pgs/s** | **22.8x Faster** |
+| PyMuPDF (`fitz`) | 11.16 ms | 896 pgs/s | 2.2x Faster |
+| pypdf (pure Python) | 24.41 ms | 409.7 pgs/s | 1.0x (baseline) |
+| **Chunkr End-to-End (PDF + Recursive)** | **1.08 ms** | **9,267 pgs/s** | **22.6x Faster** |
+| PyMuPDF + LangChain RecursiveTextSplitter | 11.23 ms | 890 pgs/s | 2.2x Faster |
+| pypdf + LangChain RecursiveTextSplitter | 24.55 ms | 407 pgs/s | 1.0x (baseline) |
+
+**2,066-page textbook** (19.9 MB) — page count matters, so the lead narrows on large documents:
+
+| Extractor / Pipeline | Latency | Throughput | Speedup vs PyPDF |
+| :--- | :--- | :--- | :--- |
+| **Chunkr PDFLoader (Full Text)** | **747.9 ms** | **2,762 pgs/s** | **15.9x Faster** |
+| **Chunkr PDFLoader (Page Documents)** | **721.0 ms** | **2,865 pgs/s** | **16.5x Faster** |
+| PyMuPDF (`fitz`) | 2,616.8 ms | 789.5 pgs/s | 4.5x Faster |
+| pypdf (pure Python) | 11,900.5 ms | 173.6 pgs/s | 1.0x (baseline) |
+| **Chunkr End-to-End (PDF + Recursive)** | **798.1 ms** | **2,589 pgs/s** | **14.9x Faster** |
+| PyMuPDF + LangChain RecursiveTextSplitter | 2,659.3 ms | 776.9 pgs/s | 4.5x Faster |
+| pypdf + LangChain RecursiveTextSplitter | 12,054.5 ms | 171.4 pgs/s | 1.0x (baseline) |
 
 ---
 
@@ -538,7 +575,7 @@ Direct in-memory Python runtime comparison (`import chunkr` vs. `langchain-text-
 <summary><b>Why use Chunkr instead of LangChain's <code>RecursiveCharacterTextSplitter</code>?</b></summary>
 <br>
 
-Chunkr provides a **2x to 3.5x speedup** on recursive text splitting and up to **20x speedup** on character splitting, with zero heap allocations. Furthermore, Chunkr includes 18+ specialized strategies (Late Chunking, Tree-sitter AST for code, table header preservation, parent-child trees) and a native PDF extractor that is **17x faster than `pypdf`**, all callable via `import chunkr` with zero-copy LangChain and LlamaIndex adapters.
+Chunkr provides a **2.9x speedup** on recursive text splitting (identical chunk boundaries, 2,264 vs 769 MB/s) and up to **33x on fixed-width character splitting** (450x vs LangChain's `CharacterTextSplitter`), with zero heap allocations. Furthermore, Chunkr includes 18+ specialized strategies (Late Chunking, Tree-sitter AST for code, table header preservation, parent-child trees) and a native PDF extractor that is **16x–23x faster than `pypdf`**, all callable via `import chunkr` with zero-copy LangChain and LlamaIndex adapters. BPE token chunking is the one case where chunkr does not lead — use `RecursiveChunker` unless exact token bounds are required.
 </details>
 
 <details>
@@ -591,7 +628,7 @@ Traditional chunking splits text prior to embedding generation, causing each chu
 <summary><b>Can Chunkr parse and chunk PDFs directly without external dependencies?</b></summary>
 <br>
 
-Yes. Chunkr includes a native `PDFLoader` built on `lopdf` in Rust. It extracts text and generates page documents at **over 600–1,800 pages per second**, running **12x–17x faster than `pypdf`** without requiring Poppler or PyMuPDF.
+Yes. Chunkr includes a native `PDFLoader` built on `lopdf` in Rust. It extracts text and generates page documents at **over 2,700–9,300 pages per second**, running **16x–23x faster than `pypdf`** without requiring Poppler or PyMuPDF.
 </details>
 
 <details>

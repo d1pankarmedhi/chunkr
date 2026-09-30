@@ -1,0 +1,270 @@
+{
+  "meta": {
+    "timestamp": "2026-09-30T18:42:05+00:00",
+    "machine": "Apple M4",
+    "cpu_count": "10",
+    "physical_cores": "10",
+    "ram_gb": 17.2,
+    "os": "Darwin 24.6.0 (15.7.9)",
+    "python": "3.12.11",
+    "git_sha": "c62f2af",
+    "git_dirty": true,
+    "packages": {
+      "chunkr-rs": "1.4.0",
+      "langchain-text-splitters": "1.1.2",
+      "llama-index-core": "0.14.25",
+      "chonkie": "1.7.0",
+      "chonkie-core": "0.10.2",
+      "semchunk": "4.1.1",
+      "semantic-text-splitter": "0.33.0",
+      "tiktoken": "0.14.0"
+    },
+    "units": "MB = 10^6 bytes; MB/s = file bytes / wall time"
+  },
+  "config": {
+    "reps": 3,
+    "warmup": 1
+  },
+  "cases": [
+    {
+      "label": "sample_doc (10 pages)",
+      "path": "tests/test_files/sample_doc.pdf",
+      "pages": 10,
+      "mb": 0.05,
+      "results": [
+        {
+          "impl": "chunkr PDFLoader.load_pages",
+          "median_ms": 1.068,
+          "pages_per_s": 9362.4,
+          "mbps": 51.3,
+          "spread_pct": 1.6,
+          "inner_calls": 18,
+          "reps_ms": [
+            1.081,
+            1.065,
+            1.068
+          ],
+          "chars_out": 5757
+        },
+        {
+          "impl": "chunkr PDFLoader.load",
+          "median_ms": 1.07,
+          "pages_per_s": 9344.4,
+          "mbps": 51.2,
+          "spread_pct": 2.5,
+          "inner_calls": 18,
+          "reps_ms": [
+            1.094,
+            1.067,
+            1.07
+          ],
+          "chars_out": 5748
+        },
+        {
+          "impl": "chunkr PDFLoader.load_pages + RecursiveChunker",
+          "median_ms": 1.076,
+          "pages_per_s": 9295.8,
+          "mbps": 51.0,
+          "spread_pct": 4.1,
+          "inner_calls": 17,
+          "reps_ms": [
+            1.076,
+            1.105,
+            1.061
+          ],
+          "chars_out": 6080
+        },
+        {
+          "impl": "chunkr PDFLoader.load + RecursiveChunker",
+          "median_ms": 1.079,
+          "pages_per_s": 9266.5,
+          "mbps": 50.8,
+          "spread_pct": 2.3,
+          "inner_calls": 17,
+          "reps_ms": [
+            1.07,
+            1.095,
+            1.079
+          ],
+          "chars_out": 6564
+        },
+        {
+          "impl": "PyMuPDF (fitz) get_text",
+          "median_ms": 11.156,
+          "pages_per_s": 896.4,
+          "mbps": 4.9,
+          "spread_pct": 0.7,
+          "inner_calls": 1,
+          "reps_ms": [
+            11.156,
+            11.097,
+            11.174
+          ],
+          "chars_out": 5568
+        },
+        {
+          "impl": "PyMuPDF + langchain RecursiveCharacterTextSplitter",
+          "median_ms": 11.235,
+          "pages_per_s": 890.1,
+          "mbps": 4.9,
+          "spread_pct": 2.2,
+          "inner_calls": 1,
+          "reps_ms": [
+            11.472,
+            11.235,
+            11.227
+          ],
+          "chars_out": 5940
+        },
+        {
+          "impl": "pypdf PdfReader+extract_text",
+          "median_ms": 24.407,
+          "pages_per_s": 409.7,
+          "mbps": 2.2,
+          "spread_pct": 1.7,
+          "inner_calls": 1,
+          "reps_ms": [
+            24.738,
+            24.407,
+            24.328
+          ],
+          "chars_out": 5553
+        },
+        {
+          "impl": "pypdf + langchain RecursiveCharacterTextSplitter",
+          "median_ms": 24.555,
+          "pages_per_s": 407.2,
+          "mbps": 2.2,
+          "spread_pct": 1.8,
+          "inner_calls": 1,
+          "reps_ms": [
+            24.891,
+            24.46,
+            24.555
+          ],
+          "chars_out": 6605
+        }
+      ]
+    },
+    {
+      "label": "ML_book.pdf",
+      "path": "ML_book.pdf",
+      "pages": 2066,
+      "mb": 19.92,
+      "results": [
+        {
+          "impl": "chunkr PDFLoader.load_pages",
+          "median_ms": 721.012,
+          "pages_per_s": 2865.4,
+          "mbps": 27.6,
+          "spread_pct": 3.8,
+          "inner_calls": 1,
+          "reps_ms": [
+            746.34,
+            721.012,
+            718.828
+          ],
+          "chars_out": 27320050
+        },
+        {
+          "impl": "chunkr PDFLoader.load",
+          "median_ms": 747.918,
+          "pages_per_s": 2762.3,
+          "mbps": 26.6,
+          "spread_pct": 1.6,
+          "inner_calls": 1,
+          "reps_ms": [
+            743.488,
+            755.69,
+            747.918
+          ],
+          "chars_out": 27317985
+        },
+        {
+          "impl": "chunkr PDFLoader.load + RecursiveChunker",
+          "median_ms": 798.101,
+          "pages_per_s": 2588.6,
+          "mbps": 25.0,
+          "spread_pct": 6.8,
+          "inner_calls": 1,
+          "reps_ms": [
+            798.101,
+            825.859,
+            771.577
+          ],
+          "chars_out": 33353150
+        },
+        {
+          "impl": "chunkr PDFLoader.load_pages + RecursiveChunker",
+          "median_ms": 807.756,
+          "pages_per_s": 2557.7,
+          "mbps": 24.7,
+          "spread_pct": 3.2,
+          "inner_calls": 1,
+          "reps_ms": [
+            807.756,
+            829.539,
+            803.798
+          ],
+          "chars_out": 33353806
+        },
+        {
+          "impl": "PyMuPDF (fitz) get_text",
+          "median_ms": 2616.775,
+          "pages_per_s": 789.5,
+          "mbps": 7.6,
+          "spread_pct": 3.8,
+          "inner_calls": 1,
+          "reps_ms": [
+            2532.326,
+            2632.857,
+            2616.775
+          ],
+          "chars_out": 4536732
+        },
+        {
+          "impl": "PyMuPDF + langchain RecursiveCharacterTextSplitter",
+          "median_ms": 2659.312,
+          "pages_per_s": 776.9,
+          "mbps": 7.5,
+          "spread_pct": 2.9,
+          "inner_calls": 1,
+          "reps_ms": [
+            2604.913,
+            2659.312,
+            2681.623
+          ],
+          "chars_out": 5208560
+        },
+        {
+          "impl": "pypdf PdfReader+extract_text",
+          "median_ms": 11900.505,
+          "pages_per_s": 173.6,
+          "mbps": 1.7,
+          "spread_pct": 0.8,
+          "inner_calls": 1,
+          "reps_ms": [
+            11900.505,
+            11862.117,
+            11956.068
+          ],
+          "chars_out": 4533480
+        },
+        {
+          "impl": "pypdf + langchain RecursiveCharacterTextSplitter",
+          "median_ms": 12054.461,
+          "pages_per_s": 171.4,
+          "mbps": 1.7,
+          "spread_pct": 2.0,
+          "inner_calls": 1,
+          "reps_ms": [
+            11969.317,
+            12054.461,
+            12212.486
+          ],
+          "chars_out": 5453784
+        }
+      ]
+    }
+  ]
+}
