@@ -101,7 +101,7 @@ every raw sample and the machine/package metadata needed to interpret it.
 
 ### Headline run: Apple M4 (10 threads), macOS 15.7.9, Python 3.12.11
 
-`chunkr` built from source at `0477248` (`maturin develop --release`), 15 reps, median.
+`chunkr` built from source at `c2fe03f` (`maturin develop --release`), 15 reps, median.
 Full matrix: `benchmarks/results/chunking-20261001-000820.md` (raw samples in the matching
 `.json`). The two recursive rows were re-measured after the separator defaults changed
 (`benchmarks/results/chunking-20261007-123302.{md,json}`); the sentence-aware hierarchy costs
