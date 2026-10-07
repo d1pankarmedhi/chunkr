@@ -247,6 +247,12 @@ impl RecursiveChunker {
                     current_len = current_len.saturating_sub(piece_lens[start_idx]);
                     start_idx += 1;
                 }
+                // The carried-over overlap must leave room for the next piece, otherwise the
+                // following chunk is emitted at up to `chunk_size + overlap` bytes.
+                while start_idx < i && current_len + p_len > self.chunk_size {
+                    current_len -= piece_lens[start_idx];
+                    start_idx += 1;
+                }
             }
 
             current_len += p_len;

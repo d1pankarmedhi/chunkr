@@ -33,6 +33,9 @@ them give `recall`, `precision`, `IoU` and `prec_Ω` (chunk purity with perfect 
 The dataset is downloaded and cached under `benchmarks/data/` on first run; no API keys
 are needed (local `all-MiniLM-L6-v2` embeddings).
 
+`tune_accuracy.py` — the same metric as a config sweep: chunk size x overlap x separator
+hierarchy for every library, plus the best config at each recall level.
+
 ## How to run
 
 ```bash
@@ -48,6 +51,7 @@ VIRTUAL_ENV=$PWD/.venv .venv/bin/maturin develop --release   # builds chunkr fro
 .venv/bin/python benchmarks/bench_pdf.py --big
 .venv/bin/python benchmarks/bench_accuracy.py                 # all impls, k=5
 .venv/bin/python benchmarks/bench_accuracy.py --impl chunkr --scoped
+.venv/bin/python benchmarks/tune_accuracy.py --libs chunkr    # sweep one library's config space
 ```
 
 Results are written to `benchmarks/results/` as both JSON (all raw samples) and Markdown.
@@ -147,24 +151,24 @@ Raw data: `benchmarks/results/pdf-20261001-001557.json`.
 
 Chroma's 5 corpora (1.44 M chars, 472 questions, 132 k gold chars), chunk size 1000 chars.
 Higher is better on every column; `prec_Ω` is the chunker-intrinsic ceiling (no retrieval).
-Full matrix and per-corpus IoU: `benchmarks/results/accuracy-20261007-052151.md`.
+Full matrix and per-corpus IoU: `benchmarks/results/accuracy-20261007-060403.md`.
 
 Recursive splitting, 1000 chars / 200 overlap:
 
-| implementation | recall | precision | IoU | prec_Ω | chunks | avg chunk chars | unlocated |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| chunkr RecursiveChunker | **0.782** | 0.056 | 0.056 | 0.211 | 1866 | 919 | 0 |
-| langchain RecursiveCharacterTextSplitter | 0.762 | 0.060 | 0.060 | 0.251 | 2184 | 745 | 0 |
-| text-splitter TextSplitter | 0.762 | 0.060 | 0.060 | 0.262 | 2038 | 790 | 0 |
-| chonkie RecursiveChunker | 0.752 | 0.062 | 0.061 | **0.292** | 2059 | 701 | 0 |
-| semchunk chunk(token_counter=len) | 0.736 | **0.070** | **0.069** | 0.260 | 2798 | 644 | 0 |
-| llama-index SentenceSplitter | 0.654 | 0.013 | 0.013 | 0.054 | 424 | 4136 | 0 |
+| implementation | recall | precision | IoU | prec_Ω | chunks | avg chunk chars |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| chunkr RecursiveChunker | **0.784** | 0.057 | 0.056 | 0.213 | 1866 | 917 |
+| langchain RecursiveCharacterTextSplitter | 0.762 | 0.060 | 0.060 | 0.251 | 2184 | 745 |
+| text-splitter TextSplitter | 0.762 | 0.060 | 0.060 | 0.262 | 2038 | 790 |
+| chonkie RecursiveChunker | 0.752 | 0.062 | 0.061 | **0.292** | 2059 | 701 |
+| semchunk chunk(token_counter=len) | 0.736 | **0.070** | **0.069** | 0.260 | 2798 | 644 |
+| llama-index SentenceSplitter | 0.654 | 0.013 | 0.013 | 0.054 | 424 | 4136 |
 
 Markdown splitting, 1000 chars / 150 overlap:
 
 | implementation | recall | precision | IoU | prec_Ω | chunks | avg chunk chars | unlocated |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| chunkr MarkdownChunker | **0.774** | 0.053 | 0.053 | 0.220 | 1784 | 915 | 0 |
+| chunkr MarkdownChunker | **0.770** | 0.053 | 0.053 | 0.220 | 1784 | 914 | 0 |
 | text-splitter MarkdownSplitter | 0.750 | **0.058** | **0.058** | **0.256** | 2042 | 749 | 0 |
 | llama-index MarkdownNodeParser | 1.000 | 0.003 | 0.003 | 0.003 | 5 | 288865 | 0 |
 | langchain MarkdownHeaderTextSplitter | 0.000 | 0.000 | 0.000 | 0.000 | 5 | 289076 | 5 |
@@ -172,12 +176,56 @@ Markdown splitting, 1000 chars / 150 overlap:
 Reading the table: `precision` and `IoU` move with chunk size, because 5 retrieved chunks of
 ~800 chars always carry far more text than the ~280 gold characters a question has. `recall`
 says whether the answers are inside the retrieved chunks, `prec_Ω` says how concentrated the
-answers are inside the chunker's own chunks. chunkr's chunks are ~25% larger than the other
+answers are inside the chunker's own chunks. chunkr's chunks are ~23% larger than the other
 recursive splitters at the same nominal size (fewer, fuller chunks), which buys the best recall
 and costs chunk purity — report both, do not read one column alone. The two markdown rows show
 the same effect at the extreme (a single 289 k-char chunk per corpus covers everything and is
 pure noise); the langchain row is 0.000 because that splitter strips headers, so its chunks no
 longer exist verbatim in the corpus and are excluded (see the `unlocated` column).
+
+### Accuracy tuning (`tune_accuracy.py`)
+
+Same metric, swept over chunk size, overlap and separator hierarchy for every library. Full
+grid: `benchmarks/results/tuning-20261007-061312.json`. The other libraries are at their best
+point in that grid; chunkr is shown at three tuned operating points, plus its default.
+
+| config | recall | precision | IoU | prec_Ω | chunks | avg chars |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| chunkr (1200, 171) sentence | **0.809** | 0.048 | 0.048 | 0.221 | 1489 | 1027 |
+| chunkr (1000, 200) default | 0.784 | 0.057 | 0.056 | 0.213 | 1866 | 917 |
+| chunkr (800, 0) sentence | 0.785 | **0.068** | **0.068** | **0.307** | 2132 | 677 |
+| text-splitter (800, 160) | 0.747 | 0.069 | 0.069 | 0.311 | 2512 | 639 |
+| chonkie (1000) | 0.752 | 0.062 | 0.061 | 0.292 | 2059 | 701 |
+| langchain (800, 0) sentence | 0.731 | 0.071 | 0.070 | 0.346 | 2609 | 552 |
+
+What the sweep shows:
+
+* **Chunk length dominates purity, not the library.** The whole field sits on one frontier:
+  trading recall for chunk purity. chunkr's defaults pack chunks ~23% fuller than the others
+  at the same nominal size, so it tops recall and trails on purity — the two are the same knob.
+* **Sentence-aware separators are a free win.** At fixed size and overlap, adding sentence
+  breaks to the hierarchy (`["\n\n", "\n", ". ", "! ", "? ", " ", ""]`: paragraph -> line ->
+  sentence -> word) raises both metrics:
+  (800, 0) recall 0.758 -> 0.785 and prec_Ω 0.270 -> 0.307; (1000, 0) 0.753 -> 0.772 and
+  0.236 -> 0.258. No throughput cost (2338 MB/s vs 2245 MB/s on the 1 MB prose corpus,
+  same chunk count). Answers are whole sentences, so sentence-aligned chunks contain them
+  more often and dilute them less. Pass the list to `RecursiveChunker(size, overlap, separators)`.
+* **Recommended accuracy configs.** Best purity at high recall:
+  `RecursiveChunker(800, 0, sentence_separators)` — recall 0.785 with prec_Ω 0.307, ahead of
+  every other library at recall >= 0.78. Maximum recall: `(1200, 171, sentence)` at 0.809.
+  Keeping 20 % overlap for downstream RAG: `(1000, 142, sentence)` holds recall (0.782 vs
+  0.784) while raising prec_Ω 18 % over the default `(1000, 200)`.
+* Below recall ~0.75 the frontier belongs to smaller chunks: langchain at 800/0/sentence
+  reaches prec_Ω 0.346 with recall 0.731. Purity past that point is bought purely with recall.
+
+### Bug found while running this: chunks could exceed `chunk_size`
+
+The recursive merge carried an overlap window into the next chunk without re-checking it
+against the cap, so chunks could be emitted at up to `chunk_size + overlap` bytes
+(reproduced: paragraphs `[56, 63, 30, 41, 984]` at 1000/200 produced a 1126-byte chunk;
+9 of 937 finance chunks were over the cap, max 1182). Fixed in `src/chunker/recursive.rs`
+with a regression test in `tests/chunker_tests.rs`; chunk boundaries are unchanged apart
+from the affected tail windows. `benchmarks/data/` is downloaded on first run and gitignored.
 
 ### How these compare to the numbers in the root README
 

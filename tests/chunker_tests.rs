@@ -95,7 +95,34 @@ fn test_recursive_chunker() {
     let chunks = chunker.chunk(text).unwrap();
     assert!(!chunks.is_empty());
     for chunk in &chunks {
-        assert!(chunk.content.chars().count() <= 120);
+        assert!(chunk.content.len() <= 100);
+    }
+}
+
+#[test]
+fn test_recursive_chunker_overlap_never_exceeds_chunk_size() {
+    // Regression: the overlap carried into the next chunk was not re-checked against the
+    // cap, so the following chunk could be emitted at `chunk_size + overlap` bytes.
+    let text = format!(
+        "{}\n\n{}\n\n{}\n\n{}\n\n{}",
+        "A".repeat(56),
+        "B".repeat(63),
+        "C".repeat(30),
+        "D".repeat(41),
+        "E".repeat(984)
+    );
+
+    let chunker = RecursiveChunker::new()
+        .with_chunk_size(1000)
+        .with_overlap(200);
+
+    let chunks = chunker.chunk(&text).unwrap();
+    for chunk in &chunks {
+        assert!(
+            chunk.content.len() <= 1000,
+            "chunk of {} bytes exceeds chunk_size",
+            chunk.content.len()
+        );
     }
 }
 
