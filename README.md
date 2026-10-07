@@ -37,6 +37,7 @@ Why data engineers and AI developers choose Chunkr over pure-Python chunking lib
 | **Markdown Header Breadcrumbs** | **Full `#`–`######` Hierarchy** | Basic Split | Basic Markdown | ❌ None | ❌ None |
 | **Table Chunking (CSV/TSV/MD)** | **Header Preserving/Repeating** | ❌ None | Limited | ❌ None | ❌ None |
 | **Native PDF Extraction Engine** | **Built-in (2,700+ pgs/s)** | External (`pypdf`, `fitz`) | External (`pypdf`) | ❌ None | ❌ None |
+| **Native Office, Spreadsheet, EPUB & Email Loaders** | **Built-in (XLSX/XLSM/XLSB/XLS/ODS, DOCX, PPTX, ODT, EPUB, EML/MBOX, RTF, XML, IPYNB)** | External (`unstructured`) | External (readers) | ❌ None | ❌ None |
 | **Parent-Child / Hierarchical** | **Built-in (`HierarchicalChunker`)** | Multi-class setup | Class pipeline | ❌ None | ❌ None |
 | **Post-Processing Pipeline** | **Built-in (`ChunkPipeline`)** | Manual code | IngestionPipeline | ❌ None | ❌ None |
 | **Constant-Memory Streaming** | **Built-in (`StreamChunker`)** | ❌ None | ❌ None | ❌ None | ❌ None |
@@ -146,6 +147,33 @@ Or build all Wasm bindings directly from source:
 
 ---
 
+## 📄 Supported Input Formats
+
+The format-aware loaders turn files into `Document`s (one per page, sheet, slide or chapter) before chunking, so per-part metadata such as `page_number`, `sheet_name` or `slide_number` survives into every chunk.
+
+| Format | Extensions | Loader | Document granularity |
+| :--- | :--- | :--- | :--- |
+| **PDF** | `.pdf` | `PDFLoader` | One document per page |
+| **Excel / OpenDocument spreadsheets** | `.xlsx`, `.xlsm`, `.xlsb`, `.xls`, `.ods` | `SpreadsheetLoader` | One document per worksheet, rendered as a Markdown table with repeated headers |
+| **Word** | `.docx`, `.docm` | `OfficeLoader` | Paragraphs and table cells in reading order |
+| **PowerPoint** | `.pptx` | `OfficeLoader` | One document per slide, in slide order |
+| **OpenDocument Text** | `.odt` | `OfficeLoader` | Paragraphs and table cells in reading order |
+| **EPUB** | `.epub` | `EpubLoader` | One document per spine chapter with book title/author metadata |
+| **Email** | `.eml`, `.mbox` | `EmailLoader` | Subject/from/to/date headers plus body, one document per message |
+| **HTML / XHTML** | `.html`, `.htm`, `.xhtml` | auto | Readable text with scripts, styles and boilerplate removed |
+| **Rich Text & XML** | `.rtf`, `.xml` | auto | Plain text with control words/tags resolved |
+| **Jupyter notebooks** | `.ipynb` | auto | Markdown, fenced code and cell outputs |
+| **Delimited, JSON & Markdown** | `.csv`, `.tsv`, `.json`, `.md` | auto-routed to `TableChunker`, `JsonChunker`, `MarkdownChunker` | Table/JSON/markdown-aware chunks |
+| **Source code** | `.rs`, `.py`, `.js`, `.ts`, `.go`, `.cpp`, `.java`, `.sql` | auto-routed to `CodeChunker` | Syntax-aware chunks |
+| **Plain text** | anything else (`.txt`, `.log`, `.yaml`, `.toml`, …) | auto | UTF-8 with byte-order-mark aware decoding |
+
+`DirectoryLoader` uses the same routing, so `load_and_chunk("docs/")` handles every format above in one parallel pass and skips nothing it can extract. Binary files are rejected per file; the `*_lenient` variants continue and report `(path, error)` pairs.
+
+> [!NOTE]
+> Native loaders are compiled for desktop and server targets. The WebAssembly build keeps `PDFLoader` and every text-level chunker; pass extracted text to chunkers when running at the edge.
+
+---
+
 ## 🐍 Python Quickstart
 
 ```python
@@ -202,10 +230,17 @@ late_docs = late_chunker.chunk(sample_text)
 dir_loader = chunkr.DirectoryLoader(extensions=["pdf", "md", "csv", "py"])
 dir_chunks = dir_loader.load_and_chunk("path/to/repo_or_folder")
 
-# 11. PDF Document Loading & Chunking
-loader = chunkr.PDFLoader()
-pages = loader.load_pages("path/to/document.pdf")
-pdf_chunks = recursive_chunker.chunk_documents(pages)
+# 11. Format-Aware Document Loading (spreadsheets, Office, EPUB, email, HTML, notebooks)
+loader = chunkr.DocumentLoader()
+print(loader.supported_extensions())            # every extension the loader understands
+sheets = loader.load("path/to/workbook.xlsx")   # one Document per sheet, headers repeated
+slides = loader.load_from_bytes(pptx_bytes, "pptx")  # in-memory, no temp files
+html_docs = loader.load("path/to/page.html")    # scripts/styles stripped
+
+# 12. PDF Document Loading & Chunking
+pdf_loader = chunkr.PDFLoader()
+pages = pdf_loader.load_pages("path/to/document.pdf")
+pdf_chunks = recursive_chunker.chunk_documents(pages + sheets + slides + html_docs)
 
 # 12. AST-Based Code Chunking (Tree-sitter syntax boundaries)
 ast_chunker = chunkr.AstCodeChunker(language="python", max_chunk_size=1500)
@@ -451,15 +486,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_id_prefix("rust_doc_");
     let clean_chunks = pipeline.process(chunks);
 
-    // 10. PDF Document Loading & Chunking
+    // 10. Format-Aware Loading (spreadsheets, Office, EPUB, HTML, email, notebooks)
+    let workbook = std::fs::read("book.xlsx")?;
+    let sheets = SpreadsheetLoader::new().load_documents(&workbook, Some("book.xlsx"))?;
+    let pages = load_documents("report.html")?; // auto-dispatch by extension
+    let mixed_chunks = recursive_chunker.chunk_documents(&[sheets, pages].concat())?;
+
+    // 11. PDF Document Loading & Chunking
     let loader = PDFLoader::new();
     let pdf_pages = loader.load_pages_from_file("tests/test_files/sample_doc.pdf")?;
     let pdf_chunks = recursive_chunker.chunk_documents(&pdf_pages)?;
 
-    // 11. Multi-Threaded Parallel Document Batch Chunking
+    // 12. Multi-Threaded Parallel Document Batch Chunking
     let parallel_chunks = recursive_chunker.par_chunk_documents(&pdf_pages)?;
 
-    // 12. Constant-Memory Streaming Chunker (Files, Sockets, STDIN)
+    // 13. Constant-Memory Streaming Chunker (Files, Sockets, STDIN)
     let streamer = StreamChunker::new(1000, 150)?;
     let stream_iter = streamer.chunk_file("large_document.txt")?;
     for chunk_result in stream_iter {
@@ -487,8 +528,13 @@ cargo run --bin chunkr -- large_file.txt -s stream --chunk-size 1000 -f jsonl
 # Pipe from STDIN with post-chunking pipeline (dedup, filtering, packing, SHA-256 hash enrichment)
 cat document.txt | chunkr -s recursive --chunk-size 800 --min-chars 30 --dedup --enrich --pack 1200 > output.jsonl
 
-# Ingest and auto-route an entire directory
+# Ingest and auto-route an entire directory (each file routed to the best loader + chunker)
 chunkr ./docs -s dir --format jsonl --out-file chunks.jsonl
+
+# Any supported format works directly as input: sheets, slides, pages, email, books
+chunkr quarterly.xlsx -s recursive -c 500 -f jsonl
+chunkr deck.pptx -s recursive -f text
+chunkr mail.eml -s recursive -f jsonl
 ```
 
 ---
