@@ -281,7 +281,7 @@ pub struct PyRecursiveChunker {
 #[pymethods]
 impl PyRecursiveChunker {
     #[new]
-    #[pyo3(signature = (chunk_size=1000, overlap=200, separators=None))]
+    #[pyo3(signature = (chunk_size=1000, overlap=120, separators=None))]
     pub fn new(chunk_size: usize, overlap: usize, separators: Option<Vec<String>>) -> Self {
         let mut chunker = RecursiveChunker::new()
             .with_chunk_size(chunk_size)
@@ -1696,5 +1696,9 @@ pub fn chunkr(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(to_llamaindex, m)?)?;
     m.add_function(wrap_pyfunction!(from_llamaindex, m)?)?;
     m.add_function(wrap_pyfunction!(to_dict_list, m)?)?;
+    m.add(
+        "SENTENCE_SEPARATORS",
+        crate::chunker::recursive::SENTENCE_SEPARATORS.to_vec(),
+    )?;
     Ok(())
 }

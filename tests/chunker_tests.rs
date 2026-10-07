@@ -85,6 +85,21 @@ fn test_token_chunker() {
 }
 
 #[test]
+fn test_recursive_chunker_defaults_are_sentence_aware() {
+    // Defaults are the measured accuracy recipe; see benchmarks/README.md.
+    let chunker = RecursiveChunker::new();
+    assert_eq!(chunker.chunk_size, 1000);
+    assert_eq!(chunker.overlap, 120);
+    assert_eq!(
+        chunker.separators,
+        SENTENCE_SEPARATORS
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn test_recursive_chunker() {
     let text = "Paragraph 1: Introduction to Rust.\nRust is a systems programming language focused on safety and speed.\n\nParagraph 2: Features of Chunkr.\nChunkr provides blazingly fast chunking strategies for RAG pipelines.\n\nParagraph 3: Parallel Processing.\nPowered by Rayon for multi-threaded batch operations across CPU cores.";
 
@@ -95,7 +110,34 @@ fn test_recursive_chunker() {
     let chunks = chunker.chunk(text).unwrap();
     assert!(!chunks.is_empty());
     for chunk in &chunks {
-        assert!(chunk.content.chars().count() <= 120);
+        assert!(chunk.content.len() <= 100);
+    }
+}
+
+#[test]
+fn test_recursive_chunker_overlap_never_exceeds_chunk_size() {
+    // Regression: the overlap carried into the next chunk was not re-checked against the
+    // cap, so the following chunk could be emitted at `chunk_size + overlap` bytes.
+    let text = format!(
+        "{}\n\n{}\n\n{}\n\n{}\n\n{}",
+        "A".repeat(56),
+        "B".repeat(63),
+        "C".repeat(30),
+        "D".repeat(41),
+        "E".repeat(984)
+    );
+
+    let chunker = RecursiveChunker::new()
+        .with_chunk_size(1000)
+        .with_overlap(200);
+
+    let chunks = chunker.chunk(&text).unwrap();
+    for chunk in &chunks {
+        assert!(
+            chunk.content.len() <= 1000,
+            "chunk of {} bytes exceeds chunk_size",
+            chunk.content.len()
+        );
     }
 }
 

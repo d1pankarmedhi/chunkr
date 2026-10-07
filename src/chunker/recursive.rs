@@ -6,6 +6,12 @@ use crate::chunker::base::{BaseChunker, Chunker};
 use crate::error::ChunkrError;
 use crate::structures::document::Document;
 
+/// Separator hierarchy that keeps paragraph, line and sentence boundaries intact before falling
+/// back to words. Measured to raise both retrieval recall and chunk purity over the default
+/// hierarchy at matched chunk size (see `benchmarks/README.md`), so prefer it whenever retrieval
+/// quality matters more than reproducing the default boundaries.
+pub const SENTENCE_SEPARATORS: [&str; 7] = ["\n\n", "\n", ". ", "! ", "? ", " ", ""];
+
 /// Defines where the separator is kept when splitting
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum KeepSeparator {
@@ -28,18 +34,13 @@ pub struct RecursiveChunker {
 }
 
 impl RecursiveChunker {
-    /// Create a new RecursiveChunker with default separators `["\n\n", "\n", " ", ""]`,
-    /// chunk_size 1000, and overlap 200.
+    /// Create a new RecursiveChunker with the sentence-aware separator hierarchy
+    /// ([`SENTENCE_SEPARATORS`]), chunk_size 1000, and overlap 120.
     pub fn new() -> Self {
         Self {
             chunk_size: 1000,
-            overlap: 200,
-            separators: vec![
-                "\n\n".to_string(),
-                "\n".to_string(),
-                " ".to_string(),
-                "".to_string(),
-            ],
+            overlap: 120,
+            separators: SENTENCE_SEPARATORS.iter().map(|s| s.to_string()).collect(),
             keep_separator: KeepSeparator::Start,
         }
     }
@@ -245,6 +246,12 @@ impl RecursiveChunker {
                 }
                 if start_idx == old_start && start_idx < i {
                     current_len = current_len.saturating_sub(piece_lens[start_idx]);
+                    start_idx += 1;
+                }
+                // The carried-over overlap must leave room for the next piece, otherwise the
+                // following chunk is emitted at up to `chunk_size + overlap` bytes.
+                while start_idx < i && current_len + p_len > self.chunk_size {
+                    current_len -= piece_lens[start_idx];
                     start_idx += 1;
                 }
             }

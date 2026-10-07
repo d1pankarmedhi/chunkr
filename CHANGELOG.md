@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Changed
+- **`RecursiveChunker` defaults are now tuned for retrieval accuracy**: the sentence-aware hierarchy (`SENTENCE_SEPARATORS`, paragraph -> line -> sentence -> word, also exposed as `chunkr.SENTENCE_SEPARATORS`) with overlap 120 instead of 200. On Chroma's token-level benchmark that is 0.792 recall and 0.255 `prec_Ω` versus 0.784 and 0.213 before — better on every metric at once, with 6% fewer chunks. `MarkdownChunker` inherits the same sub-chunking. Pass `separators=["\n\n", "\n", " ", ""]` and `overlap=200` for the previous boundaries.
+
+### Fixed
+- **`RecursiveChunker` could emit chunks larger than `chunk_size`**: the overlap carried into the next chunk was not re-checked against the cap, so chunks could reach `chunk_size + overlap` bytes (for example 1126 bytes with `chunk_size=1000` and `overlap=200`). The carried overlap is now trimmed until the next piece fits.
+
+---
+
 ## [1.4.0] - 2026-09-05
 
 ### Added

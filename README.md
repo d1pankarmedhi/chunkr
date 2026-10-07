@@ -27,7 +27,7 @@ Why data engineers and AI developers choose Chunkr over pure-Python chunking lib
 | Feature / Capability | Chunkr (`chunkr-rs`) | LangChain Splitters | LlamaIndex Node Parsers | Chonkie | Semchunk |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Core Architecture** | **Rust + PyO3 (Native)** | Pure Python | Pure Python | Python / Rust partial | Pure Python |
-| **Recursive Split Throughput** | **2,264 MB/s** | 769 MB/s | 10 MB/s | 225 MB/s | 42 MB/s |
+| **Recursive Split Throughput** | **2,219 MB/s** | 769 MB/s | 10 MB/s | 223 MB/s | 42 MB/s |
 | **Fixed Char Throughput** | **750 MB/s** | 1.7 MB/s | — | 22 MB/s | — |
 | **Memory Strategy** | **Zero-Copy Slices** | String Duplication | Object Churn | String Duplication | String Duplication |
 | **Multithreading** | **Rayon (True Multi-core)** | ThreadPool (GIL bound) | Async / GIL bound | None | ProcessPool |
@@ -50,7 +50,7 @@ Why data engineers and AI developers choose Chunkr over pure-Python chunking lib
 
 | If your document or use-case is... | Recommended Chunker | Why? |
 | :--- | :--- | :--- |
-| **General prose, blog posts, articles** | `RecursiveChunker` | Blazing-fast SIMD separator splitting (`\n\n`, `\n`, ` `). |
+| **General prose, blog posts, articles** | `RecursiveChunker` | Blazing-fast SIMD separator splitting (paragraph → line → sentence → word); the default hierarchy is tuned for retrieval recall and chunk purity. |
 | **OpenAI models (GPT-4o, text-embedding-3)** | `TokenChunker` | Exact BPE token bounds (`cl100k_base`, `o200k_base`) with zero token waste. |
 | **Open-source LLMs (Llama 3, Mistral, Qwen, BGE)** | `HFTokenChunker` | Direct native integration with Hugging Face `tokenizer.json`. |
 | **Small-to-Big RAG Architectures** | `HierarchicalChunker` | Matches high-relevance child chunks and retrieves full parent context. |
@@ -500,15 +500,14 @@ Every number below is reproducible with the harness in [`benchmarks/`](benchmark
 macOS 15.7.9, Python 3.12.11**, chunkr built from source. Each implementation runs on
 byte-identical corpora with the same chunk-size/overlap parameters, chunker construction is
 excluded from timing, and the **median of 15 round-robin repetitions** is reported.
-
 ### Text Chunking Throughput Comparison
 
 MB/s = 10^6 bytes / wall time; higher is better. `—` = no equivalent splitter in that library.
 
 | Test Case (matched parameters) | Chunkr | LangChain | LlamaIndex | Chonkie | semchunk | text-splitter |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Recursive (1 MB, 1000/200)** | **2,264 MB/s** | 769 MB/s | 10 MB/s | 225 MB/s | 42 MB/s | 175 MB/s |
-| **Recursive (5 MB, 1000/200)** | **2,039 MB/s** | 696 MB/s | — | 201 MB/s | 40 MB/s | 46 MB/s |
+| **Recursive (1 MB, 1000/200)** | **2,219 MB/s** | 769 MB/s | 10 MB/s | 223 MB/s | 42 MB/s | 164 MB/s |
+| **Recursive (5 MB, 1000/200)** | **2,028 MB/s** | 692 MB/s | — | 200 MB/s | 40 MB/s | 42 MB/s |
 | **Fixed Char (1 MB, 1000/200)** | **750 MB/s** | 1.7 MB/s | — | 22 MB/s | — | — |
 | **Markdown (500 KB, 1000/150)** | **819 MB/s** | 67 MB/s | 19 MB/s | — | — | 40 MB/s |
 | **Python Code (200 KB, 1500/200)** | **3,232 MB/s** | 622 MB/s | — | — | — | 5.7 MB/s |
@@ -533,6 +532,32 @@ MB/s = 10^6 bytes / wall time; higher is better. `—` = no equivalent splitter 
 > decode cost dominates its windowing overhead. Construction is cached process-wide, so repeated
 > chunkers are cheap: first use in a fresh interpreter is 22 ms for chunkr vs 43 ms for LangChain
 > and 457 ms for Chonkie. Use `RecursiveChunker` when exact token bounds are not required.
+
+### Retrieval Accuracy Comparison
+
+Accuracy is measured on Chroma's token-level chunking benchmark (5 corpora, 472 questions with
+gold answer spans): chunks are embedded, the top 5 are retrieved per question, and the gold
+characters inside them give **recall** (answers found), **precision/IoU** (retrieved text that is
+actually answer) and **prec_Ω** (chunk purity with perfect recall). Higher is better everywhere.
+chunkr runs its defaults; the others are at 1000 chars / 200 overlap, their closest equivalent.
+Full methodology and the size-matched sweep: [`benchmarks/README.md`](benchmarks/README.md).
+
+| Implementation | Recall | Precision | IoU | prec_Ω | Avg chunk chars |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Chunkr `RecursiveChunker` (defaults)** | **0.792** | 0.057 | 0.057 | 0.255 | 854 |
+| LangChain `RecursiveCharacterTextSplitter` | 0.762 | 0.060 | 0.060 | 0.251 | 745 |
+| text-splitter `TextSplitter` | 0.762 | 0.060 | 0.060 | 0.262 | 790 |
+| Chonkie `RecursiveChunker` | 0.752 | 0.062 | 0.061 | **0.292** | 701 |
+| semchunk | 0.736 | **0.070** | **0.069** | 0.260 | 644 |
+| LlamaIndex `SentenceSplitter` | 0.654 | 0.013 | 0.013 | 0.054 | 4136 |
+
+> **Accuracy is dominated by chunk length, so it has to be compared at equal length.** The purity
+> columns fall as chunks get longer, which is why Chonkie's smaller chunks (701 chars) score higher
+> on `prec_Ω` than chunkr's (854) despite identical parameters. Interpolating every library to the
+> same average chunk size removes the effect, and there Chunkr's sentence-aware recursive
+> defaults take **both** the best recall and the best chunk purity at every budget from 500 to 900
+> characters per chunk — no metric is traded for another. `chunkr.MarkdownChunker` leads the same
+> benchmark for markdown (recall 0.777) and inherits the same sub-chunking.
 
 ### PDF Extraction & End-to-End Pipeline Latency
 
@@ -575,7 +600,7 @@ MB/s = 10^6 bytes / wall time; higher is better. `—` = no equivalent splitter 
 <summary><b>Why use Chunkr instead of LangChain's <code>RecursiveCharacterTextSplitter</code>?</b></summary>
 <br>
 
-Chunkr provides a **2.9x speedup** on recursive text splitting (identical chunk boundaries, 2,264 vs 769 MB/s) and up to **33x on fixed-width character splitting** (450x vs LangChain's `CharacterTextSplitter`), with zero heap allocations. Furthermore, Chunkr includes 18+ specialized strategies (Late Chunking, Tree-sitter AST for code, table header preservation, parent-child trees) and a native PDF extractor that is **16x–23x faster than `pypdf`**, all callable via `import chunkr` with zero-copy LangChain and LlamaIndex adapters. BPE token chunking is the one case where chunkr does not lead — use `RecursiveChunker` unless exact token bounds are required.
+Chunkr provides a **2.9x speedup** on recursive text splitting (same chunk counts and average chunk size, 2,219 vs 769 MB/s) and up to **33x on fixed-width character splitting** (450x vs LangChain's `CharacterTextSplitter`), with zero heap allocations. On Chroma's token-level retrieval benchmark it also leads that splitter on recall (0.792 vs 0.762) at equal average chunk length, so the speed does not come at an accuracy cost. Furthermore, Chunkr includes 18+ specialized strategies (Late Chunking, Tree-sitter AST for code, table header preservation, parent-child trees) and a native PDF extractor that is **16x–23x faster than `pypdf`**, all callable via `import chunkr` with zero-copy LangChain and LlamaIndex adapters. BPE token chunking is the one case where chunkr does not lead — use `RecursiveChunker` unless exact token bounds are required.
 </details>
 
 <details>

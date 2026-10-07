@@ -1,5 +1,12 @@
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+#: Paragraph -> line -> sentence -> word separator hierarchy. Recommended for retrieval quality:
+#: it raises both recall and chunk purity versus the default separators at matched chunk size
+#: (see benchmarks/README.md). Use with an overlap of roughly 10-15% of the chunk size::
+#:
+#:     chunkr.RecursiveChunker(1000, 120, chunkr.SENTENCE_SEPARATORS)
+SENTENCE_SEPARATORS: List[str]
+
 class Document:
     """A document holding chunked text content and associated metadata."""
     content: str
@@ -17,11 +24,16 @@ class Document:
     def __repr__(self) -> str: ...
 
 class RecursiveChunker:
-    """Splits text recursively along natural semantic boundaries (paragraphs, sentences, words)."""
+    """Splits text recursively along natural semantic boundaries (paragraphs, sentences, words).
+
+    Defaults to the sentence-aware separator hierarchy (``chunkr.SENTENCE_SEPARATORS``) and a
+    chunk_size of 1000 with overlap 120 (~12%, the measured accuracy sweet spot on Chroma's
+    token-level retrieval benchmark; see benchmarks/README.md).
+    """
     def __init__(
         self,
         chunk_size: int = 1000,
-        overlap: int = 200,
+        overlap: int = 120,
         separators: Optional[List[str]] = None,
     ) -> None: ...
     def chunk(self, text: str) -> List[Document]: ...
