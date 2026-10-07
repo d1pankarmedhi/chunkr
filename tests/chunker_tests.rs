@@ -92,7 +92,10 @@ fn test_recursive_chunker_defaults_are_sentence_aware() {
     assert_eq!(chunker.overlap, 120);
     assert_eq!(
         chunker.separators,
-        SENTENCE_SEPARATORS.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+        SENTENCE_SEPARATORS
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
     );
 }
 
