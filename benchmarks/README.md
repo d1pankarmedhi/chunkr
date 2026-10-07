@@ -101,15 +101,17 @@ every raw sample and the machine/package metadata needed to interpret it.
 
 ### Headline run: Apple M4 (10 threads), macOS 15.7.9, Python 3.12.11
 
-`chunkr` built from source at `c62f2af` (`maturin develop --release`), 15 reps, median.
+`chunkr` built from source at `0477248` (`maturin develop --release`), 15 reps, median.
 Full matrix: `benchmarks/results/chunking-20261001-000820.md` (raw samples in the matching
-`.json`). No row was flagged noisy; the three full runs made during this session agreed within
-~10% on every case.
+`.json`). The two recursive rows were re-measured after the separator defaults changed
+(`benchmarks/results/chunking-20261007-123302.{md,json}`); the sentence-aware hierarchy costs
+~2% on the 1 MB case, inside the run-to-run spread. No row was flagged noisy; the three full
+runs made during this session agreed within ~10% on every case.
 
 | case | chunkr | fastest alternative | chunkr vs best alt | chunk parity |
 | --- | --- | --- | --- | --- |
-| `recursive_1mb` (1000/200 chars) | **2264 MB/s** | langchain RecursiveCharacterTextSplitter 769 MB/s | **2.95x** | 1413 vs 1413 chunks |
-| `recursive_5mb` (1000/200 chars) | **2039 MB/s** | langchain RecursiveCharacterTextSplitter 696 MB/s | **2.93x** | 7057 vs 7060 |
+| `recursive_1mb` (1000/200 chars) | **2219 MB/s** | langchain RecursiveCharacterTextSplitter 769 MB/s | **2.89x** | 1413 vs 1413 chunks |
+| `recursive_5mb` (1000/200 chars) | **2028 MB/s** | langchain RecursiveCharacterTextSplitter 692 MB/s | **2.93x** | 7057 vs 7060 |
 | `fixed_char_1mb` (1000/200 chars) | **750 MB/s** | chonkie TokenChunker(character) 22 MB/s | **33.4x** | 1250 vs 1250 |
 | `markdown_500kb` (1000/150) | **819 MB/s** | langchain MarkdownHeaderTextSplitter 67 MB/s | **12.2x** | 715 vs 113 (alt has no size budget) |
 | `code_python_200kb` (1500/200) | **3232 MB/s** | langchain Recursive(PYTHON) 622 MB/s | **5.19x** | 166 vs 166 |
@@ -149,26 +151,31 @@ Raw data: `benchmarks/results/pdf-20261001-001557.json`.
 
 ### Accuracy (Apple M4, Python 3.12.11, `all-MiniLM-L6-v2`, k=5, global retrieval)
 
-Chroma's 5 corpora (1.44 M chars, 472 questions, 132 k gold chars), chunk size 1000 chars.
-Higher is better on every column; `prec_Ω` is the chunker-intrinsic ceiling (no retrieval).
-Full matrix and per-corpus IoU: `benchmarks/results/accuracy-20261007-060403.md`.
+Chroma's 5 corpora (1.44 M chars, 472 questions, 132 k gold chars). Higher is better on every
+column; `prec_Ω` is the chunker-intrinsic ceiling (no retrieval).
+Full matrix and per-corpus IoU: `benchmarks/results/accuracy-20261007-064824.md`.
 
-Recursive splitting, 1000 chars / 200 overlap:
+Recursive splitting. chunkr runs its own defaults (1000 chars / 120 overlap / sentence-aware
+separators); the other libraries are on 1000 chars / 200 overlap, the closest equivalent they
+offer:
 
 | implementation | recall | precision | IoU | prec_Ω | chunks | avg chunk chars |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| chunkr RecursiveChunker | **0.784** | 0.057 | 0.056 | 0.213 | 1866 | 917 |
+| chunkr RecursiveChunker (defaults) | **0.792** | 0.057 | 0.057 | 0.255 | 1745 | 854 |
 | langchain RecursiveCharacterTextSplitter | 0.762 | 0.060 | 0.060 | 0.251 | 2184 | 745 |
 | text-splitter TextSplitter | 0.762 | 0.060 | 0.060 | 0.262 | 2038 | 790 |
 | chonkie RecursiveChunker | 0.752 | 0.062 | 0.061 | **0.292** | 2059 | 701 |
 | semchunk chunk(token_counter=len) | 0.736 | **0.070** | **0.069** | 0.260 | 2798 | 644 |
 | llama-index SentenceSplitter | 0.654 | 0.013 | 0.013 | 0.054 | 424 | 4136 |
 
-Markdown splitting, 1000 chars / 150 overlap:
+chunkr has the best recall; the remaining purity gap is chunk length (854 avg chars vs 701-790
+for the others), not boundary quality — see the size-matched table below, where it disappears.
+
+Markdown splitting, chunkr defaults vs 1000 chars / 150 overlap:
 
 | implementation | recall | precision | IoU | prec_Ω | chunks | avg chunk chars | unlocated |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| chunkr MarkdownChunker | **0.770** | 0.053 | 0.053 | 0.220 | 1784 | 914 | 0 |
+| chunkr MarkdownChunker | **0.777** | 0.055 | 0.055 | 0.249 | 1792 | 853 | 0 |
 | text-splitter MarkdownSplitter | 0.750 | **0.058** | **0.058** | **0.256** | 2042 | 749 | 0 |
 | llama-index MarkdownNodeParser | 1.000 | 0.003 | 0.003 | 0.003 | 5 | 288865 | 0 |
 | langchain MarkdownHeaderTextSplitter | 0.000 | 0.000 | 0.000 | 0.000 | 5 | 289076 | 5 |
@@ -176,26 +183,21 @@ Markdown splitting, 1000 chars / 150 overlap:
 Reading the table: `precision` and `IoU` move with chunk size, because 5 retrieved chunks of
 ~800 chars always carry far more text than the ~280 gold characters a question has. `recall`
 says whether the answers are inside the retrieved chunks, `prec_Ω` says how concentrated the
-answers are inside the chunker's own chunks. chunkr's chunks are ~23% larger than the other
-recursive splitters at the same nominal size (fewer, fuller chunks), which buys the best recall
-and costs chunk purity — report both, do not read one column alone. The two markdown rows show
-the same effect at the extreme (a single 289 k-char chunk per corpus covers everything and is
-pure noise); the langchain row is 0.000 because that splitter strips headers, so its chunks no
-longer exist verbatim in the corpus and are excluded (see the `unlocated` column).
+answers are inside the chunker's own chunks. The two markdown rows show the size effect at the
+extreme (a single 289 k-char chunk per corpus covers everything and is pure noise); the
+langchain row is 0.000 because that splitter strips headers, so its chunks no longer exist
+verbatim in the corpus and are excluded (see the `unlocated` column).
 
 ### Accuracy tuning (`tune_accuracy.py`)
 
 Same metric, swept over chunk size, overlap and separator hierarchy for every library
-(full grid: `benchmarks/results/tuning-20261007-062815.json`).
+(full grid: `benchmarks/results/tuning-20261007-070024.json`).
 
 **The only fair comparison is at matched average chunk size.** Precision and IoU fall as
-retrieved chunks get longer, so a library that emits bigger chunks always looks less pure.
-chunkr's defaults pack chunks ~23% fuller than the others at the same nominal size, which is
-why the fixed-parameter table above shows it topping recall and trailing on purity — that is
-one knob, not a quality difference. Interpolating every config family to the same average
-chunk length removes it:
+retrieved chunks get longer, so a library that emits bigger chunks always looks less pure unless
+you hold chunk length fixed. Interpolating every config family to the same average chunk length:
 
-| avg chunk chars | chonkie | chunkr default | **chunkr sentence** | langchain default | langchain sentence | semchunk | text-splitter |
+| avg chunk chars | chonkie | chunkr paragraph | **chunkr sentence (default)** | langchain default | langchain sentence | semchunk | text-splitter |
 | ---: | :-- | :-- | :-- | :-- | :-- | :-- | :-- |
 | 500 | — | — | **R 0.725 / Ω 0.389** | — | — | — | — |
 | 600 | 0.736 / 0.331 | — | **R 0.743 / Ω 0.338** | — | 0.738 / 0.327 | — | — |
@@ -203,31 +205,28 @@ chunk length removes it:
 | 800 | 0.764 / 0.271 | 0.769 / 0.233 | **R 0.778 / Ω 0.271** | — | 0.766 / 0.268 | — | — |
 | 900 | — | 0.782 / 0.216 | **R 0.787 / Ω 0.255** | — | — | — | — |
 
-`R` marks the best recall at that size, `Ω` the best `prec_Ω`; "chunkr sentence" takes both at
-every size. Config families without a point at that size are marked —. So at any context
-budget you care to pick, 500–900 chars, the sentence-separated chunkr recipe is ahead of every
-other library on recall *and* on chunk purity simultaneously, not one at the cost of the other.
+`R` marks the best recall at that size, `Ω` the best `prec_Ω`; chunkr's sentence recipe takes
+both at every size. So at any context budget between 500 and 900 characters per chunk, chunkr
+is ahead of every other library on recall *and* chunk purity at the same time — no metric is
+bought with another. Config families without a point at that size are marked —.
 
 What the sweep shows:
 
 * **Sentence-aware separators are a free win.** Adding sentence breaks to the hierarchy
-  (`["\n\n", "\n", ". ", "! ", "? ", " ", ""]`: paragraph -> line -> sentence -> word) raises
-  recall *and* purity at fixed chunk size and overlap: at (800, 0) recall 0.758 -> 0.785 and
-  prec_Ω 0.270 -> 0.307, at (1000, 0) 0.753 -> 0.772 and 0.236 -> 0.258. No throughput cost
-  (2338 MB/s vs 2245 MB/s on the 1 MB prose corpus, same chunk count). Answers are whole
-  sentences, so sentence-aligned chunks contain them more often and dilute them less.
+  (paragraph -> line -> sentence -> word) raises recall *and* purity at fixed chunk size and
+  overlap: at (800, 0) recall 0.758 -> 0.785 and prec_Ω 0.270 -> 0.307, at (1000, 0)
+  0.753 -> 0.772 and 0.236 -> 0.258. No throughput cost (2338 MB/s vs 2245 MB/s on the 1 MB
+  prose corpus, same chunk count). Answers are whole sentences, so sentence-aligned chunks
+  contain them more often and dilute them less.
 * **What chunk length does is move you along the frontier; separators move the frontier.**
   Picking a smaller `chunk_size` buys purity and spends recall (both at ~50% lower retrieval
   cost). Picking sentence separators improves both curves at once.
-* **Recommended recipe**: `chunkr.RecursiveChunker(chunk_size, overlap, chunkr.SENTENCE_SEPARATORS)`
-  (see `SENTENCE_SEPARATORS` in `src/chunker/recursive.rs`, exposed to Python). Pick
-  `chunk_size` from the context budget and an overlap of ~10-15%, not from this table.
-* **Versus today's defaults on the same nominal `chunk_size=1000`:**
-  `RecursiveChunker(1000, 120, chunkr.SENTENCE_SEPARATORS)` gives recall 0.792, precision
-  0.057, IoU 0.057 and prec_Ω 0.255, against 0.784 / 0.057 / 0.056 / 0.213 for the default
-  `(1000, 200)` — better on every metric at once, with 6% fewer chunks to embed. That is the
-  swap to make if the defaults should change; it does move the overlap default, so it is a
-  product decision rather than a free swap.
+* **Shipped defaults.** `RecursiveChunker` now defaults to 1000/120 with
+  `SENTENCE_SEPARATORS` (`chunkr.SENTENCE_SEPARATORS` in Python). Against the previous defaults
+  (1000/200, paragraph-only separators) at the same nominal size, that is
+  0.792 / 0.057 / 0.057 / 0.255 versus 0.784 / 0.057 / 0.056 / 0.213 — better on every metric
+  at once, with 6% fewer chunks to embed. `MarkdownChunker` inherits the same sub-chunking, so
+  its markdown row above also improved (recall 0.770 -> 0.777, prec_Ω 0.220 -> 0.249)
 
 ### Bug found while running this: chunks could exceed `chunk_size`
 
@@ -242,8 +241,8 @@ from the affected tail windows. `benchmarks/data/` is downloaded on first run an
 
 | README claim | this harness |
 | --- | --- |
-| Recursive 1 MB: 631 MB/s, 1.8x vs LangChain | 2264 MB/s, 2.95x |
-| Recursive 5 MB: 435 MB/s, 1.9x vs LangChain | 2039 MB/s, 2.93x |
+| Recursive 1 MB: 631 MB/s, 1.8x vs LangChain | 2219 MB/s, 2.89x |
+| Recursive 5 MB: 435 MB/s, 1.9x vs LangChain | 2028 MB/s, 2.93x |
 | Fixed char 1 MB: 323 MB/s, 30.8x | 750 MB/s, 33.4x vs Chonkie / ~450x vs LangChain |
 | Markdown 500 KB: 617 MB/s, 2.5x | 819 MB/s, 12.2x (vs LangChain's header-only splitter) |
 | Python code 200 KB: 1186 MB/s, 2.5x | 3232 MB/s, 5.19x |

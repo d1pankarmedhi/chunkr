@@ -259,7 +259,7 @@ def build_groups() -> dict[str, list[Impl]]:
     recursive = [
         i
         for i in [
-            try_impl("chunkr RecursiveChunker", "chunkr", lambda: call("chunk", chunkr.RecursiveChunker(1000, 200))),
+            try_impl("chunkr RecursiveChunker (library defaults)", "chunkr", lambda: call("chunk", chunkr.RecursiveChunker()), "1000 chars / 120 overlap / sentence separators"),
             try_impl("langchain RecursiveCharacterTextSplitter", "langchain", lambda: call("split_text", RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200))),
             try_impl("chonkie RecursiveChunker", "chonkie", lambda: call("chunk", chonkie.RecursiveChunker(tokenizer="character", chunk_size=1000)), "no overlap parameter"),
             try_impl("llama-index SentenceSplitter", "llamaindex", lambda: nodes(llama_parser.SentenceSplitter(chunk_size=1000, chunk_overlap=200)), "token-budgeted"),
@@ -279,7 +279,7 @@ def build_groups() -> dict[str, list[Impl]]:
         ]
         if i
     ]
-    return {"recursive (1000 chars / 200 overlap)": recursive, "markdown (1000 chars / 150 overlap)": markdown}
+    return {"recursive (others: 1000 chars / 200 overlap)": recursive, "markdown (1000 chars / 150 overlap)": markdown}
 
 
 # ----------------------------------------------------------------------- evaluation

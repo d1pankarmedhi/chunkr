@@ -89,7 +89,7 @@ pub mod prelude {
         SyntacticPropositionExtractor,
     };
     pub use crate::chunker::query_aware::QueryAwareChunker;
-    pub use crate::chunker::recursive::{KeepSeparator, RecursiveChunker};
+    pub use crate::chunker::recursive::{KeepSeparator, RecursiveChunker, SENTENCE_SEPARATORS};
     pub use crate::chunker::semantic::{
         BreakpointThreshold, CustomEmbedder, Embedder, FastLexicalEmbedder, SemanticChunker,
     };

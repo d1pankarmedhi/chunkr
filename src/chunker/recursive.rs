@@ -34,18 +34,13 @@ pub struct RecursiveChunker {
 }
 
 impl RecursiveChunker {
-    /// Create a new RecursiveChunker with default separators `["\n\n", "\n", " ", ""]`,
-    /// chunk_size 1000, and overlap 200.
+    /// Create a new RecursiveChunker with the sentence-aware separator hierarchy
+    /// ([`SENTENCE_SEPARATORS`]), chunk_size 1000, and overlap 120.
     pub fn new() -> Self {
         Self {
             chunk_size: 1000,
-            overlap: 200,
-            separators: vec![
-                "\n\n".to_string(),
-                "\n".to_string(),
-                " ".to_string(),
-                "".to_string(),
-            ],
+            overlap: 120,
+            separators: SENTENCE_SEPARATORS.iter().map(|s| s.to_string()).collect(),
             keep_separator: KeepSeparator::Start,
         }
     }

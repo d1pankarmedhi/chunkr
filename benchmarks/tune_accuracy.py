@@ -49,7 +49,7 @@ def build_grid(libs: list[str], sizes: list[int] | None = None) -> list[bench.Im
         for s in [500, 600, 700, 800, 900, 1000, 1100]:
             impls.append(bench.Impl(f"chunkr ({s},0) sentence", "chunkr", bench.call("chunk", chunkr.RecursiveChunker(s, 0, SENT))))
         for s in [800, 1000]:
-            impls.append(bench.Impl(f"chunkr ({s},{s // 5}) default", "chunkr", bench.call("chunk", chunkr.RecursiveChunker(s, s // 5, DEFAULT))))
+            impls.append(bench.Impl(f"chunkr ({s},{s // 5}) paragraph", "chunkr", bench.call("chunk", chunkr.RecursiveChunker(s, s // 5, DEFAULT))))
     if "chonkie" in libs:
         import chonkie
         for s in [800, 1000, 1200]:

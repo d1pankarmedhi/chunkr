@@ -85,6 +85,18 @@ fn test_token_chunker() {
 }
 
 #[test]
+fn test_recursive_chunker_defaults_are_sentence_aware() {
+    // Defaults are the measured accuracy recipe; see benchmarks/README.md.
+    let chunker = RecursiveChunker::new();
+    assert_eq!(chunker.chunk_size, 1000);
+    assert_eq!(chunker.overlap, 120);
+    assert_eq!(
+        chunker.separators,
+        SENTENCE_SEPARATORS.iter().map(|s| s.to_string()).collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn test_recursive_chunker() {
     let text = "Paragraph 1: Introduction to Rust.\nRust is a systems programming language focused on safety and speed.\n\nParagraph 2: Features of Chunkr.\nChunkr provides blazingly fast chunking strategies for RAG pipelines.\n\nParagraph 3: Parallel Processing.\nPowered by Rayon for multi-threaded batch operations across CPU cores.";
 

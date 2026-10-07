@@ -1,6 +1,6 @@
 {
  "meta": {
-  "timestamp": "20261007-062815",
+  "timestamp": "20261007-070024",
   "k": 5,
   "embed_model": "sentence-transformers/all-MiniLM-L6-v2",
   "sizes": null
@@ -105,8 +105,8 @@
    "per_question": null
   },
   {
-   "impl": "chunkr (800,160) default",
-   "family": "chunkr (#,#) default",
+   "impl": "chunkr (800,160) paragraph",
+   "family": "chunkr (#,#) paragraph",
    "lib": "chunkr",
    "recall": 0.7615,
    "precision": 0.0658,
@@ -119,8 +119,8 @@
    "per_question": null
   },
   {
-   "impl": "chunkr (1000,200) default",
-   "family": "chunkr (#,#) default",
+   "impl": "chunkr (1000,200) paragraph",
+   "family": "chunkr (#,#) paragraph",
    "lib": "chunkr",
    "recall": 0.7838,
    "precision": 0.0565,
