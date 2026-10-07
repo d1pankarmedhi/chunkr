@@ -6,6 +6,12 @@ use crate::chunker::base::{BaseChunker, Chunker};
 use crate::error::ChunkrError;
 use crate::structures::document::Document;
 
+/// Separator hierarchy that keeps paragraph, line and sentence boundaries intact before falling
+/// back to words. Measured to raise both retrieval recall and chunk purity over the default
+/// hierarchy at matched chunk size (see `benchmarks/README.md`), so prefer it whenever retrieval
+/// quality matters more than reproducing the default boundaries.
+pub const SENTENCE_SEPARATORS: [&str; 7] = ["\n\n", "\n", ". ", "! ", "? ", " ", ""];
+
 /// Defines where the separator is kept when splitting
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum KeepSeparator {

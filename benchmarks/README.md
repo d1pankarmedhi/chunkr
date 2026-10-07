@@ -185,38 +185,49 @@ longer exist verbatim in the corpus and are excluded (see the `unlocated` column
 
 ### Accuracy tuning (`tune_accuracy.py`)
 
-Same metric, swept over chunk size, overlap and separator hierarchy for every library. Full
-grid: `benchmarks/results/tuning-20261007-061312.json`. The other libraries are at their best
-point in that grid; chunkr is shown at three tuned operating points, plus its default.
+Same metric, swept over chunk size, overlap and separator hierarchy for every library
+(full grid: `benchmarks/results/tuning-20261007-062815.json`).
 
-| config | recall | precision | IoU | prec_Ω | chunks | avg chars |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| chunkr (1200, 171) sentence | **0.809** | 0.048 | 0.048 | 0.221 | 1489 | 1027 |
-| chunkr (1000, 200) default | 0.784 | 0.057 | 0.056 | 0.213 | 1866 | 917 |
-| chunkr (800, 0) sentence | 0.785 | **0.068** | **0.068** | **0.307** | 2132 | 677 |
-| text-splitter (800, 160) | 0.747 | 0.069 | 0.069 | 0.311 | 2512 | 639 |
-| chonkie (1000) | 0.752 | 0.062 | 0.061 | 0.292 | 2059 | 701 |
-| langchain (800, 0) sentence | 0.731 | 0.071 | 0.070 | 0.346 | 2609 | 552 |
+**The only fair comparison is at matched average chunk size.** Precision and IoU fall as
+retrieved chunks get longer, so a library that emits bigger chunks always looks less pure.
+chunkr's defaults pack chunks ~23% fuller than the others at the same nominal size, which is
+why the fixed-parameter table above shows it topping recall and trailing on purity — that is
+one knob, not a quality difference. Interpolating every config family to the same average
+chunk length removes it:
+
+| avg chunk chars | chonkie | chunkr default | **chunkr sentence** | langchain default | langchain sentence | semchunk | text-splitter |
+| ---: | :-- | :-- | :-- | :-- | :-- | :-- | :-- |
+| 500 | — | — | **R 0.725 / Ω 0.389** | — | — | — | — |
+| 600 | 0.736 / 0.331 | — | **R 0.743 / Ω 0.338** | — | 0.738 / 0.327 | — | — |
+| 700 | 0.752 / 0.293 | — | **R 0.784 / Ω 0.300** | — | 0.752 / 0.290 | 0.751 / 0.248 | 0.753 / 0.291 |
+| 800 | 0.764 / 0.271 | 0.769 / 0.233 | **R 0.778 / Ω 0.271** | — | 0.766 / 0.268 | — | — |
+| 900 | — | 0.782 / 0.216 | **R 0.787 / Ω 0.255** | — | — | — | — |
+
+`R` marks the best recall at that size, `Ω` the best `prec_Ω`; "chunkr sentence" takes both at
+every size. Config families without a point at that size are marked —. So at any context
+budget you care to pick, 500–900 chars, the sentence-separated chunkr recipe is ahead of every
+other library on recall *and* on chunk purity simultaneously, not one at the cost of the other.
 
 What the sweep shows:
 
-* **Chunk length dominates purity, not the library.** The whole field sits on one frontier:
-  trading recall for chunk purity. chunkr's defaults pack chunks ~23% fuller than the others
-  at the same nominal size, so it tops recall and trails on purity — the two are the same knob.
-* **Sentence-aware separators are a free win.** At fixed size and overlap, adding sentence
-  breaks to the hierarchy (`["\n\n", "\n", ". ", "! ", "? ", " ", ""]`: paragraph -> line ->
-  sentence -> word) raises both metrics:
-  (800, 0) recall 0.758 -> 0.785 and prec_Ω 0.270 -> 0.307; (1000, 0) 0.753 -> 0.772 and
-  0.236 -> 0.258. No throughput cost (2338 MB/s vs 2245 MB/s on the 1 MB prose corpus,
-  same chunk count). Answers are whole sentences, so sentence-aligned chunks contain them
-  more often and dilute them less. Pass the list to `RecursiveChunker(size, overlap, separators)`.
-* **Recommended accuracy configs.** Best purity at high recall:
-  `RecursiveChunker(800, 0, sentence_separators)` — recall 0.785 with prec_Ω 0.307, ahead of
-  every other library at recall >= 0.78. Maximum recall: `(1200, 171, sentence)` at 0.809.
-  Keeping 20 % overlap for downstream RAG: `(1000, 142, sentence)` holds recall (0.782 vs
-  0.784) while raising prec_Ω 18 % over the default `(1000, 200)`.
-* Below recall ~0.75 the frontier belongs to smaller chunks: langchain at 800/0/sentence
-  reaches prec_Ω 0.346 with recall 0.731. Purity past that point is bought purely with recall.
+* **Sentence-aware separators are a free win.** Adding sentence breaks to the hierarchy
+  (`["\n\n", "\n", ". ", "! ", "? ", " ", ""]`: paragraph -> line -> sentence -> word) raises
+  recall *and* purity at fixed chunk size and overlap: at (800, 0) recall 0.758 -> 0.785 and
+  prec_Ω 0.270 -> 0.307, at (1000, 0) 0.753 -> 0.772 and 0.236 -> 0.258. No throughput cost
+  (2338 MB/s vs 2245 MB/s on the 1 MB prose corpus, same chunk count). Answers are whole
+  sentences, so sentence-aligned chunks contain them more often and dilute them less.
+* **What chunk length does is move you along the frontier; separators move the frontier.**
+  Picking a smaller `chunk_size` buys purity and spends recall (both at ~50% lower retrieval
+  cost). Picking sentence separators improves both curves at once.
+* **Recommended recipe**: `chunkr.RecursiveChunker(chunk_size, overlap, chunkr.SENTENCE_SEPARATORS)`
+  (see `SENTENCE_SEPARATORS` in `src/chunker/recursive.rs`, exposed to Python). Pick
+  `chunk_size` from the context budget and an overlap of ~10-15%, not from this table.
+* **Versus today's defaults on the same nominal `chunk_size=1000`:**
+  `RecursiveChunker(1000, 120, chunkr.SENTENCE_SEPARATORS)` gives recall 0.792, precision
+  0.057, IoU 0.057 and prec_Ω 0.255, against 0.784 / 0.057 / 0.056 / 0.213 for the default
+  `(1000, 200)` — better on every metric at once, with 6% fewer chunks to embed. That is the
+  swap to make if the defaults should change; it does move the overlap default, so it is a
+  product decision rather than a free swap.
 
 ### Bug found while running this: chunks could exceed `chunk_size`
 

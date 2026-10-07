@@ -1,5 +1,12 @@
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+#: Paragraph -> line -> sentence -> word separator hierarchy. Recommended for retrieval quality:
+#: it raises both recall and chunk purity versus the default separators at matched chunk size
+#: (see benchmarks/README.md). Use with an overlap of roughly 10-15% of the chunk size::
+#:
+#:     chunkr.RecursiveChunker(1000, 120, chunkr.SENTENCE_SEPARATORS)
+SENTENCE_SEPARATORS: List[str]
+
 class Document:
     """A document holding chunked text content and associated metadata."""
     content: str
@@ -17,7 +24,11 @@ class Document:
     def __repr__(self) -> str: ...
 
 class RecursiveChunker:
-    """Splits text recursively along natural semantic boundaries (paragraphs, sentences, words)."""
+    """Splits text recursively along natural semantic boundaries (paragraphs, sentences, words).
+
+    Pass ``chunkr.SENTENCE_SEPARATORS`` as ``separators`` and an overlap of ~10-15% of
+    ``chunk_size`` for the best measured retrieval accuracy (recall and chunk purity).
+    """
     def __init__(
         self,
         chunk_size: int = 1000,
@@ -312,6 +323,16 @@ class DirectoryLoader:
     def load_and_chunk(self, path: str) -> List[Document]: ...
     def load_files_lenient(self, path: str) -> Tuple[List[Document], List[Tuple[str, str]]]: ...
     def load_and_chunk_lenient(self, path: str) -> Tuple[List[Document], List[Tuple[str, str]]]: ...
+
+class DocumentLoader:
+    """Format-aware loader for PDF, XLSX/XLS/XLSB/ODS, DOCX, PPTX, ODT, EPUB, HTML, EML/MBOX, RTF, XML, notebooks and text."""
+    def __init__(self) -> None: ...
+    def load(self, path: str) -> List[Document]: ...
+    def load_from_file(self, path: str) -> List[Document]: ...
+    def load_from_bytes(self, data: bytes, extension: str) -> List[Document]: ...
+    def is_supported(self, path_or_extension: str) -> bool: ...
+    @staticmethod
+    def supported_extensions() -> List[str]: ...
 
 class ChunkPacker:
     """Post-processing optimizer that greedily bin-packs small chunks into larger chunks up to a character limit."""

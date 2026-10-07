@@ -1388,7 +1388,65 @@ impl PyDirectoryLoader {
     }
 }
 
-// 16. AST Code Chunker
+// 16. Document Loader (format-aware)
+#[pyclass(name = "DocumentLoader")]
+#[derive(Default)]
+pub struct PyDocumentLoader {}
+
+#[pymethods]
+impl PyDocumentLoader {
+    #[new]
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    /// Load any supported document into documents (one per page, sheet, slide or chapter)
+    #[pyo3(signature = (path))]
+    pub fn load(&self, path: &str) -> PyResult<Vec<PyDocument>> {
+        crate::loader::auto::load_documents(path)
+            .map(wrap_docs)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    #[pyo3(signature = (path))]
+    pub fn load_from_file(&self, path: &str) -> PyResult<Vec<PyDocument>> {
+        self.load(path)
+    }
+
+    /// Extract documents from an in-memory payload with a known extension
+    #[pyo3(signature = (data, extension))]
+    pub fn load_from_bytes(&self, data: &[u8], extension: &str) -> PyResult<Vec<PyDocument>> {
+        crate::loader::auto::load_documents_from_bytes(data, extension, None)
+            .map(wrap_docs)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    /// Check whether a file path or extension is handled by this loader
+    #[pyo3(signature = (path_or_extension))]
+    pub fn is_supported(&self, path_or_extension: &str) -> bool {
+        let extension = path_or_extension
+            .rsplit('/')
+            .next()
+            .and_then(|name| name.rsplit_once('.'))
+            .map(|(_, ext)| ext)
+            .unwrap_or(path_or_extension);
+        let extension = extension.trim_start_matches('.').to_ascii_lowercase();
+        crate::loader::auto::supported_extensions()
+            .iter()
+            .any(|ext| ext.eq_ignore_ascii_case(&extension))
+    }
+
+    /// Every file extension the auto loader understands
+    #[staticmethod]
+    pub fn supported_extensions() -> Vec<String> {
+        crate::loader::auto::supported_extensions()
+            .into_iter()
+            .map(str::to_string)
+            .collect()
+    }
+}
+
+// 17. AST Code Chunker
 #[pyclass(name = "AstCodeChunker")]
 pub struct PyAstCodeChunker {
     inner: AstCodeChunker,
@@ -1689,6 +1747,7 @@ pub fn chunkr(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyStreamChunker>()?;
     m.add_class::<PyPDFLoader>()?;
     m.add_class::<PyDirectoryLoader>()?;
+    m.add_class::<PyDocumentLoader>()?;
     m.add_function(wrap_pyfunction!(load_pdf, m)?)?;
     m.add_function(wrap_pyfunction!(load_pdf_pages, m)?)?;
     m.add_function(wrap_pyfunction!(to_langchain, m)?)?;
@@ -1696,5 +1755,9 @@ pub fn chunkr(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(to_llamaindex, m)?)?;
     m.add_function(wrap_pyfunction!(from_llamaindex, m)?)?;
     m.add_function(wrap_pyfunction!(to_dict_list, m)?)?;
+    m.add(
+        "SENTENCE_SEPARATORS",
+        crate::chunker::recursive::SENTENCE_SEPARATORS.to_vec(),
+    )?;
     Ok(())
 }
