@@ -25,18 +25,29 @@ Implementations compared: `chunkr` (this repo, built from source), LangChain
 `bench_pdf.py` — PDF extraction and end-to-end pipelines: `chunkr.PDFLoader` vs `pypdf` vs
 PyMuPDF, and each followed by recursive chunking.
 
+`bench_accuracy.py` — retrieval accuracy (not speed) of the same libraries, on Chroma's
+[token-level chunking benchmark](https://research.trychroma.com/evaluating-chunking)
+(MIT): 5 corpora / 472 questions whose gold answer spans are known character ranges.
+Chunks are embedded, the top-5 per question are retrieved, and the gold characters inside
+them give `recall`, `precision`, `IoU` and `prec_Ω` (chunk purity with perfect recall).
+The dataset is downloaded and cached under `benchmarks/data/` on first run; no API keys
+are needed (local `all-MiniLM-L6-v2` embeddings).
+
 ## How to run
 
 ```bash
 # one-time setup
 uv venv --python 3.12 .venv
 uv pip install --python .venv/bin/python maturin langchain-text-splitters llama-index-core \
-    "chonkie[all]" semchunk semantic-text-splitter tree-sitter-python tiktoken pypdf pymupdf
+    "chonkie[all]" semchunk semantic-text-splitter tree-sitter-python tiktoken pypdf pymupdf \
+    sentence-transformers
 VIRTUAL_ENV=$PWD/.venv .venv/bin/maturin develop --release   # builds chunkr from source
 
 # benchmarks
 .venv/bin/python benchmarks/bench_chunking.py --reps 15
 .venv/bin/python benchmarks/bench_pdf.py --big
+.venv/bin/python benchmarks/bench_accuracy.py                 # all impls, k=5
+.venv/bin/python benchmarks/bench_accuracy.py --impl chunkr --scoped
 ```
 
 Results are written to `benchmarks/results/` as both JSON (all raw samples) and Markdown.
@@ -131,6 +142,42 @@ End-to-end (extract + recursive chunk) on the 2066-page corpus: chunkr 798 ms vs
 pypdf+LangChain 12054 ms (15.1x) and PyMuPDF+LangChain 2659 ms (3.3x).
 `chunkr.PDFLoader.load_pages` is the fastest extraction path (721 ms, 2865 pgs/s).
 Raw data: `benchmarks/results/pdf-20261001-001557.json`.
+
+### Accuracy (Apple M4, Python 3.12.11, `all-MiniLM-L6-v2`, k=5, global retrieval)
+
+Chroma's 5 corpora (1.44 M chars, 472 questions, 132 k gold chars), chunk size 1000 chars.
+Higher is better on every column; `prec_Ω` is the chunker-intrinsic ceiling (no retrieval).
+Full matrix and per-corpus IoU: `benchmarks/results/accuracy-20261007-052151.md`.
+
+Recursive splitting, 1000 chars / 200 overlap:
+
+| implementation | recall | precision | IoU | prec_Ω | chunks | avg chunk chars | unlocated |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| chunkr RecursiveChunker | **0.782** | 0.056 | 0.056 | 0.211 | 1866 | 919 | 0 |
+| langchain RecursiveCharacterTextSplitter | 0.762 | 0.060 | 0.060 | 0.251 | 2184 | 745 | 0 |
+| text-splitter TextSplitter | 0.762 | 0.060 | 0.060 | 0.262 | 2038 | 790 | 0 |
+| chonkie RecursiveChunker | 0.752 | 0.062 | 0.061 | **0.292** | 2059 | 701 | 0 |
+| semchunk chunk(token_counter=len) | 0.736 | **0.070** | **0.069** | 0.260 | 2798 | 644 | 0 |
+| llama-index SentenceSplitter | 0.654 | 0.013 | 0.013 | 0.054 | 424 | 4136 | 0 |
+
+Markdown splitting, 1000 chars / 150 overlap:
+
+| implementation | recall | precision | IoU | prec_Ω | chunks | avg chunk chars | unlocated |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| chunkr MarkdownChunker | **0.774** | 0.053 | 0.053 | 0.220 | 1784 | 915 | 0 |
+| text-splitter MarkdownSplitter | 0.750 | **0.058** | **0.058** | **0.256** | 2042 | 749 | 0 |
+| llama-index MarkdownNodeParser | 1.000 | 0.003 | 0.003 | 0.003 | 5 | 288865 | 0 |
+| langchain MarkdownHeaderTextSplitter | 0.000 | 0.000 | 0.000 | 0.000 | 5 | 289076 | 5 |
+
+Reading the table: `precision` and `IoU` move with chunk size, because 5 retrieved chunks of
+~800 chars always carry far more text than the ~280 gold characters a question has. `recall`
+says whether the answers are inside the retrieved chunks, `prec_Ω` says how concentrated the
+answers are inside the chunker's own chunks. chunkr's chunks are ~25% larger than the other
+recursive splitters at the same nominal size (fewer, fuller chunks), which buys the best recall
+and costs chunk purity — report both, do not read one column alone. The two markdown rows show
+the same effect at the extreme (a single 289 k-char chunk per corpus covers everything and is
+pure noise); the langchain row is 0.000 because that splitter strips headers, so its chunks no
+longer exist verbatim in the corpus and are excluded (see the `unlocated` column).
 
 ### How these compare to the numbers in the root README
 
