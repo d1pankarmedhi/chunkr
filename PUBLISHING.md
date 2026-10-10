@@ -67,6 +67,10 @@ scoped to:
    `pypi` environment (so `environment: pypi` still gates both publishes).
 3. Release order inside the pipeline is fixed: `pypi` (base) → `pypi-pdf`
    (extension), because `chunkr-pdf` pins `chunkr-rs>=<version>`.
+4. Until the secret exists, the `pypi-pdf` job still builds and smoke-tests the
+   extension, then skips the upload with a warning — a base release is never
+   blocked or half-failed by the extension's token. Publish the skipped version
+   by hand (or re-run the job) after adding the secret.
 
 ### 1d. Branch protection (do this today)
 

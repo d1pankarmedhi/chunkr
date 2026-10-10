@@ -389,7 +389,22 @@ jobs:
           /tmp/smoke/bin/pip install --upgrade pip liteparse
           /tmp/smoke/bin/pip install --no-deps dist/chunkr_rs-*manylinux*.whl dist-pdf/chunkr_pdf-*.whl
           /tmp/smoke/bin/python -c "import chunkr, chunkr_pdf; print(chunkr_pdf.ocr_backends(), chunkr.pdf_backends())"
+      # Job-level `if` cannot read `secrets`, so check it in a step: a release
+      # must not fail halfway just because the extension token is not set up
+      # yet (see PUBLISHING.md §1c-bis).
+      - name: Is a chunkr-pdf PyPI token configured?
+        id: token
+        env:
+          TOKEN: ${{ secrets.PYPI_API_TOKEN_PDF }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::PYPI_API_TOKEN_PDF is unset — skipping the chunkr-pdf publish. See PUBLISHING.md §1c-bis."
+          fi
       - name: Publish to PyPI
+        if: steps.token.outputs.present == 'true'
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist-pdf/
