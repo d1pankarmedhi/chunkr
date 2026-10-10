@@ -196,53 +196,56 @@ every raw sample and the machine/package metadata needed to interpret it.
 
 ### Headline run: Apple M4 (10 threads), macOS 15.7.9, Python 3.12.11
 
-`chunkr` built from source at `c2fe03f` (`maturin develop --release`), 15 reps, median.
-Full matrix: `benchmarks/results/chunking-20261001-000820.md` (raw samples in the matching
-`.json`). The two recursive rows were re-measured after the separator defaults changed
-(`benchmarks/results/chunking-20261007-123302.{md,json}`); the sentence-aware hierarchy costs
-~2% on the 1 MB case, inside the run-to-run spread. No row was flagged noisy; the three full
-runs made during this session agreed within ~10% on every case.
+Released wheel (`chunkr-rs==1.6.0` from PyPI), 15 reps, median.
+Full matrix: `benchmarks/results/chunking-20261011-005545.md` (raw samples in the matching
+`.json`). No row was flagged noisy. Earlier runs are kept in the same directory; the numbers
+below have been reproducible within a few percent across three sessions.
 
 | case | chunkr | fastest alternative | chunkr vs best alt | chunk parity |
 | --- | --- | --- | --- | --- |
-| `recursive_1mb` (1000/200 chars) | **2219 MB/s** | langchain RecursiveCharacterTextSplitter 769 MB/s | **2.89x** | 1413 vs 1413 chunks |
-| `recursive_5mb` (1000/200 chars) | **2028 MB/s** | langchain RecursiveCharacterTextSplitter 692 MB/s | **2.93x** | 7057 vs 7060 |
-| `fixed_char_1mb` (1000/200 chars) | **750 MB/s** | chonkie TokenChunker(character) 22 MB/s | **33.4x** | 1250 vs 1250 |
-| `markdown_500kb` (1000/150) | **819 MB/s** | langchain MarkdownHeaderTextSplitter 67 MB/s | **12.2x** | 715 vs 113 (alt has no size budget) |
-| `code_python_200kb` (1500/200) | **3232 MB/s** | langchain Recursive(PYTHON) 622 MB/s | **5.19x** | 166 vs 166 |
-| `token_cl100k_200kb` (512/50 tok) | 38 MB/s | chonkie TokenChunker(cl100k_base) 151 MB/s | **0.25x (loses)** | 62 vs 62 |
-| `sentence_500kb` (3 sentences) | **622 MB/s** | chonkie SentenceChunker 20 MB/s | **30.9x** | different semantics |
-| `batch_100x50kb` (Rayon path) | **3224 MB/s** | langchain loop 679 MB/s | **4.75x** | 7010 vs 7010 |
+| `recursive_1mb` (1000/200 chars) | **2245 MB/s** | langchain RecursiveCharacterTextSplitter 747 MB/s | **3.01x** | 1413 vs 1413 chunks |
+| `recursive_5mb` (1000/200 chars) | **2027 MB/s** | langchain RecursiveCharacterTextSplitter 673 MB/s | **3.01x** | 7057 vs 7060 |
+| `fixed_char_1mb` (1000/200 chars) | **760 MB/s** | chonkie TokenChunker(character) 23 MB/s | **32.8x** | 1250 vs 1250 |
+| `markdown_500kb` (1000/150) | **861 MB/s** | langchain MarkdownHeaderTextSplitter 67 MB/s | **12.9x** | 716 vs 113 (alt has no size budget) |
+| `code_python_200kb` (1500/200) | **3265 MB/s** | langchain Recursive(PYTHON) 624 MB/s | **5.23x** | 166 vs 166 |
+| `token_cl100k_200kb` (512/50 tok) | 37 MB/s | chonkie TokenChunker(cl100k_base) 153 MB/s | **0.25x (loses)** | 62 vs 62 |
+| `sentence_500kb` (3 sentences) | **631 MB/s** | chonkie SentenceChunker 20 MB/s | **31.5x** | different semantics |
+| `batch_100x50kb` (Rayon path) | **3083 MB/s** | langchain loop 674 MB/s | **4.58x** | 7010 vs 7010 |
 
 Other observations from the same run:
 
 * `semantic-text-splitter` (the Rust `text-splitter` crate) and `semchunk` are far behind on
-  recursive splitting: 175 MB/s and 42 MB/s at 1 MB, 46 MB/s and 40 MB/s at 5 MB. `text-splitter`
-  scales superlinearly on this corpus (0.25/0.5/1/2/5 MB -> 0.65/1.99/5.47/28.9/113.8 ms, reproduced
-  with `overlap=0`), so chunkr's lead over it grows from 12.9x at 1 MB to ~44x at 5 MB.
+  recursive splitting: 172 MB/s and 41 MB/s at 1 MB, 45 MB/s and 40 MB/s at 5 MB. `text-splitter`
+  scales superlinearly on this corpus (0.25/0.5/1/2/5 MB -> 0.65/1.99/5.47/28.9/110.7 ms, reproduced
+  with `overlap=0`), so chunkr's lead over it grows from 13.1x at 1 MB to ~45x at 5 MB.
 * LangChain's fixed-width splitter (`CharacterTextSplitter(separator='')`, and the common
-  `RecursiveCharacterTextSplitter(separators=[''])` workaround) is pathological: 1.6-1.7 MB/s,
-  ~450x slower than `chunkr.CharacterChunker` on 1 MB. Chonkie's character-mode `TokenChunker`
-  (22 MB/s) is the fastest alternative there.
-* tree-sitter paths are the slow ones by nature: `chunkr.AstCodeChunker` 12.4 MB/s and
-  `text-splitter.CodeSplitter` 5.7 MB/s, vs 3232 MB/s for regex-based `chunkr.CodeChunker`.
-  AST chunking costs ~260x the regex path inside chunkr itself; it buys syntax boundaries, not speed.
-* Cold start (fresh interpreter, encoder build + first chunk, cl100k): chunkr 22.0 ms,
-  text-splitter 22.0 ms, langchain+tiktoken 42.8 ms, chonkie 456.9 ms.
+  `RecursiveCharacterTextSplitter(separators=[''])` workaround) is pathological: 1.5 MB/s,
+  ~500x slower than `chunkr.CharacterChunker` on 1 MB. Chonkie's character-mode `TokenChunker`
+  (23 MB/s) is the fastest alternative there.
+* tree-sitter paths are the slow ones by nature: `chunkr.AstCodeChunker` 12.2 MB/s and
+  `text-splitter.CodeSplitter` 5.7 MB/s, vs 3265 MB/s for regex-based `chunkr.CodeChunker`.
+  AST chunking costs ~270x the regex path inside chunkr itself; it buys syntax boundaries, not speed.
+* Cold start (fresh interpreter, encoder build + first chunk, cl100k): chunkr 21.8 ms,
+  text-splitter 22.8 ms, langchain+tiktoken 47.3 ms, chonkie 341.9 ms.
 * LlamaIndex node parsers are the slowest tier throughout (2-20 MB/s): they construct
   `Document`/`Node` objects and token-count every candidate split.
 
 ### PDF extraction (same machine)
 
-| corpus | chunkr PDFLoader.load | pypdf | PyMuPDF | chunkr vs pypdf | chunkr vs PyMuPDF |
-| --- | --- | --- | --- | --- | --- |
-| `tests/test_files/sample_doc.pdf` (10 pgs) | **1.07 ms** (9344 pgs/s) | 24.41 ms (410 pgs/s) | 11.16 ms (896 pgs/s) | 22.8x | 10.4x |
-| 2066-page ML textbook (19.9 MB) | **748 ms** (2762 pgs/s) | 11901 ms (174 pgs/s) | 2617 ms (790 pgs/s) | 15.9x | 3.5x |
+`PDFLoader(backend="auto")` resolves to liteparse when `chunkr-pdf` is installed and to the
+built-in lopdf extractor otherwise, so both are measured explicitly. 5 reps, median; the
+liteparse rows need the `pdf` extra.
 
-End-to-end (extract + recursive chunk) on the 2066-page corpus: chunkr 798 ms vs
-pypdf+LangChain 12054 ms (15.1x) and PyMuPDF+LangChain 2659 ms (3.3x).
-`chunkr.PDFLoader.load_pages` is the fastest extraction path (721 ms, 2865 pgs/s).
-Raw data: `benchmarks/results/pdf-20261001-001557.json`.
+| corpus | chunkr fast (`lopdf`) | chunkr `[pdf]` (liteparse) | pypdf | PyMuPDF |
+| --- | --- | --- | --- | --- |
+| `tests/test_files/sample_doc.pdf` (10 pgs) | **1.03 ms** (9661 pgs/s) | 10.65 ms (939 pgs/s) | 23.46 ms (426 pgs/s) | 11.29 ms (886 pgs/s) |
+| 2066-page ML textbook (19.9 MB) | **703 ms** (2940 pgs/s) | 2280 ms (906 pgs/s) | 11827 ms (175 pgs/s) | 2489 ms (830 pgs/s) |
+
+End-to-end (extract + recursive chunk) on the 2066-page corpus: fast 764 ms, liteparse 2293 ms,
+PyMuPDF+LangChain 2546 ms, pypdf+LangChain 11713 ms. `load_pages` is the fastest extraction path
+in both backends (703 ms / 2280 ms). The liteparse rows are faster than both Python extractors
+and recover ~99.6% of the document's words where lopdf recovers 0.8% (see the quality section
+above and `docs/backends.md` §2.3b). Raw data: `benchmarks/results/pdf-20261011-010843.json`.
 
 ### PDF extraction quality (`pdf_quality.py`)
 

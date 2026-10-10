@@ -109,7 +109,7 @@ def pages_pypdf(path: Path) -> tuple[list[int], list[str], int] | None:
     return list(range(1, len(texts) + 1)), texts, len(texts)
 
 
-def structure_counts(path: Path, pages: set[int]) -> dict[str, int] | None:
+def structure_counts(path: Path) -> dict[str, int] | None:
     """Headings/tables/lists/figures reported by the layout-aware backend."""
     try:
         from chunkr_pdf import PDFParser
@@ -119,10 +119,10 @@ def structure_counts(path: Path, pages: set[int]) -> dict[str, int] | None:
         payload = json.loads(PDFParser(preset="structure").payload(str(path)))
     except Exception:
         return None
+    # Counted over the whole document: structure is what the layout-aware backend can
+    # offer at all, and sampling it would understate the metadata chunks actually get.
     counts: Counter[str] = Counter()
     for page in payload.get("pages", []):
-        if pages and page.get("page_number") not in pages:
-            continue
         for block in page.get("blocks", []):
             kind = block.get("kind")
             if kind:
@@ -228,7 +228,7 @@ def evaluate(path: Path, want_pages: int, chunk_size: int, overlap: int) -> dict
             **chunk_health(sel, chunk_size, overlap),
         }
 
-    structure = structure_counts(path, sample)
+    structure = structure_counts(path)
     if structure:
         report["structure"] = structure
     return report
@@ -256,7 +256,7 @@ def print_report(report: dict) -> None:
         )
     if report.get("structure"):
         counts = ", ".join(f"{k}={v}" for k, v in sorted(report["structure"].items()))
-        print(f"  layout-aware structure: {counts}")
+        print(f"  layout-aware structure (whole document): {counts}")
 
 
 def main(argv: list[str] | None = None) -> int:

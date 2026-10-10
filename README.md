@@ -145,31 +145,31 @@ chunkr report.pdf --format text             # PDFs read directly
 
 ## Benchmarks
 
-Every number is reproducible with [`benchmarks/`](benchmarks/README.md) (raw samples in `benchmarks/results/`). Apple M4 (10 threads), Python 3.12, byte-identical corpora, matched chunk sizes, chunker construction excluded from timing; chunking figures are medians of 15 runs, PDF figures medians of 3-5 runs.
+Every number is reproducible with [`benchmarks/`](benchmarks/README.md) (raw samples in `benchmarks/results/`). Apple M4 (10 threads), Python 3.12, byte-identical corpora, matched chunk sizes, chunker construction excluded from timing; chunking figures are medians of 15 runs, PDF figures medians of 5 runs.
 
 **Chunking throughput** — MB/s, higher is better, `—` = no equivalent splitter.
 
 | Library | Recursive 1 MB | Fixed width 1 MB | Markdown 500 KB | Python 200 KB | BPE tokens 200 KB |
 | :--- | ---: | ---: | ---: | ---: | ---: |
-| **chunkr** | **2,219** | **750** | **819** | **3,232** | 38 |
-| LangChain | 769 | 1.7 | 67 | 622 | 43 |
-| Chonkie | 223 | 22 | — | — | **151** |
-| text-splitter | 164 | — | 40 | 5.7 | 7.2 |
-| semchunk | 42 | — | — | — | — |
-| LlamaIndex | 10 | — | 19 | — | 2.0 |
+| **chunkr** | **2,245** | **760** | **861** | **3,265** | 37 |
+| LangChain | 747 | 1.5 | 67 | 624 | 43 |
+| Chonkie | 222 | 23 | — | — | **153** |
+| text-splitter | 172 | — | 40 | 5.7 | 7.3 |
+| semchunk | 41 | — | — | — | — |
+| LlamaIndex | 9.8 | — | 19 | — | 2.0 |
 
-On recursive prose that is **2.9× LangChain, 10× Chonkie, 53× semchunk, 222× LlamaIndex**; on fixed-width it is 34× the next best. Multi-core batch chunking (`par_chunk_texts`) reaches 3,224 MB/s (4.8× LangChain's loop), and a cold chunker costs 22 ms (LangChain 43 ms, Chonkie 457 ms). The one strategy where chunkr is *not* fastest is BPE token chunking — 38 MB/s against Chonkie's 151, because tiktoken encoding dominates the run — so prefer `RecursiveChunker` unless you need exact token bounds.
+On recursive prose that is **3.0× LangChain, 10× Chonkie, 55× semchunk, 229× LlamaIndex**; on fixed-width it is 33× the next best. Multi-core batch chunking (`par_chunk_texts`) reaches 3,083 MB/s (4.6× LangChain's loop), and a cold chunker costs 22 ms (LangChain 47 ms, Chonkie 342 ms). The one strategy where chunkr is *not* fastest is BPE token chunking — 37 MB/s against Chonkie's 153, because tiktoken encoding dominates the run — so prefer `RecursiveChunker` unless you need exact token bounds.
 
 **PDF extraction speed** (ms and pgs/s; median of 5 runs, `python benchmarks/bench_pdf.py --big`)
 
 | Extractor | 10-page sample | 2,066-page textbook (19.9 MB) |
 | :--- | :--- | :--- |
-| **chunkr fast (`lopdf`)** — no extra installed | **1.02 ms · 9,773 pgs/s** | **703 ms · 2,937 pgs/s** |
-| **chunkr `[pdf]`** (liteparse) — layout-aware | 10.3 ms · 972 pgs/s | 2,264 ms · 913 pgs/s |
-| PyMuPDF (`fitz`) | 11.2 ms · 884 pgs/s | 2,492 ms · 829 pgs/s |
-| pypdf (pure Python) | 23.6 ms · 424 pgs/s | 11,700 ms · 177 pgs/s |
+| **chunkr fast (`lopdf`)** — no extra installed | **1.03 ms · 9,661 pgs/s** | **703 ms · 2,940 pgs/s** |
+| **chunkr `[pdf]`** (liteparse) — layout-aware | 10.7 ms · 939 pgs/s | 2,280 ms · 906 pgs/s |
+| PyMuPDF (`fitz`) | 11.3 ms · 886 pgs/s | 2,489 ms · 830 pgs/s |
+| pypdf (pure Python) | 23.5 ms · 426 pgs/s | 11,827 ms · 175 pgs/s |
 
-The fast path is 17-23× pypdf and 3.5-11× PyMuPDF *when it can read the document*. The extension is slower per page but still ahead of both: 2.3× pypdf on the small sample, 5.2× pypdf on the textbook, and 1.1× PyMuPDF on both. End to end (extract + recursive chunk) the textbook takes 760 ms on the fast path and 2,285 ms with the extension, against 2,519 ms for PyMuPDF + LangChain and 11,783 ms for pypdf + LangChain.
+The fast path is 17-23× pypdf and 3.5-11× PyMuPDF *when it can read the document*. The extension is slower per page but still ahead of both: 2.2× pypdf on the small sample, 5.2× pypdf on the textbook, and the same speed as PyMuPDF on both (1.1×). End to end (extract + recursive chunk) the textbook takes 764 ms on the fast path and 2,293 ms with the extension, against 2,546 ms for PyMuPDF + LangChain and 11,713 ms for pypdf + LangChain.
 
 **PDF extraction quality** — what actually reaches your chunks (2,066-page textbook, 120 sampled pages, `benchmarks/pdf_quality.py`)
 
@@ -180,7 +180,7 @@ The fast path is 17-23× pypdf and 3.5-11× PyMuPDF *when it can read the docume
 | pypdf | 2,066 | 99.5% | 98.3% | 0.6% | `the` (4%) | — |
 | **chunkr fast (`lopdf`)** | 2,066 | **0.8%** | 42.7% | 7.6% | `identity-h` (50%) | — |
 
-This is the speed/quality tradeoff in one table. On the textbook the fonts are Identity-H encoded, so the fast path cannot map glyphs and emits `?Identity-H Unimplemented?` instead of text: half of all its tokens are that one string and it recovers 0.8% of the document's words, so chunks built from it are mostly noise for retrieval. The extension recovers **99.6%** of them (words at least two independent extractors agree on) with no `?` noise, matching PyMuPDF and pypdf, and adds the 9,915 headings, 580 tables and 2,127 list items that become chunk `header_path` metadata and keep tables out of prose chunks. On a clean single-column PDF (the 10-page sample) the fast path is fine — 98.6% of words, no `?` characters — so it remains the right default when the extra is not installed.
+This is the speed/quality tradeoff in one table. On the textbook every font is `/Type0` + `/Identity-H`, and the built-in extractor (lopdf 0.32) answers that encoding with a hardcoded placeholder string — `"Identity-H" => "?Identity-H Unimplemented?"` in its `document.rs`, once per text-show operator, and it has no `/ToUnicode` support at all, so the mapping sitting in the file is never read (see [docs/backends.md](docs/backends.md#23b-why-the-built-in-fast-backend-is-not-a-fallback-for-real-documents)). So the fast path emits `?Identity-H Unimplemented?` instead of text: half of all its tokens are that one string and it recovers 0.8% of the document's words, so chunks built from it are mostly noise for retrieval. The extension recovers **99.6%** of them (words at least two independent extractors agree on) with no `?` noise, matching PyMuPDF and pypdf, and adds the 9,915 headings, 580 tables and 2,127 list items that become chunk `header_path` metadata and keep tables out of prose chunks. On a clean single-column PDF (the 10-page sample) the fast path is fine — 98.6% of words, no `?` characters — so it remains the right default when the extra is not installed.
 
 The `pages` column is a page count, not a word count: the extension returns 2,033 `Document`s for this book because 33 of its 2,066 pages have no text at all — verified against pypdf and PyMuPDF, which extract nothing from any of them, and none of them contain images either. Every `Document` carries its real `page_number`, so page alignment with the source stays exact.
 
