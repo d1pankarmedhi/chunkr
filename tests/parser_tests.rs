@@ -70,6 +70,7 @@ fn meta() -> SourceMeta {
     }
 }
 
+#[cfg(feature = "pdf")]
 fn table_blocks(documents: &[chunkr::Document]) -> Vec<serde_json::Value> {
     documents
         .iter()
@@ -263,13 +264,13 @@ fn glyph_repair_and_report_modes() {
     let mut cfg = ParserConfig::default();
     cfg.sanitize.glyphs = GlyphMode::Repair;
     let page = PagePayload {
-        text: "Arti\u{FA00}\u{6900}cially V\u{6900}\u{6800}ay\u{FFFD}".to_string(),
+        text: "Arti\u{FA00}\u{6900}cially F\u{6900}\u{6800}\u{6900}\u{FFFD}".to_string(),
         ..Default::default()
     };
     let mut pages = vec![page.clone()];
     let report = sanitize_pages(&mut pages, &cfg.sanitize);
     assert!(report.glyph_repairs >= 4);
-    assert_eq!(pages[0].text, "Artificially Vijay");
+    assert_eq!(pages[0].text, "Artificially Fiji");
 
     cfg.sanitize.glyphs = GlyphMode::Report;
     let mut pages = vec![page.clone()];
@@ -442,7 +443,7 @@ mod native_backend {
 
     #[test]
     fn liteparse_backend_recovers_glyphs_lopdf_drops() {
-        let Some(path) = fixture("lebs201.pdf") else {
+        let Some(path) = fixture("textbook_27p.pdf") else {
             return;
         };
         let parser = PdfParser::new(ParserConfig {
@@ -464,7 +465,7 @@ mod native_backend {
 
     #[test]
     fn sanitized_markdown_has_no_prose_grids() {
-        let Some(path) = fixture("lebs201.pdf") else {
+        let Some(path) = fixture("textbook_27p.pdf") else {
             return;
         };
         let parser = PdfParser::new(ParserConfig {
@@ -473,7 +474,7 @@ mod native_backend {
             ..Default::default()
         });
         let outcome = parser
-            .parse(&std::fs::read(&path).unwrap(), Some("lebs201.pdf"))
+            .parse(&std::fs::read(&path).unwrap(), Some("textbook_27p.pdf"))
             .unwrap();
         let tables = table_blocks(&outcome.documents);
         assert!(
@@ -487,12 +488,12 @@ mod native_backend {
 
     #[test]
     fn faithful_preset_keeps_backend_output() {
-        let Some(path) = fixture("lebs201.pdf") else {
+        let Some(path) = fixture("textbook_27p.pdf") else {
             return;
         };
         let parser = PdfParser::from_spec(Some("faithful")).unwrap();
         let outcome = parser
-            .parse(&std::fs::read(&path).unwrap(), Some("lebs201.pdf"))
+            .parse(&std::fs::read(&path).unwrap(), Some("textbook_27p.pdf"))
             .unwrap();
         assert!(outcome.report.is_clean());
         assert!(table_blocks(&outcome.documents).len() >= 5);
@@ -500,7 +501,7 @@ mod native_backend {
 
     #[test]
     fn output_modes_and_granularity_compose() {
-        let Some(path) = fixture("finance.pdf") else {
+        let Some(path) = fixture("deck_16p.pdf") else {
             return;
         };
         let parser = PdfParser::new(ParserConfig {
@@ -836,12 +837,12 @@ mod ocr_native {
             .collect()
     }
 
-    /// finance.pdf flags `vector-text`/`embedded-images`/`sparse-text` on nearly
+    /// deck_16p.pdf flags `vector-text`/`embedded-images`/`sparse-text` on nearly
     /// every page: none of those gate the default auto rule, so auto must skip
     /// the OCR pass entirely and match `mode="off"`.
     #[test]
     fn auto_mode_skips_ocr_on_digital_documents() {
-        let Some(path) = fixture("finance.pdf") else {
+        let Some(path) = fixture("deck_16p.pdf") else {
             return;
         };
         let (off, off_hits) =
@@ -865,7 +866,7 @@ mod ocr_native {
     /// re-parsed with OCR: four engine calls instead of one per page.
     #[test]
     fn auto_mode_ocrs_only_the_gated_pages() {
-        let Some(path) = fixture("finance.pdf") else {
+        let Some(path) = fixture("deck_16p.pdf") else {
             return;
         };
         let bytes = std::fs::read(&path).unwrap();
@@ -956,8 +957,10 @@ fn ppocr_device_must_match_the_compiled_feature() {
 }
 
 /// Opt-in: `CHUNKR_PPOCR_E2E=<page.png>` runs the real ONNX engine over a
-/// rasterised page (models download into $OAR_HOME on first use). Rasterise a
-/// page with `liteparse` and `extract_screenshots=True`.
+/// rasterised page (models download into $OAR_HOME on first use). Optional
+/// `CHUNKR_PPOCR_REF=<pdf>` + `CHUNKR_PPOCR_REF_PAGE=<n>` score the result
+/// against that page's own text layer. Rasterise with `liteparse` and
+/// `extract_screenshots=True`.
 #[cfg(feature = "pdf-ocr-ppocr")]
 #[test]
 fn ppocr_reads_a_rasterized_page() {
@@ -976,8 +979,47 @@ fn ppocr_reads_a_rasterized_page() {
         .map(|document| document.content.as_str())
         .collect::<Vec<_>>()
         .join("\n");
+    let seen: std::collections::HashSet<String> = page_tokens(&text);
+    assert!(seen.len() > 20, "PP-OCR returned too little text: {text:?}");
+
+    // Optional scoring against the page's own text layer, so the assertion
+    // carries no hardcoded phrase from any document.
+    let Ok(reference_pdf) = std::env::var("CHUNKR_PPOCR_REF") else {
+        return;
+    };
+    let page_number: usize = std::env::var("CHUNKR_PPOCR_REF_PAGE")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(1);
+    let reference = PdfParser::from_spec(Some(
+        r#"{"backend": "liteparse", "output": "markdown", "ocr": {"mode": "off"}}"#,
+    ))
+    .unwrap()
+    .load_pages(&reference_pdf)
+    .map(|documents| {
+        documents
+            .get(page_number.saturating_sub(1))
+            .map(|document| document.content.clone())
+            .unwrap_or_default()
+    })
+    .unwrap_or_default();
+    let expected: std::collections::HashSet<String> = page_tokens(&reference);
+    let recall = expected
+        .iter()
+        .filter(|token| seen.contains(*token))
+        .count() as f64
+        / expected.len().max(1) as f64;
     assert!(
-        text.contains("College of Business Administration") || text.contains("FINANCE"),
-        "PP-OCR returned {text:?}"
+        recall > 0.5,
+        "PP-OCR recovered {recall:.2} of the page's words ({text:?})"
     );
+}
+
+/// Alphanumeric lowercase tokens, for OCR comparisons.
+#[cfg(feature = "pdf-ocr-ppocr")]
+fn page_tokens(text: &str) -> std::collections::HashSet<String> {
+    text.split(|character: char| !character.is_alphanumeric())
+        .filter(|token| !token.is_empty())
+        .map(|token| token.to_lowercase())
+        .collect()
 }

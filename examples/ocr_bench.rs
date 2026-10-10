@@ -7,9 +7,9 @@
 //!
 //! ```text
 //! cargo run --release --features pdf-ocr-ppocr --example ocr_bench -- \
-//!     tests/test_files/lebs201.pdf --preset tiny --pages 5
+//!     tests/test_files/textbook_27p.pdf --preset tiny --pages 5
 //! cargo run --release --features pdf-ocr --example ocr_bench -- \
-//!     tests/test_files/lebs201.pdf --tesseract --pages 5
+//!     tests/test_files/textbook_27p.pdf --tesseract --pages 5
 //! ```
 
 use std::path::{Path, PathBuf};

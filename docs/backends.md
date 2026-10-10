@@ -370,7 +370,7 @@ error, not a silent CPU fallback. Document that tradeoff in the README matrix.
 
 Existing fixtures are digital PDFs, so P1 needs one **scanned** fixture
 (rasterize a page to PNG via `extract_screenshots`, wrap into a 1-2 page PDF
-with a dev-only dep) checked in next to `finance.pdf`.
+with a dev-only dep) checked in next to `deck_16p.pdf`.
 
 ---
 

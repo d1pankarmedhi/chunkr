@@ -162,3 +162,32 @@ jobs:
         run: |
           cd wasm
           npm pack --dry-run
+
+  # ── 5. PDF extension: unit + real-engine tests for `packages/chunkr-pdf` ──
+  test-pdf-extension:
+    name: PDF extension (chunkr-pdf)
+    needs: [lint]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - name: Build base wheel + install the extension and one OCR engine
+        run: |
+          uv venv
+          uv pip install maturin pytest liteparse
+          # RapidOCR is the lightest real engine (PP-OCRv6 ONNX, no torch/paddle)
+          uv pip install rapidocr onnxruntime
+          uv run maturin develop --features python
+          uv pip install --no-deps -e packages/chunkr-pdf
+      - name: Extension tests (loopback OCR proxy, adapters, parser backends)
+        run: uv run pytest packages/chunkr-pdf/tests -q

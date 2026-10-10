@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [1.6.0] - 2026-10-10
 
 ### Added
 - **Optional high-fidelity PDF parsing — `chunkr-rs[pdf]` / `chunkr-pdf`**: a separate extension package (and the `pdf` Cargo feature for Rust) that extracts PDFs with layout awareness — reading order, headings, lists, tables, figures, page labels, per-page complexity signals and optional OCR — then maps the result to `Document`s inside chunkr, so both paths share one implementation.

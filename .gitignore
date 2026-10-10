@@ -19,5 +19,5 @@ main.rs
 .pytest_cache
 
 # Local-only fixtures (vendor PDFs): the parser/OCR tests skip when absent.
-/tests/test_files/finance.pdf
-/tests/test_files/lebs201.pdf
+/tests/test_files/deck_16p.pdf
+/tests/test_files/textbook_27p.pdf

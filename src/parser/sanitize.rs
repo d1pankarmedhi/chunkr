@@ -9,7 +9,7 @@ use super::config::{DemoteTo, GlyphMode, HeadingSanitize, JunkGuard, LevelMode, 
 use super::payload::{median_words_per_cell, BlockKind, BlockPayload, PagePayload};
 
 /// Ligature and private-use substitutions produced by broken PDF CMaps.
-/// Observed on re-encoded textbook PDFs (`V<U+6900>ay` -> `Vijay`).
+/// Observed on re-encoded textbook PDFs (a glyph substituted for `i` inside a name).
 const GLYPH_REPAIRS: &[(char, &str)] = &[
     ('\u{FB00}', "ff"),
     ('\u{FB01}', "fi"),

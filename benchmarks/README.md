@@ -16,7 +16,7 @@ python benchmarks/ocr_accuracy.py --dpi 200 --markdown
 
 # Native Rust engines: in-process ONNX PP-OCR (Tesseract too, with pdf-ocr)
 cargo run --release --features pdf-ocr-ppocr --example ocr_bench -- \
-    tests/test_files/lebs201.pdf --preset medium
+    tests/test_files/27-page textbook --preset medium
 ```
 
 | metric | meaning |
@@ -37,25 +37,25 @@ adapter engines served to liteparse over the loopback OCR proxy:
 
 | PDF | Engine | Pages | char_sim | token_recall | chars_ratio | ms/page |
 | :--- | :--- | ---: | ---: | ---: | ---: | ---: |
-| finance.pdf | `rapidocr` | 16 | 0.929 | 0.913 | 0.940 | 746 |
-| finance.pdf | `paddleocr` | 16 | 0.945 | 0.915 | 0.968 | 8592 |
-| finance.pdf | `tesseract` | 16 | 0.876 | 0.915 | 0.915 | 400 |
-| finance.pdf | `easyocr` | 16 | 0.848 | 0.914 | 0.950 | 2865 |
-| lebs201.pdf | `paddleocr` | 27 | 0.722 | 0.986 | 1.013 | 20169 |
-| lebs201.pdf | `tesseract` | 27 | 0.674 | 0.982 | 1.003 | 1925 |
-| lebs201.pdf | `rapidocr` | 27 | 0.609 | 0.981 | 0.992 | 2435 |
-| lebs201.pdf | `easyocr` | 27 | 0.464 | 0.979 | 1.009 | 4565 |
+| 16-page deck | `rapidocr` | 16 | 0.929 | 0.913 | 0.940 | 746 |
+| 16-page deck | `paddleocr` | 16 | 0.945 | 0.915 | 0.968 | 8592 |
+| 16-page deck | `tesseract` | 16 | 0.876 | 0.915 | 0.915 | 400 |
+| 16-page deck | `easyocr` | 16 | 0.848 | 0.914 | 0.950 | 2865 |
+| 27-page textbook | `paddleocr` | 27 | 0.722 | 0.986 | 1.013 | 20169 |
+| 27-page textbook | `tesseract` | 27 | 0.674 | 0.982 | 1.003 | 1925 |
+| 27-page textbook | `rapidocr` | 27 | 0.609 | 0.981 | 0.992 | 2435 |
+| 27-page textbook | `easyocr` | 27 | 0.464 | 0.979 | 1.009 | 4565 |
 
 Native harness — in-process ONNX PP-OCR, no Python and no server:
 
 | PDF | Engine | Pages | char_sim | token_recall | chars_ratio | ms/page |
 | :--- | :--- | ---: | ---: | ---: | ---: | ---: |
-| finance.pdf | `ppocr-tiny` | 16 | 0.897 | 0.909 | 0.958 | 169 |
-| finance.pdf | `ppocr-small` | 16 | 0.900 | 0.915 | 0.961 | 291 |
-| finance.pdf | `ppocr-medium` | 16 | 0.917 | 0.916 | 0.952 | 936 |
-| lebs201.pdf | `ppocr-tiny` | 27 | 0.643 | 0.980 | 1.008 | 339 |
-| lebs201.pdf | `ppocr-small` | 27 | 0.622 | 0.984 | 1.010 | 1010 |
-| lebs201.pdf | `ppocr-medium` | 27 | 0.817 | 0.985 | 1.010 | 4000 |
+| 16-page deck | `ppocr-tiny` | 16 | 0.897 | 0.909 | 0.958 | 169 |
+| 16-page deck | `ppocr-small` | 16 | 0.900 | 0.915 | 0.961 | 291 |
+| 16-page deck | `ppocr-medium` | 16 | 0.917 | 0.916 | 0.952 | 936 |
+| 27-page textbook | `ppocr-tiny` | 27 | 0.643 | 0.980 | 1.008 | 339 |
+| 27-page textbook | `ppocr-small` | 27 | 0.622 | 0.984 | 1.010 | 1010 |
+| 27-page textbook | `ppocr-medium` | 27 | 0.817 | 0.985 | 1.010 | 4000 |
 
 ### Per-engine aggregate (43 pages)
 
@@ -91,7 +91,7 @@ have, so that row is the Python-wheel measurement of the identical engine.
 - **Tesseract remains a sane default and a poor specialist**: fastest Python
   engine, decent on slides, mid-table on the textbook, and it never wins
   `char_sim` where the layout is hard — which is why OCR is pluggable.
-- **A 2-page sample lied twice**: on lebs201's first two pages Tesseract scored
+- **A 2-page sample lied twice**: on the textbook's first two pages Tesseract scored
   0.441 `char_sim` (0.674 across all 27) and RapidOCR 0.948 (0.609 across 27).
   Run the whole document before drawing conclusions.
 - **Latency is the noisy axis**: a disk-cold first session put `ppocr-small` at
@@ -328,7 +328,7 @@ What the sweep shows:
 The recursive merge carried an overlap window into the next chunk without re-checking it
 against the cap, so chunks could be emitted at up to `chunk_size + overlap` bytes
 (reproduced: paragraphs `[56, 63, 30, 41, 984]` at 1000/200 produced a 1126-byte chunk;
-9 of 937 finance chunks were over the cap, max 1182). Fixed in `src/chunker/recursive.rs`
+9 of 937 chunks were over the cap, max 1182). Fixed in `src/chunker/recursive.rs`
 with a regression test in `tests/chunker_tests.rs`; chunk boundaries are unchanged apart
 from the affected tail windows. `benchmarks/data/` is downloaded on first run and gitignored.
 

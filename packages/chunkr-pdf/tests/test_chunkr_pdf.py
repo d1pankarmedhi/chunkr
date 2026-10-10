@@ -7,6 +7,7 @@ Run after `maturin develop --features python` in the repo root and
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -16,12 +17,12 @@ import chunkr_pdf
 from chunkr_pdf import PDFParser
 
 FIXTURES = Path(__file__).resolve().parents[3] / "tests" / "test_files"
-FINANCE = FIXTURES / "finance.pdf"
-LEBS = FIXTURES / "lebs201.pdf"
+FINANCE = FIXTURES / "deck_16p.pdf"
+LEBS = FIXTURES / "textbook_27p.pdf"
 SAMPLE = FIXTURES / "sample_doc.pdf"
 
-needs_finance = pytest.mark.skipif(not FINANCE.exists(), reason="finance.pdf fixture missing")
-needs_lebs = pytest.mark.skipif(not LEBS.exists(), reason="lebs201.pdf fixture missing")
+needs_finance = pytest.mark.skipif(not FINANCE.exists(), reason="deck_16p.pdf fixture missing")
+needs_lebs = pytest.mark.skipif(not LEBS.exists(), reason="textbook_27p.pdf fixture missing")
 needs_sample = pytest.mark.skipif(not SAMPLE.exists(), reason="sample_doc.pdf fixture missing")
 
 
@@ -451,7 +452,7 @@ def test_auto_mode_ocrs_only_the_flagged_pages():
         )
         documents = parser.load_pages(FINANCE)
         assert len(documents) == 16
-        # finance.pdf: pages 1, 11, 12 and 14 carry `sparse-text`.
+        # deck_16p.pdf: pages 1, 11, 12 and 14 carry `sparse-text`.
         pages = [call for call in engine.calls if call["size"] > 200]
         assert len(pages) == 4
         # Server calls include the warm-up probe on the blank image.
@@ -492,17 +493,17 @@ def test_surya_block_mapping_without_inference():
     class Page:
         blocks = [
             Block(
-                "<p>College of <b>Business</b> Administration</p>",
+                "<p>Heading <b>with</b> markup</p>",
                 [[168, 409], [1892, 409], [1892, 561], [168, 561]],
             ),
             Block("<div>skip me</div>", [[0, 0], [1, 0], [1, 1], [0, 1]], skipped=True),
             Block("<div>errored</div>", [[0, 0], [1, 0], [1, 1], [0, 1]], error=True),
             Block("<div></div>", [[0, 0], [1, 0], [1, 1], [0, 1]]),
-            Block("<h1>FINANCE</h1>", [[431, 1092], [1200, 1092], [1200, 1273], [431, 1273]], None),
+            Block("<h1>Section</h1>", [[431, 1092], [1200, 1092], [1200, 1273], [431, 1273]], None),
         ]
 
     results = _ocr.surya_blocks([Page()])
-    assert [item["text"] for item in results] == ["College of Business Administration", "FINANCE"]
+    assert [item["text"] for item in results] == ["Heading with markup", "Section"]
     assert results[0]["bbox"] == [168.0, 409.0, 1892.0, 561.0]
     assert results[0]["confidence"] == 0.9
     assert len(results[0]["polygon"]) == 4
@@ -517,13 +518,24 @@ def test_installed_adapters_read_a_rasterized_page(name):
     """Real engines, real merge: each adapter recovers a known line."""
     if not _ocr.adapter_available(name):
         pytest.skip(f"{name} is not installed")
-    page_png = rasterize(FINANCE, page=1, dpi=200.0)
+    # Use the page carrying the most text: covers and slides are mostly artwork,
+    # so their text layers are not a fair reference for OCR.
+    reference_pages = PDFParser(output="markdown", ocr={"mode": "off"}).load_pages(FINANCE)
+    densest = max(
+        range(len(reference_pages)),
+        key=lambda index: len(re.findall(r"[0-9A-Za-z]+", reference_pages[index].content)),
+    )
+    page_png = rasterize(FINANCE, page=densest + 1, dpi=200.0)
     parser = PDFParser(ocr={"mode": "always", "backend": name}, output="markdown")
     try:
         documents = parser.load_pages(page_png)
         assert len(documents) == 1
-        text = documents[0].content.replace("\n", " ")
-        assert "College of Business Administration" in text, text[:200]
+        # Score against the page's own text layer: no hardcoded expectations.
+        reference = reference_pages[densest].content
+        expected = set(re.findall(r"[0-9A-Za-z]+", reference.lower()))
+        seen = set(re.findall(r"[0-9A-Za-z]+", documents[0].content.lower()))
+        recall = len(expected & seen) / max(len(expected), 1)
+        assert recall > 0.5, f"{name} recovered {recall:.2f} of the page's words"
         assert parser.ocr_servers[name].calls >= 1
         assert parser.ocr_servers[name].failures == 0
     finally:

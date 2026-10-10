@@ -30,7 +30,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 FIXTURE_DIR = REPO / "tests" / "test_files"
-DEFAULT_PDFS = [FIXTURE_DIR / "finance.pdf", FIXTURE_DIR / "lebs201.pdf"]
+DEFAULT_PDFS = [FIXTURE_DIR / "deck_16p.pdf", FIXTURE_DIR / "textbook_27p.pdf"]
 
 
 def tokenize(text: str) -> list[str]:
@@ -139,7 +139,7 @@ def main() -> int:
 
     pdfs = [path for path in (args.pdfs or DEFAULT_PDFS) if path.exists()]
     if not pdfs:
-        print("no PDFs found; pass paths or place finance.pdf/lebs201.pdf in tests/test_files")
+        print("no PDFs found; pass paths or place deck_16p.pdf/textbook_27p.pdf in tests/test_files")
         return 1
 
     available = engines(args.engine)
