@@ -139,10 +139,10 @@ Off by default. `ocr.mode` decides *when* to OCR (`off`, `auto`, `always`,
 | --- | --- | --- |
 | `tesseract` (default) | liteparse's bundled Tesseract | nothing |
 | `server` | any service speaking the liteparse OCR API (`POST /ocr`, multipart `file` + `language`) | run the service |
-| `rapidocr` | RapidOCR / PP-OCRv6 ONNX, CPU-friendly | `pip install "chunkr-pdf[ocr-rapid]"` |
-| `paddleocr` | PaddleOCR 3.x, best CJK | `pip install "chunkr-pdf[ocr-paddle]"` |
-| `easyocr` | EasyOCR, 80+ languages | `pip install "chunkr-pdf[ocr-easyocr]"` |
-| `surya` | Surya OCR 2 (VLM, GPU recommended) | `pip install "chunkr-pdf[ocr-surya]"` |
+| `rapidocr` | RapidOCR / PP-OCRv6 ONNX, CPU-friendly (verified end-to-end) | `pip install "chunkr-pdf[ocr-rapid]"` |
+| `paddleocr` | PaddleOCR 3.x, best CJK (verified end-to-end) | `pip install "chunkr-pdf[ocr-paddle]"` |
+| `easyocr` | EasyOCR, 80+ languages (verified end-to-end) | `pip install "chunkr-pdf[ocr-easyocr]"` |
+| `surya` | Surya OCR 2 (VLM; needs a `llama.cpp`/`vLLM` inference backend, GPU advised) | `pip install "chunkr-pdf[ocr-surya]"` |
 | anything you register | your own Python callable | — |
 
 ```python
@@ -190,6 +190,17 @@ documents = PDFParser(ocr={"mode": "always", "backend": "house-model"}).load_pag
 Return a plain string for a single full-page block (layout is lost — prefer
 boxes). Cloud APIs work the same way: wrap the request in a callable that maps
 the vendor's response to `text`/`bbox`/`confidence`.
+
+Adapter notes: RapidOCR/PaddleOCR/EasyOCR are exercised in CI against a
+rasterised fixture page (they recover the page's known text through the proxy).
+Surya's adapter matches its released API (`RecognitionPredictor` over
+`SuryaInferenceManager`, block HTML + polygons) but its inference runs in a
+separate backend, so it is not exercised by the test suite — it also sets the
+upstream-recommended env defaults (`SURYA_INFERENCE_BACKEND=llamacpp`,
+`LLAMA_CPP_NGL=0`, `SURYA_GUIDED_LAYOUT=false`) before importing, and downloads
+its GGUF weights on first use. These engines download models on first run
+(PaddleOCR into `~/.paddlex`, EasyOCR into `~/.EasyOCR`, Surya next to its
+inference backend).
 
 Engine lifecycle: one engine instance per parser, started on first use and kept
 warm (`ocr.plugin.warmup` loads it up front so a missing package fails

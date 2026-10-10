@@ -481,20 +481,60 @@ def test_always_mode_uses_the_registered_engine_end_to_end():
         chunkr.unregister_ocr_backend("test-e2e")
 
 
-@pytest.mark.skipif(not _ocr.adapter_available("rapidocr"), reason="rapidocr not installed")
+def test_surya_block_mapping_without_inference():
+    """Surya emits block HTML + polygons; the mapping must drop empty blocks."""
+
+    class Block:
+        def __init__(self, html, polygon, confidence=0.9, skipped=False, error=False):
+            self.html, self.polygon, self.confidence = html, polygon, confidence
+            self.skipped, self.error = skipped, error
+
+    class Page:
+        blocks = [
+            Block(
+                "<p>College of <b>Business</b> Administration</p>",
+                [[168, 409], [1892, 409], [1892, 561], [168, 561]],
+            ),
+            Block("<div>skip me</div>", [[0, 0], [1, 0], [1, 1], [0, 1]], skipped=True),
+            Block("<div>errored</div>", [[0, 0], [1, 0], [1, 1], [0, 1]], error=True),
+            Block("<div></div>", [[0, 0], [1, 0], [1, 1], [0, 1]]),
+            Block("<h1>FINANCE</h1>", [[431, 1092], [1200, 1092], [1200, 1273], [431, 1273]], None),
+        ]
+
+    results = _ocr.surya_blocks([Page()])
+    assert [item["text"] for item in results] == ["College of Business Administration", "FINANCE"]
+    assert results[0]["bbox"] == [168.0, 409.0, 1892.0, 561.0]
+    assert results[0]["confidence"] == 0.9
+    assert len(results[0]["polygon"]) == 4
+    assert results[1]["confidence"] == 1.0  # None becomes 1.0
+    assert _ocr.html_text("<p>a<br>b</p><div>c</div>") == "a b c"
+    assert _ocr.surya_blocks(None) == []
+
+
+@pytest.mark.parametrize("name", ["rapidocr", "paddleocr", "easyocr"])
 @needs_finance
-def test_rapidocr_adapter_reads_a_rasterized_page():
-    """Real engine, real merge: RapidOCR (PP-OCRv6 ONNX) over a rendered page."""
+def test_installed_adapters_read_a_rasterized_page(name):
+    """Real engines, real merge: each adapter recovers a known line."""
+    if not _ocr.adapter_available(name):
+        pytest.skip(f"{name} is not installed")
     page_png = rasterize(FINANCE, page=1, dpi=200.0)
-    parser = PDFParser(ocr={"mode": "always", "backend": "rapidocr"}, output="markdown")
+    parser = PDFParser(ocr={"mode": "always", "backend": name}, output="markdown")
     try:
         documents = parser.load_pages(page_png)
-        text = documents[0].content
-        reference = PDFParser(ocr={"mode": "off"}, output="markdown").load_pages(FINANCE)[0].content
-        assert text.strip(), "RapidOCR returned no text"
-        for phrase in ("College of Business Administration", "FINANCE"):
-            assert phrase in text or phrase in reference.replace("\n", " ")
-        assert len(text) > 40
-        assert parser.ocr_servers["rapidocr"].calls >= 1
+        assert len(documents) == 1
+        text = documents[0].content.replace("\n", " ")
+        assert "College of Business Administration" in text, text[:200]
+        assert parser.ocr_servers[name].calls >= 1
+        assert parser.ocr_servers[name].failures == 0
     finally:
         parser.close()
+
+
+@needs_finance
+def test_adapter_without_its_package_gives_an_install_hint():
+    """An adapter that is known but not installed must say how to install it."""
+    missing = [name for name in chunkr_pdf.OCR_ADAPTERS if not _ocr.adapter_available(name)]
+    if not missing:
+        pytest.skip("all adapters are installed here")
+    with pytest.raises(ValueError, match=r"pip install \"chunkr-pdf\[ocr-"):
+        PDFParser(ocr={"mode": "always", "backend": missing[0]}).payload(DUMMY_PNG)

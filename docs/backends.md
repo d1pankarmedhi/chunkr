@@ -283,7 +283,7 @@ alive while the parser object lives, closed on `close()`/context exit and by
 missing `paddleocr` install fails immediately with a clear message instead of
 five minutes into a parse.
 
-Adapters we can ship (`chunkr_pdf.ocr.adapters`), each ~15-40 lines:
+Adapters shipped (`chunkr_pdf._ocr`), each ~15-40 lines:
 
 | Adapter | Source | Extra |
 | --- | --- | --- |
@@ -291,7 +291,7 @@ Adapters we can ship (`chunkr_pdf.ocr.adapters`), each ~15-40 lines:
 | `paddleocr()` | `paddleocr` (Paddle) | `chunkr-pdf[ocr-paddle]` |
 | `easyocr()` | `easyocr` (torch) | `chunkr-pdf[ocr-easyocr]` |
 | `surya()` | `surya-ocr` (llama.cpp/vLLM) | `chunkr-pdf[ocr-surya]` |
-| `mistral(api_key=...)`, `azure(...)`, `textract(...)`, `documentai(...)` | vendor HTTPS APIs | none (stdlib `urllib`) |
+| `mistral(api_key=...)`, `azure(...)`, `textract(...)`, `documentai(...)` | vendor HTTPS APIs | none (stdlib `urllib`) — **not written yet (P3)** |
 | `vllm(base_url, model)` | OpenAI-compatible VLM endpoint | none |
 
 Usage:

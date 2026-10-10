@@ -29,6 +29,8 @@ import chunkr
 
 __all__ = [
     "LoopbackOcrServer",
+    "html_text",
+    "surya_blocks",
     "ADAPTERS",
     "adapter_available",
     "register_adapters",
@@ -143,6 +145,14 @@ def normalize_results(raw: Any, image_size: Tuple[int, int]) -> List[Dict[str, A
     for item in _as_list(raw):
         if isinstance(item, str):
             continue
+        # A list wrapping one recognition container (PaddleOCR `predict`).
+        if isinstance(item, dict) or hasattr(item, "rec_texts") or hasattr(item, "txts"):
+            nested = _pick(item, ("res",))
+            if nested is not None:
+                item = nested
+            if _pick(item, ("rec_texts", "txts", "texts", "text_lines")) is not None:
+                results.extend(normalize_results(item, image_size))
+                continue
         if isinstance(item, dict) or hasattr(item, "text"):
             text = _pick(item, ("text", "txt", "rec_text"), "")
             box = _pick(item, ("bbox", "box", "boxes", "polygon", "poly", "points"))
@@ -156,6 +166,139 @@ def normalize_results(raw: Any, image_size: Tuple[int, int]) -> List[Dict[str, A
         if len(values) >= 3 and isinstance(values[1], str):
             results.append(_result(values[1], values[0], values[2], values[0]))
     return results
+
+
+def _filter_kwargs(call: Any, options: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep options the called object accepts (forward-compatible adapters)."""
+    try:
+        parameters = inspect.signature(call).parameters
+    except (TypeError, ValueError):
+        return dict(options)
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters.values()):
+        return dict(options)
+    return {key: value for key, value in options.items() if key in parameters}
+
+
+def rapidocr_engine(**options: Any) -> Callable[..., Any]:
+    """RapidOCR (PP-OCRv6 ONNX models, CPU-friendly)."""
+    from rapidocr import RapidOCR
+
+    return _wrap_engine(RapidOCR(**_filter_kwargs(RapidOCR.__init__, options)))
+
+
+def paddleocr_engine(**options: Any) -> Callable[..., Any]:
+    """PaddleOCR 3.x text detection + recognition."""
+    from paddleocr import PaddleOCR
+
+    kwargs = dict(
+        lang=options.pop("lang", options.pop("language", "en")),
+        use_doc_orientation_classify=False,
+        use_doc_unwarping=False,
+        use_textline_orientation=bool(options.pop("textline_orientation", False)),
+    )
+    kwargs.update(options)
+    return _wrap_engine(PaddleOCR(**_filter_kwargs(PaddleOCR.__init__, kwargs)))
+
+
+def easyocr_engine(**options: Any) -> Callable[..., Any]:
+    """EasyOCR, one Reader per language."""
+    import easyocr
+
+    languages = options.pop("languages", None) or options.pop("language", None)
+    if isinstance(languages, str):
+        languages = [languages]
+    reader = easyocr.Reader(languages or ["en"], **_filter_kwargs(easyocr.Reader.__init__, options))
+    return _wrap_engine(reader)
+
+
+def surya_engine(**options: Any) -> Callable[..., Any]:
+    """Surya OCR 2: a VLM that emits block HTML plus polygons.
+
+    Text recognition runs through an inference backend, not the process:
+    `llama.cpp` (CPU, downloads GGUF weights on first use), `vllm` (GPU) or an
+    already-running server via ``SURYA_INFERENCE_URL``. Those must be chosen
+    before import, so the environment defaults are set here — the same ones the
+    upstream reference server uses.
+    """
+    import os
+
+    os.environ.setdefault("SURYA_INFERENCE_BACKEND", "llamacpp")
+    os.environ.setdefault("LLAMA_CPP_NGL", "0")  # 0 = CPU; 99 = full GPU offload
+    # llama.cpp's json-schema -> GBNF converter rejects Surya's layout grammar.
+    os.environ.setdefault("SURYA_GUIDED_LAYOUT", "false")
+
+    from surya.inference import SuryaInferenceManager
+    from surya.recognition import RecognitionPredictor
+
+    manager = SuryaInferenceManager(
+        **_filter_kwargs(SuryaInferenceManager.__init__, options)
+    )
+    predictor = RecognitionPredictor(manager)
+
+    def engine_call(image: bytes, **kwargs: Any) -> List[Dict[str, Any]]:
+        import io
+
+        from PIL import Image
+
+        page_image = Image.open(io.BytesIO(image))
+        if page_image.mode != "RGB":
+            page_image = page_image.convert("RGB")
+        return surya_blocks(predictor([page_image]))
+
+    return engine_call
+
+
+def surya_blocks(pages: Any) -> List[Dict[str, Any]]:
+    """Map Surya `PageOCRResult`s to liteparse OCR results.
+
+    Text lives in each block's HTML; empty, skipped and errored blocks are
+    dropped, and the polygon doubles as the axis-aligned box.
+    """
+    results: List[Dict[str, Any]] = []
+    for page in pages or []:
+        for block in _pick(page, ("blocks",), None) or []:
+            if _pick(block, ("skipped",), False) or _pick(block, ("error",), False):
+                continue
+            text = html_text(_pick(block, ("html",), "") or "")
+            polygon = _pick(block, ("polygon",), None)
+            if not text or polygon is None:
+                continue
+            results.append(
+                _result(text, polygon, _pick(block, ("confidence",), 1.0), polygon)
+            )
+    return results
+
+
+def html_text(html: str) -> str:
+    """Strip block HTML to collapsed plain text (stdlib only)."""
+    import re
+    from html import unescape
+    from html.parser import HTMLParser
+
+    breaks = {"br", "p", "div", "li", "tr", "td", "th", "h1", "h2", "h3", "h4", "h5", "h6"}
+
+    class TextExtractor(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.parts: List[str] = []
+
+        def handle_data(self, data: str) -> None:
+            self.parts.append(data)
+
+        def handle_starttag(self, tag: str, attrs: Any) -> None:
+            if tag in breaks:
+                self.parts.append(" ")
+
+        def handle_endtag(self, tag: str) -> None:
+            if tag in breaks:
+                self.parts.append(" ")
+
+    if not html:
+        return ""
+    parser = TextExtractor()
+    parser.feed(html)
+    parser.close()
+    return re.sub(r"\s+", " ", unescape("".join(parser.parts))).strip()
 
 
 def _filter_kwargs(call: Any, options: Dict[str, Any]) -> Dict[str, Any]:
@@ -216,9 +359,14 @@ def _wrap_engine(engine: Any) -> Callable[..., Any]:
     The engine receives the page PNG, decodes it with numpy/PIL when the library
     needs an array, and returns liteparse-shaped results.
     """
-    call = getattr(engine, "predict", None) or engine
+    call = engine
+    for name in ("predict", "readtext", "recognize", "__call__"):
+        candidate = getattr(engine, name, None)
+        if callable(candidate):
+            call = candidate
+            break
     if not callable(call):
-        raise TypeError("OCR engine must be callable or expose `predict`")
+        raise TypeError("OCR engine must be callable or expose `predict`/`readtext`/`recognize`")
 
     def engine_call(image: bytes, **kwargs: Any) -> List[Dict[str, Any]]:
         import numpy as np
@@ -226,13 +374,8 @@ def _wrap_engine(engine: Any) -> Callable[..., Any]:
         import io
 
         array = np.array(Image.open(io.BytesIO(image)).convert("RGB"))
-        raw = call(array)
         size = (array.shape[1], array.shape[0])
-        if hasattr(raw, "__iter__") and not isinstance(raw, (dict, str)):
-            raw = list(raw)
-            if len(raw) == 1 and hasattr(raw[0], "txts"):
-                return normalize_results(raw[0], size)
-        return normalize_results(raw, size)
+        return normalize_results(call(array), size)
 
     return engine_call
 
