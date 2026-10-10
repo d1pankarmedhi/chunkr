@@ -1273,9 +1273,15 @@ impl PyParserConfig {
             return Ok(existing.borrow().clone());
         }
         let json = py_to_json(value)?;
-        serde_json::from_value(json)
-            .map(|inner| Self { inner })
-            .map_err(|e| PyValueError::new_err(format!("invalid parser config: {e}")))
+        let inner: crate::parser::ParserConfig = serde_json::from_value(json)
+            .map_err(|e| PyValueError::new_err(format!("invalid parser config: {e}")))?;
+        Self::validated(inner)
+    }
+
+    /// Reject configs that cannot work, with the same messages Rust produces.
+    fn validated(inner: crate::parser::ParserConfig) -> PyResult<Self> {
+        inner.validate().map_err(PyValueError::new_err)?;
+        Ok(Self { inner })
     }
 }
 
@@ -1291,6 +1297,7 @@ impl PyParserConfig {
     #[staticmethod]
     pub fn preset(name: &str) -> PyResult<Self> {
         crate::parser::ParserConfig::preset(name)
+            .and_then(|inner| inner.validate().map(|_| inner))
             .map(|inner| Self { inner })
             .map_err(PyValueError::new_err)
     }
@@ -1308,9 +1315,9 @@ impl PyParserConfig {
         let mut value =
             serde_json::to_value(&base).map_err(|e| PyValueError::new_err(e.to_string()))?;
         merge_json(&mut value, &py_to_json(overrides.as_any())?);
-        serde_json::from_value(value)
-            .map(|inner| Self { inner })
-            .map_err(|e| PyValueError::new_err(format!("invalid parser config: {e}")))
+        let inner: crate::parser::ParserConfig = serde_json::from_value(value)
+            .map_err(|e| PyValueError::new_err(format!("invalid parser config: {e}")))?;
+        Self::validated(inner)
     }
 
     #[getter]
@@ -1404,10 +1411,97 @@ pub fn pdf_backends() -> PyResult<Vec<String>> {
     Ok(registry.keys().cloned().collect())
 }
 
+/// Registered OCR engines, keyed by name (`rapidocr`, `paddleocr`, ...).
+static OCR_BACKENDS: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::BTreeMap<String, Py<PyAny>>>,
+> = std::sync::OnceLock::new();
+
+fn ocr_backend_registry() -> &'static std::sync::Mutex<std::collections::BTreeMap<String, Py<PyAny>>>
+{
+    OCR_BACKENDS.get_or_init(|| std::sync::Mutex::new(std::collections::BTreeMap::new()))
+}
+
+/// Register an OCR engine under `name`.
+///
+/// The engine is called once per page image as
+/// `engine(image_png_bytes, language="en", page_number=1, dpi=150.0, options=None)`
+/// and returns `[{"text", "bbox": [x1, y1, x2, y2], "confidence", "polygon"?}]`
+/// (a plain string is accepted as one full-page block). The plugin forwards it
+/// to the parser through a loopback OCR server.
+#[pyfunction]
+pub fn register_ocr_backend(name: &str, engine: Py<PyAny>) -> PyResult<()> {
+    let mut registry = ocr_backend_registry()
+        .lock()
+        .map_err(|_| PyValueError::new_err("OCR backend registry is poisoned"))?;
+    registry.insert(name.to_string(), engine);
+    Ok(())
+}
+
+/// Remove a registered OCR engine. Returns True when one was removed.
+#[pyfunction]
+pub fn unregister_ocr_backend(name: &str) -> PyResult<bool> {
+    let mut registry = ocr_backend_registry()
+        .lock()
+        .map_err(|_| PyValueError::new_err("OCR backend registry is poisoned"))?;
+    Ok(registry.remove(name).is_some())
+}
+
+/// Names of every registered OCR engine, in name order.
+#[pyfunction]
+pub fn ocr_backends() -> PyResult<Vec<String>> {
+    let registry = ocr_backend_registry()
+        .lock()
+        .map_err(|_| PyValueError::new_err("OCR backend registry is poisoned"))?;
+    Ok(registry.keys().cloned().collect())
+}
+
+/// The engine registered under `name`, or None.
+#[pyfunction]
+pub fn get_ocr_backend(py: Python<'_>, name: &str) -> PyResult<Option<PyObject>> {
+    let registry = ocr_backend_registry()
+        .lock()
+        .map_err(|_| PyValueError::new_err("OCR backend registry is poisoned"))?;
+    Ok(registry.get(name).map(|engine| engine.clone_ref(py)))
+}
+
+/// Pages a `mode="auto"` parse would OCR, given parsed pages or a payload.
+#[pyfunction]
+#[pyo3(signature = (payload, config=None))]
+pub fn pages_needing_ocr(
+    payload: &Bound<'_, PyAny>,
+    config: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Vec<usize>> {
+    let config = PyParserConfig::from_any(config)?;
+    let pages = pages_from_any(payload)?;
+    Ok(crate::parser::select_ocr_pages(&pages, &config.inner))
+}
+
+/// `[1, 2, 3, 7]` -> `"1-3,7"`.
+#[pyfunction]
+pub fn format_page_range(pages: Vec<usize>) -> String {
+    crate::parser::format_page_range(&pages)
+}
+
+/// Language code an engine expects, e.g. `eng` -> `en`, or `en` -> `eng`.
+#[pyfunction]
+#[pyo3(signature = (language, style="iso"))]
+pub fn ocr_language(language: &str, style: &str) -> String {
+    match style.to_ascii_lowercase().as_str() {
+        "tesseract" | "tess" => crate::parser::ocr_language_tesseract(language),
+        _ => crate::parser::ocr_language_iso(language),
+    }
+}
+
 /// A payload from a backend: either a list of pages or `{version, pages}`.
 fn split_payload(payload: &str) -> PyResult<(Vec<crate::parser::PagePayload>, Option<String>)> {
     let value: serde_json::Value = serde_json::from_str(payload)
         .map_err(|e| PyValueError::new_err(format!("invalid parser payload: {e}")))?;
+    split_value(value)
+}
+
+fn split_value(
+    value: serde_json::Value,
+) -> PyResult<(Vec<crate::parser::PagePayload>, Option<String>)> {
     let (pages_value, version) = match value {
         serde_json::Value::Array(pages) => (serde_json::Value::Array(pages), None),
         serde_json::Value::Object(mut map) => {
@@ -1428,6 +1522,17 @@ fn split_payload(payload: &str) -> PyResult<(Vec<crate::parser::PagePayload>, Op
     let pages: Vec<crate::parser::PagePayload> = serde_json::from_value(pages_value)
         .map_err(|e| PyValueError::new_err(format!("invalid page payload: {e}")))?;
     Ok((pages, version))
+}
+
+/// Pages from a JSON string, a list of page dicts, or `{pages: [...]}`.
+fn pages_from_any(value: &Bound<'_, PyAny>) -> PyResult<Vec<crate::parser::PagePayload>> {
+    let json = if let Ok(text) = value.extract::<String>() {
+        serde_json::from_str(&text)
+            .map_err(|e| PyValueError::new_err(format!("invalid parser payload: {e}")))?
+    } else {
+        py_to_json(value)?
+    };
+    split_value(json).map(|(pages, _)| pages)
 }
 
 /// Path-like source (`str` or `os.PathLike`), if the input is not bytes.
@@ -2109,6 +2214,13 @@ pub fn chunkr(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(register_pdf_backend, m)?)?;
     m.add_function(wrap_pyfunction!(unregister_pdf_backend, m)?)?;
     m.add_function(wrap_pyfunction!(pdf_backends, m)?)?;
+    m.add_function(wrap_pyfunction!(register_ocr_backend, m)?)?;
+    m.add_function(wrap_pyfunction!(unregister_ocr_backend, m)?)?;
+    m.add_function(wrap_pyfunction!(ocr_backends, m)?)?;
+    m.add_function(wrap_pyfunction!(get_ocr_backend, m)?)?;
+    m.add_function(wrap_pyfunction!(pages_needing_ocr, m)?)?;
+    m.add_function(wrap_pyfunction!(format_page_range, m)?)?;
+    m.add_function(wrap_pyfunction!(ocr_language, m)?)?;
     m.add_function(wrap_pyfunction!(to_langchain, m)?)?;
     m.add_function(wrap_pyfunction!(from_langchain, m)?)?;
     m.add_function(wrap_pyfunction!(to_llamaindex, m)?)?;

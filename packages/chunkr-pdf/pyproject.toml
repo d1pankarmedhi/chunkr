@@ -31,6 +31,19 @@ Documentation = "https://github.com/d1pankarmedhi/chunkr#pdf-parsing-chunkr-rs-e
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0"]
+# OCR engines. Install one to use it as `ocr.backend`:
+#   pip install "chunkr-pdf[ocr-rapid]"  -> PDFParser(ocr={"backend": "rapidocr"})
+ocr-rapid = ["rapidocr>=3.0", "onnxruntime>=1.17"]
+ocr-paddle = ["paddleocr>=3.0", "paddlepaddle>=3.0", "numpy>=1.24", "pillow>=10.0"]
+ocr-easyocr = ["easyocr>=1.7", "numpy>=1.24", "pillow>=10.0"]
+ocr-surya = ["surya-ocr>=0.6", "numpy>=1.24", "pillow>=10.0"]
+ocr-all = [
+    "rapidocr>=3.0",
+    "onnxruntime>=1.17",
+    "easyocr>=1.7",
+    "numpy>=1.24",
+    "pillow>=10.0",
+]
 
 # Discovered by `import chunkr`; makes PDFLoader(backend="auto") use this backend.
 [project.entry-points."chunkr.pdf_backends"]

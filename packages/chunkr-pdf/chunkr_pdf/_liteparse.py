@@ -31,7 +31,9 @@ def _as_dict(value: Any) -> Any:
     return _prune(dataclasses.asdict(value)) if dataclasses.is_dataclass(value) else None
 
 
-def liteparse_kwargs(config: Dict[str, Any]) -> Dict[str, Any]:
+def liteparse_kwargs(
+    config: Dict[str, Any], overrides: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     """Translate a chunkr parser config into liteparse constructor kwargs.
 
     Mirrors `chunkr::parser::liteparse_backend::liteparse_config`; options the
@@ -48,6 +50,7 @@ def liteparse_kwargs(config: Dict[str, Any]) -> Dict[str, Any]:
         "ocr_language": ocr.get("language", "eng"),
         "ocr_server_url": ocr.get("server_url"),
         "ocr_server_headers": dict(headers) if headers else None,
+        "ocr_hedge_delays_ms": list(ocr.get("hedge_delays_ms") or []) or None,
         "tessdata_path": ocr.get("tessdata_path"),
         "ocr_failure_fatal": bool(ocr.get("failure_fatal", False)),
         "num_workers": ocr.get("num_workers") or None,
@@ -77,6 +80,9 @@ def liteparse_kwargs(config: Dict[str, Any]) -> Dict[str, Any]:
         "extract_screenshots": bool(extract.get("screenshots", False)),
         "continue_on_page_error": config.get("on_error") == "page_error",
     }
+    # Per-parse overrides: page selection for OCR rounds, loopback server URL,
+    # forced language. They win over whatever the config says.
+    kwargs.update(overrides or {})
     return _supported_kwargs(kwargs)
 
 
@@ -93,11 +99,11 @@ def _supported_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
     return {key: value for key, value in kwargs.items() if key in accepted}
 
 
-def build_parser(config: Dict[str, Any]):
+def build_parser(config: Dict[str, Any], overrides: Optional[Dict[str, Any]] = None):
     """Instantiate a liteparse parser for a chunkr parser config."""
     from liteparse import LiteParse
 
-    return LiteParse(**liteparse_kwargs(config))
+    return LiteParse(**liteparse_kwargs(config, overrides))
 
 
 def page_payload(page: Any) -> Dict[str, Any]:
@@ -125,14 +131,24 @@ def result_payload(result: Any) -> Dict[str, Any]:
 def parse_payload(source: Any, config_json: str) -> str:
     """Backend callable registered with chunkr: extract, do not map."""
     config = json.loads(config_json) if config_json else {}
-    parser = build_parser(config)
+    return payload(source, config)
+
+
+def payload(source: Any, config: Dict[str, Any], overrides: Optional[Dict[str, Any]] = None) -> str:
+    """Parse `source` and return the payload JSON, with optional overrides."""
+    parser = build_parser(config, overrides)
     result = parser.parse(source if isinstance(source, bytes) else str(source))
     return json.dumps(result_payload(result), ensure_ascii=False)
 
 
-def parse_batches(source: Any, config: Dict[str, Any], batch_size: int) -> Iterator[str]:
+def parse_batches(
+    source: Any,
+    config: Dict[str, Any],
+    batch_size: int,
+    overrides: Optional[Dict[str, Any]] = None,
+) -> Iterator[str]:
     """Yield one payload JSON per page batch (bounded memory)."""
-    parser = build_parser(config)
+    parser = build_parser(config, overrides)
     for batch in parser.parse_batches(source, batch_size):
         payload = result_payload(batch.result)
         payload["start_page"] = batch.start_page

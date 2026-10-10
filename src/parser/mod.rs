@@ -15,19 +15,27 @@ mod fast;
 #[cfg(all(feature = "pdf", not(target_arch = "wasm32")))]
 mod liteparse_backend;
 pub mod map;
+pub mod ocr;
 pub mod payload;
 pub mod sanitize;
 
 use std::path::Path;
 
 pub use config::{
-    Backend, DemoteTo, ExtractConfig, FigureMode, GlyphMode, Granularity, HeaderMissing, JunkGuard,
-    LevelMode, OcrConfig, OcrMode, OnError, ParserConfig, ParserOutput, SanitizeConfig,
-    ScopeConfig, TableMode, TableSanitize,
+    ocr_language_iso, ocr_language_tesseract, Backend, DemoteTo, ExtractConfig, FigureMode,
+    GlyphMode, Granularity, HeaderMissing, JunkGuard, LevelMode, OcrBackendKind, OcrConfig,
+    OcrMode, OnError, ParserConfig, ParserOutput, PluginOcrConfig, PpocrConfig, SanitizeConfig,
+    ScopeConfig, TableMode, TableSanitize, DEFAULT_OCR_REASONS,
 };
 pub use map::{pages_to_documents, render_markdown, ParseOutcome, SourceMeta};
+pub use ocr::{format_page_range, select_ocr_pages};
 pub use payload::{BlockPayload, CellPayload, ComplexityPayload, PagePayload};
 pub use sanitize::{sanitize_pages, SanitizeReport};
+
+// Custom OCR engines: implement `OcrEngine` and hand it to
+// [`PdfParser::with_ocr_engine`].
+#[cfg(all(feature = "pdf", not(target_arch = "wasm32")))]
+pub use liteparse::ocr::{OcrEngine, OcrOptions, OcrResult};
 
 use crate::error::ChunkrError;
 use crate::structures::document::Document;
@@ -47,14 +55,41 @@ pub fn available_backends() -> &'static [&'static str] {
 }
 
 /// PDF parser with a fixed configuration.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct PdfParser {
     config: ParserConfig,
+    /// Optional custom OCR engine, applied to every OCR pass.
+    #[cfg(all(feature = "pdf", not(target_arch = "wasm32")))]
+    ocr_engine: Option<std::sync::Arc<dyn OcrEngine>>,
+}
+
+impl std::fmt::Debug for PdfParser {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut debug = f.debug_struct("PdfParser");
+        debug.field("config", &self.config);
+        #[cfg(all(feature = "pdf", not(target_arch = "wasm32")))]
+        debug.field(
+            "ocr_engine",
+            &self.ocr_engine.as_ref().map(|engine| engine.name()),
+        );
+        debug.finish()
+    }
 }
 
 impl PdfParser {
     pub fn new(config: ParserConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            #[cfg(all(feature = "pdf", not(target_arch = "wasm32")))]
+            ocr_engine: None,
+        }
+    }
+
+    /// Use a custom OCR engine for every OCR pass (native `pdf` feature only).
+    #[cfg(all(feature = "pdf", not(target_arch = "wasm32")))]
+    pub fn with_ocr_engine(mut self, engine: std::sync::Arc<dyn OcrEngine>) -> Self {
+        self.ocr_engine = Some(engine);
+        self
     }
 
     /// Build from a preset name (`retrieval`, `faithful`, `structure`) or a
@@ -120,6 +155,7 @@ impl PdfParser {
 
     /// Extract payload pages without mapping them to documents.
     pub fn pages(&self, bytes: &[u8]) -> Result<(Vec<PagePayload>, Backend), ChunkrError> {
+        self.config.validate().map_err(ChunkrError::ParseError)?;
         match self.resolved_backend() {
             Backend::Liteparse => self.pages_liteparse(bytes),
             _ => Ok((fast::pages_from_bytes(bytes)?, Backend::Fast)),
@@ -129,7 +165,7 @@ impl PdfParser {
     #[cfg(all(feature = "pdf", not(target_arch = "wasm32")))]
     fn pages_liteparse(&self, bytes: &[u8]) -> Result<(Vec<PagePayload>, Backend), ChunkrError> {
         Ok((
-            liteparse_backend::pages_from_bytes(bytes, &self.config)?,
+            liteparse_backend::pages_from_bytes(bytes, &self.config, self.ocr_engine.clone())?,
             Backend::Liteparse,
         ))
     }
@@ -146,7 +182,11 @@ impl PdfParser {
     fn page_parser(&self) -> Self {
         let mut config = self.config.clone();
         config.granularity = Granularity::Page;
-        Self::new(config)
+        Self {
+            config,
+            #[cfg(all(feature = "pdf", not(target_arch = "wasm32")))]
+            ocr_engine: self.ocr_engine.clone(),
+        }
     }
 }
 

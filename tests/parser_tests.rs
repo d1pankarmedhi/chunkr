@@ -523,3 +523,413 @@ mod native_backend {
             .any(|d| d.metadata["parser_backend"] == "liteparse"));
     }
 }
+
+// --- OCR backend selection, gating and language handling ---
+
+fn page(number: usize, text: &str, reasons: &[&str], needs_ocr: bool) -> PagePayload {
+    use chunkr::parser::payload::ComplexityPayload;
+    PagePayload {
+        page_number: number,
+        text: text.to_string(),
+        complexity: Some(ComplexityPayload {
+            needs_ocr,
+            reasons: reasons.iter().map(|r| r.to_string()).collect(),
+            text_length: text.chars().count(),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn ocr_config_defaults_are_conservative() {
+    let ocr = ParserConfig::default().ocr;
+    assert_eq!(ocr.backend, "tesseract");
+    assert_eq!(ocr.mode, chunkr::parser::OcrMode::Off);
+    assert!(!ocr.is_enabled());
+    assert!(ocr.hedge_delays_ms.is_empty());
+    assert_eq!(ocr.reasons(), chunkr::parser::DEFAULT_OCR_REASONS.to_vec());
+    assert_eq!(ocr.ppocr.preset, "small");
+    assert_eq!(ocr.ppocr.device, "cpu");
+    assert_eq!(ocr.plugin.timeout_ms, 60_000);
+    assert_eq!(ocr.plugin.concurrency, 1);
+    assert!(ocr.plugin.warmup);
+    assert_eq!(ocr.plugin.port, 0);
+}
+
+#[test]
+fn ocr_config_round_trips_and_rejects_typos() {
+    let config = ParserConfig::from_json_or_preset(Some(
+        r#"{"ocr": {"mode": "always", "backend": "rapidocr", "hedge_delays_ms": [0, 250],
+             "language": "en", "auto_reasons": ["scanned"], "auto_min_chars": 12,
+             "ppocr": {"preset": "tiny", "device": "coreml"},
+             "plugin": {"options": {"model": "ppocr_v5"}, "concurrency": 2, "warmup": false}}}"#,
+    ))
+    .unwrap();
+    assert_eq!(
+        config.ocr.backend_kind(),
+        chunkr::parser::OcrBackendKind::Custom("rapidocr".into())
+    );
+    assert_eq!(config.ocr.hedge_delays_ms, vec![0, 250]);
+    assert_eq!(config.ocr.reasons(), vec!["scanned".to_string()]);
+    assert_eq!(config.ocr.auto_min_chars, 12);
+    assert_eq!(config.ocr.ppocr.preset, "tiny");
+    assert_eq!(config.ocr.plugin.concurrency, 2);
+    assert!(!config.ocr.plugin.warmup);
+    let json = serde_json::to_string(&config).unwrap();
+    let reparsed: ParserConfig = serde_json::from_str(&json).unwrap();
+    assert_eq!(reparsed, config);
+
+    for spec in [
+        r#"{"ocr": {"hedge_delay_ms": [1]}}"#,
+        r#"{"ocr": {"ppocr": {"preset_typo": "tiny"}}}"#,
+        r#"{"ocr": {"plugin": {"timeouts": 5}}}"#,
+    ] {
+        assert!(
+            ParserConfig::from_json_or_preset(Some(spec)).is_err(),
+            "{spec}"
+        );
+    }
+}
+
+#[test]
+fn ocr_backend_kind_classifies_builtins_and_names() {
+    use chunkr::parser::{OcrBackendKind, OcrMode};
+    let config = ParserConfig::default();
+    let kind = |config: &ParserConfig| config.ocr.backend_kind();
+
+    assert_eq!(kind(&config), OcrBackendKind::Tesseract);
+    for alias in ["ppocr", "PP-OCR", "oar-ocr"] {
+        let mut ppocr = config.clone();
+        ppocr.ocr.backend = alias.to_string();
+        assert_eq!(kind(&ppocr), OcrBackendKind::Ppocr, "{alias}");
+    }
+    let mut server = config.clone();
+    server.ocr.backend = "server".to_string();
+    assert_eq!(kind(&server), OcrBackendKind::Server);
+    let mut named = config.clone();
+    named.ocr.backend = "surya".to_string();
+    assert_eq!(kind(&named), OcrBackendKind::Custom("surya".to_string()));
+    // A server_url with the default backend still means the HTTP engine.
+    let mut implied = config.clone();
+    implied.ocr.backend = "tesseract".to_string();
+    implied.ocr.server_url = Some("http://localhost:8829/ocr".to_string());
+    assert_eq!(kind(&implied), OcrBackendKind::Server);
+    // `mode="server"` wins over an explicitly named engine.
+    let mut mode_server = config.clone();
+    mode_server.ocr.mode = OcrMode::Server;
+    mode_server.ocr.backend = "ppocr".to_string();
+    assert_eq!(kind(&mode_server), OcrBackendKind::Server);
+}
+
+#[test]
+fn ocr_language_is_converted_per_engine() {
+    use chunkr::parser::{ocr_language_iso, ocr_language_tesseract, OcrBackendKind};
+
+    assert_eq!(ocr_language_iso("eng"), "en");
+    assert_eq!(ocr_language_iso("chi_sim"), "zh");
+    assert_eq!(ocr_language_iso("zh-cn"), "zh-cn");
+    assert_eq!(ocr_language_tesseract("en"), "eng");
+    assert_eq!(ocr_language_tesseract("zh"), "chi_sim");
+    assert_eq!(ocr_language_tesseract("de"), "deu");
+
+    let mut config = ParserConfig::default();
+    assert_eq!(config.ocr.engine_language(), "eng");
+    config.ocr.language = "en".to_string();
+    assert_eq!(config.ocr.engine_language(), "eng");
+    config.ocr.backend = "server".to_string();
+    assert_eq!(config.ocr.engine_language(), "en");
+    assert_eq!(config.ocr.backend_kind(), OcrBackendKind::Server);
+}
+
+#[test]
+fn page_ranges_are_compressed() {
+    use chunkr::parser::format_page_range;
+    assert_eq!(format_page_range(&[]), "");
+    assert_eq!(format_page_range(&[4]), "4");
+    assert_eq!(format_page_range(&[1, 2, 3, 7, 9, 10]), "1-3,7,9-10");
+}
+
+#[test]
+fn auto_gating_uses_reasons_not_the_backend_boolean() {
+    let mut config = ParserConfig::default();
+    config.ocr.mode = chunkr::parser::OcrMode::Auto;
+    config.ocr.backend = "server".to_string();
+    config.ocr.server_url = Some("http://localhost:8829/ocr".to_string());
+
+    // Slide/textbook pages flag `embedded-images`/`vector-text` on every page
+    // while having a working text layer: those must not trigger OCR. The gate
+    // normalizes `sparse-text` and `sparse_text` to the same signal.
+    let pages = vec![
+        page(
+            1,
+            "a full page of digital text",
+            &["embedded-images", "vector-text"],
+            true,
+        ),
+        page(2, "", &["scanned", "no-text"], true),
+        page(3, "short", &["sparse-text"], false),
+        page(4, "good page", &[], false),
+    ];
+    assert_eq!(chunkr::parser::select_ocr_pages(&pages, &config), vec![2]);
+
+    // Garbled text and a `min_chars` floor also select a page.
+    let hopeless = vec![
+        page(1, "V椀jau E昀케ciency", &["garbled"], false),
+        page(2, "tiny", &[], false),
+    ];
+    assert_eq!(
+        chunkr::parser::select_ocr_pages(&hopeless, &config),
+        vec![1]
+    );
+    config.ocr.auto_min_chars = 6;
+    assert_eq!(
+        chunkr::parser::select_ocr_pages(&hopeless, &config),
+        vec![1, 2]
+    );
+
+    // `auto_reasons` replaces the default gate (`sparse-text` becomes selectable).
+    config.ocr.auto_min_chars = 0;
+    config.ocr.auto_reasons = vec!["sparse_text".to_string()];
+    assert_eq!(chunkr::parser::select_ocr_pages(&pages, &config), vec![3]);
+    config.ocr.auto_reasons = vec!["embedded-images".to_string()];
+    assert_eq!(chunkr::parser::select_ocr_pages(&pages, &config), vec![1]);
+
+    // A backend that reports no reasons still gets the boolean honoured.
+    let reasonless = vec![page(5, "no signals", &[], true)];
+    config.ocr.auto_reasons.clear();
+    assert_eq!(
+        chunkr::parser::select_ocr_pages(&reasonless, &config),
+        vec![5]
+    );
+
+    // An explicit scope never widens.
+    config.scope.target_pages = Some("1,3".to_string());
+    assert_eq!(
+        chunkr::parser::select_ocr_pages(&pages, &config),
+        Vec::<usize>::new()
+    );
+    config.scope.target_pages = Some("2-4".to_string());
+    assert_eq!(chunkr::parser::select_ocr_pages(&pages, &config), vec![2]);
+
+    // Without complexity signals, `auto` OCRs rather than returning empty pages.
+    config.ocr.auto_reasons.clear();
+    config.scope.target_pages = None;
+    let opaque = vec![PagePayload {
+        page_number: 9,
+        text: String::new(),
+        ..Default::default()
+    }];
+    assert_eq!(chunkr::parser::select_ocr_pages(&opaque, &config), vec![9]);
+}
+
+#[test]
+fn config_validation_catches_unusable_ocr_setups() {
+    let base = ParserConfig::default();
+    assert!(base.validate().is_ok());
+
+    let mut server_without_url = base.clone();
+    server_without_url.ocr.mode = chunkr::parser::OcrMode::Always;
+    server_without_url.ocr.backend = "server".to_string();
+    let error = server_without_url.validate().unwrap_err();
+    assert!(error.contains("server_url"), "{error}");
+
+    let mut bad_preset = base.clone();
+    bad_preset.ocr.backend = "ppocr".to_string();
+    bad_preset.ocr.ppocr.preset = "huge".to_string();
+    assert!(bad_preset.validate().unwrap_err().contains("preset"));
+
+    let mut bad_device = base.clone();
+    bad_device.ocr.backend = "ppocr".to_string();
+    bad_device.ocr.ppocr.device = "tpu".to_string();
+    assert!(bad_device.validate().unwrap_err().contains("device"));
+
+    let mut empty_backend = base.clone();
+    empty_backend.ocr.mode = chunkr::parser::OcrMode::Always;
+    empty_backend.ocr.backend = " ".to_string();
+    assert!(empty_backend
+        .validate()
+        .unwrap_err()
+        .contains("must not be empty"));
+
+    let mut bad_dpi = base.clone();
+    bad_dpi.scope.dpi = 0.0;
+    assert!(bad_dpi.validate().unwrap_err().contains("dpi"));
+
+    let mut bad_pages = base.clone();
+    bad_pages.scope.target_pages = Some("1-".to_string());
+    assert!(bad_pages.validate().unwrap_err().contains("target_pages"));
+
+    let mut bad_plugin = base.clone();
+    bad_plugin.ocr.plugin.concurrency = 0;
+    assert!(bad_plugin.validate().unwrap_err().contains("concurrency"));
+
+    // Names resolved by a plugin pass validation; the parse fails instead.
+    let mut custom = base.clone();
+    custom.ocr.mode = chunkr::parser::OcrMode::Always;
+    custom.ocr.backend = "our-inhouse".to_string();
+    assert!(custom.validate().is_ok());
+}
+
+#[cfg(feature = "pdf")]
+mod ocr_native {
+    use super::*;
+
+    fn fixture(name: &str) -> Option<PathBuf> {
+        let path = PathBuf::from("tests/test_files").join(name);
+        path.exists().then_some(path)
+    }
+
+    /// Counts OCR calls and returns one plausible word per page.
+    struct RecordingEngine {
+        hits: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl chunkr::parser::OcrEngine for RecordingEngine {
+        fn name(&self) -> &str {
+            "recording"
+        }
+
+        fn recognize<'a, 'b: 'a, 'c: 'a>(
+            &'a self,
+            _image: &'c [u8],
+            _width: u32,
+            _height: u32,
+            _options: &'b chunkr::parser::OcrOptions,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = Result<
+                            Vec<chunkr::parser::OcrResult>,
+                            Box<dyn std::error::Error + Send + Sync>,
+                        >,
+                    > + Send
+                    + '_,
+            >,
+        > {
+            self.hits.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Box::pin(async {
+                Ok(vec![chunkr::parser::OcrResult {
+                    text: "ocrword".to_string(),
+                    bbox: [10.0, 10.0, 60.0, 30.0],
+                    confidence: 0.9,
+                    polygon: None,
+                }])
+            })
+        }
+    }
+
+    fn parser(spec: &str) -> (PdfParser, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let parser = PdfParser::from_spec(Some(spec))
+            .unwrap()
+            .with_ocr_engine(std::sync::Arc::new(RecordingEngine { hits: hits.clone() }));
+        (parser, hits)
+    }
+
+    fn text_of(parser: &PdfParser, path: &PathBuf) -> String {
+        parser
+            .load_pages(path)
+            .unwrap()
+            .iter()
+            .map(|document| document.content.clone())
+            .collect()
+    }
+
+    /// finance.pdf flags `vector-text`/`embedded-images`/`sparse-text` on nearly
+    /// every page: none of those gate the default auto rule, so auto must skip
+    /// the OCR pass entirely and match `mode="off"`.
+    #[test]
+    fn auto_mode_skips_ocr_on_digital_documents() {
+        let Some(path) = fixture("finance.pdf") else {
+            return;
+        };
+        let (off, off_hits) =
+            parser(r#"{"backend": "liteparse", "output": "markdown", "ocr": {"mode": "off"}}"#);
+        let (auto, auto_hits) =
+            parser(r#"{"backend": "liteparse", "output": "markdown", "ocr": {"mode": "auto"}}"#);
+
+        let off_text = text_of(&off, &path);
+        let auto_text = text_of(&auto, &path);
+        assert_eq!(auto_text, off_text);
+        assert!(auto_text.chars().count() > 4_000);
+        assert_eq!(auto_hits.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert_eq!(off_hits.load(std::sync::atomic::Ordering::SeqCst), 0);
+
+        // Complexity signals stay internal to the gate.
+        let (pages, _) = auto.pages(&std::fs::read(&path).unwrap()).unwrap();
+        assert!(pages.iter().all(|page| page.complexity.is_none()));
+    }
+
+    /// With `sparse-text` opted into the gate, only the pages carrying it are
+    /// re-parsed with OCR: four engine calls instead of one per page.
+    #[test]
+    fn auto_mode_ocrs_only_the_gated_pages() {
+        let Some(path) = fixture("finance.pdf") else {
+            return;
+        };
+        let bytes = std::fs::read(&path).unwrap();
+
+        let (auto, auto_hits) = parser(
+            r#"{"backend": "liteparse", "output": "markdown",
+                 "ocr": {"mode": "auto", "auto_reasons": ["sparse-text"]}}"#,
+        );
+        let (always, always_hits) =
+            parser(r#"{"backend": "liteparse", "output": "markdown", "ocr": {"mode": "always"}}"#);
+        // Gate expectation straight from the fixture's own complexity signals.
+        let (off, _) =
+            parser(r#"{"backend": "liteparse", "output": "markdown", "ocr": {"mode": "off"}}"#);
+        let (probe, _) = parser(
+            r#"{"backend": "liteparse", "output": "text", "include_complexity": true,
+                 "ocr": {"mode": "off"}}"#,
+        );
+        let (probe_pages, _) = probe.pages(&bytes).unwrap();
+        let expected = chunkr::parser::select_ocr_pages(&probe_pages, auto.config());
+        assert_eq!(expected, vec![1, 11, 12, 14]);
+
+        let off_documents = off.load_pages(&path).unwrap();
+        let auto_documents = auto.load_pages(&path).unwrap();
+        let always_documents = always.load_pages(&path).unwrap();
+        assert_eq!(auto_documents.len(), 16);
+        assert_eq!(auto_documents.len(), always_documents.len());
+        assert_eq!(
+            auto_hits.load(std::sync::atomic::Ordering::SeqCst),
+            expected.len()
+        );
+        assert_eq!(always_hits.load(std::sync::atomic::Ordering::SeqCst), 16);
+        assert_eq!(auto_hits.load(std::sync::atomic::Ordering::SeqCst), 4);
+        // Pages outside the gate are untouched; the merged pages keep their text.
+        for (index, pages) in [(1usize, &auto_documents), (2usize, &auto_documents)] {
+            assert_eq!(pages[index].content, off_documents[index].content);
+        }
+        assert!(auto_documents.iter().all(|d| !d.content.trim().is_empty()));
+    }
+
+    #[test]
+    fn unavailable_ocr_backends_fail_before_parsing() {
+        let ppocr = PdfParser::from_spec(Some(
+            r#"{"backend": "liteparse", "ocr": {"mode": "always", "backend": "ppocr"}}"#,
+        ))
+        .unwrap();
+        let error = ppocr.parse(&[], None).unwrap_err().to_string();
+        assert!(error.contains("pdf-ocr-ppocr"), "{error}");
+
+        let custom = PdfParser::from_spec(Some(
+            r#"{"backend": "liteparse", "ocr": {"mode": "always", "backend": "our-inhouse"}}"#,
+        ))
+        .unwrap();
+        let error = custom.parse(&[], None).unwrap_err().to_string();
+        assert!(
+            error.contains("our-inhouse") && error.contains("server"),
+            "{error}"
+        );
+
+        // The `server` backend is rejected at construction, before any parse.
+        let error = PdfParser::from_spec(Some(
+            r#"{"backend": "liteparse", "ocr": {"mode": "always", "backend": "server"}}"#,
+        ))
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("server_url"), "{error}");
+    }
+}

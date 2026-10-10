@@ -71,6 +71,9 @@ Changelog = "https://github.com/d1pankarmedhi/chunkr/blob/main/CHANGELOG.md"
 [project.optional-dependencies]
 # High-fidelity PDF parsing (layout, headings, tables, page labels, OCR).
 pdf = ["chunkr-pdf>=0.1"]
+# Convenience aliases: the same extensions, plus one OCR engine, in one command.
+pdf-rapid = ["chunkr-pdf[ocr-rapid]>=0.1"]
+pdf-paddle = ["chunkr-pdf[ocr-paddle]>=0.1"]
 
 [tool.maturin]
 features = ["pyo3/extension-module", "python"]

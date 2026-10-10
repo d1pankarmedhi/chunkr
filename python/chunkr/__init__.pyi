@@ -358,7 +358,50 @@ def pages_to_documents(
     ...
 
 def register_pdf_backend(name: str, backend: Any) -> None:
-    """Register a PDF backend callable under ``name``."""
+    """Register a PDF backend callable under ``name``.
+
+    The callable receives ``(source, config_json)`` and returns a payload JSON
+    (see ``pages_to_documents``).
+    """
+    ...
+
+def register_ocr_backend(name: str, engine: Any) -> None:
+    """Register an OCR engine under ``name``.
+
+    The engine is called once per page image as
+    ``engine(image_png_bytes, language="en", options={...})`` (a callable taking
+    only the image bytes also works) and returns either a list of
+    ``{"text", "bbox": [x1, y1, x2, y2], "confidence", "polygon"?}`` items or a
+    plain string for a full-page block. Use it with
+    ``PDFParser(ocr={"backend": name, "mode": "always"})``.
+    """
+    ...
+
+def unregister_ocr_backend(name: str) -> bool:
+    """Remove a registered OCR engine; True when one was removed."""
+    ...
+
+def ocr_backends() -> List[str]:
+    """Names of every registered OCR engine."""
+    ...
+
+def get_ocr_backend(name: str) -> Optional[Any]:
+    """The engine registered under ``name``, or None."""
+    ...
+
+def pages_needing_ocr(
+    payload: Union[str, List[Dict[str, Any]], Dict[str, Any]],
+    config: Optional[Union[str, Dict[str, Any], ParserConfig]] = None,
+) -> List[int]:
+    """Pages a ``ocr.mode="auto"`` parse would OCR, from parsed page payloads."""
+    ...
+
+def format_page_range(pages: List[int]) -> str:
+    """Compress page numbers into a page spec: ``[1, 2, 3, 7] -> "1-3,7"``."""
+    ...
+
+def ocr_language(language: str, style: str = "iso") -> str:
+    """Convert a language code for an engine: ``eng <-> en``."""
     ...
 
 def unregister_pdf_backend(name: str) -> bool:

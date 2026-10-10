@@ -3,9 +3,10 @@
 Research + design for letting users choose or replace the extraction backends
 behind `chunkr-rs[pdf]` / the `pdf` Cargo feature.
 
-Status: **design, not implemented** (P1 surface is a proposal). Everything
-labelled *verified* below was checked against source or upstream docs in this
-repository's worktree; see [Sources](#sources).
+Status: **P1 implemented** (config, registry, loopback proxy, adapters, gated
+`auto` mode, docs + tests); P2–P4 still open, see [Phasing](#5-phasing).
+Everything labelled *verified* below was checked against source or upstream docs
+in this repository's worktree; see [Sources](#sources).
 
 ---
 
@@ -361,7 +362,8 @@ error, not a silent CPU fallback. Document that tradeoff in the README matrix.
 
 | Phase | Scope | Verification |
 | --- | --- | --- |
-| **P1** | `ocr.backend` + validation + `register_ocr_backend` registry + loopback proxy + `rapidocr`/`paddleocr`/`easyocr`/`surya` adapters + reason-gated `mode="auto"` + docs | proxy conformance test (curl-style request through liteparse against a fake engine), golden test on a scanned fixture, `mode="auto"` no-OCR-call assertion, error-message tests |
+| --- | --- | --- |
+| ~~**P1**~~ **done** | `ocr.backend` + validation + `register_ocr_backend` registry + loopback proxy + `rapidocr`/`paddleocr`/`easyocr`/`surya` adapters + reason-gated `mode="auto"` + docs | 28 extension tests (proxy conformance incl. 400/500/504 paths, engine-shape normalisation, gating with zero OCR calls on a digital document, real RapidOCR over a rasterised page) and 7 Rust tests (`select_ocr_pages`, engine call counts per mode, `with_ocr_engine`, validation errors) |
 | **P2** | Rust `pdf-ocr-ppocr*` features + `PdfParser::with_ocr_engine` + CLI `--ocr-backend` | fixture test with `ppocr_v6_tiny` (network-gated, model download mocked/cached), feature-matrix compile check |
 | **P3** | cloud adapters (Mistral/Azure/Textract/DocAI) + page-level parser adapters (docling-serve, MinerU, olmOCR vLLM) | recorded-response unit tests, live tests behind env keys |
 | **P4** | capability metadata + `backend="auto"` routing (language/device/cost hints) + OCR quality benchmark (CER/WER on a scanned set) | benchmark script + README matrix |
@@ -382,9 +384,13 @@ with a dev-only dep) checked in next to `finance.pdf`.
 3. **Native PP-OCR**: does the Rust feature set (`pdf-ocr-ppocr` +
    6 acceleration features, ONNX Runtime download at build/first run) earn its
    place, or should PP-OCR stay a Python/HTTP concern?
-4. **`mode="auto"` semantics**: change `auto` to the reason-gated behaviour
+4. **`mode="auto"` semantics**: ~~change `auto` to the reason-gated behaviour
    (fixes a silent "auto == always"), or add `mode="adaptive"` and leave `auto`
-   alone?
+   alone?~~ **Decided**: `auto` is reason-gated, `always`/`server` unchanged.
+   The default gate is `scanned`/`no-text`/`garbled` only — `sparse-text`,
+   `embedded-images` and `vector-text` fired on healthy digital pages on both
+   fixtures. Note the reason strings arrive hyphenated (`sparse-text`) while
+   Tesseract-era docs may say `sparse_text`; both normalise to the same signal.
 5. **Adapters to ship in P1**: RapidOCR (lightest, recommended default for a
    real engine) + PaddleOCR (best CJK) + EasyOCR, or start with one?
 6. **Extras layout**: per-engine extras inside `chunkr-pdf`

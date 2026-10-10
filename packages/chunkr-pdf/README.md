@@ -132,14 +132,70 @@ plus `sanitize_report` whenever the sanitizer changed something.
 
 ## OCR
 
-Off by default. `"auto"`/`"always"` use liteparse's bundled Tesseract;
-`"server"` posts page images to an external OCR service (per liteparse's OCR HTTP
-API) which is faster and usually more accurate for tables.
+Off by default. `ocr.mode` decides *when* to OCR (`off`, `auto`, `always`,
+`server`); `ocr.backend` decides *what* OCRs.
+
+| `ocr.backend` | Engine | Install |
+| --- | --- | --- |
+| `tesseract` (default) | liteparse's bundled Tesseract | nothing |
+| `server` | any service speaking the liteparse OCR API (`POST /ocr`, multipart `file` + `language`) | run the service |
+| `rapidocr` | RapidOCR / PP-OCRv6 ONNX, CPU-friendly | `pip install "chunkr-pdf[ocr-rapid]"` |
+| `paddleocr` | PaddleOCR 3.x, best CJK | `pip install "chunkr-pdf[ocr-paddle]"` |
+| `easyocr` | EasyOCR, 80+ languages | `pip install "chunkr-pdf[ocr-easyocr]"` |
+| `surya` | Surya OCR 2 (VLM, GPU recommended) | `pip install "chunkr-pdf[ocr-surya]"` |
+| anything you register | your own Python callable | — |
 
 ```python
-parser = PDFParser(ocr={"mode": "server", "server_url": "http://localhost:8828/ocr"})
-documents = PDFParser(ocr={"mode": "auto"}).load_pages("scanned.pdf")
+parser = PDFParser(ocr={"mode": "always", "backend": "rapidocr"})
+parser = PDFParser(ocr={"mode": "auto", "backend": "paddleocr", "language": "zh"})
+parser = PDFParser(ocr={"mode": "server", "server_url": "http://localhost:8829/ocr"})
+parser = PDFParser(ocr={"mode": "server", "server_url": "https://api.example/ocr",
+                        "headers": [["Authorization", "Bearer …"]],
+                        "hedge_delays_ms": [0, 250]})   # hedged duplicates
 ```
+
+`mode="auto"` is a real per-page gate: the document is parsed once without OCR,
+`chunkr.pages_needing_ocr` selects the pages whose text layer is broken, and only
+those are re-parsed with the engine. The default gate is `scanned`, `no-text` and
+`garbled`; `sparse-text`, `embedded-images` and `vector-text` are deliberately
+excluded because digital slides carry them on healthy pages. Add your own with
+`ocr.auto_reasons` and a minimum length with `ocr.auto_min_chars`:
+
+```python
+PDFParser(ocr={"mode": "auto", "backend": "rapidocr",
+               "auto_reasons": ["scanned", "garbled", "sparse-text"],
+               "auto_min_chars": 50})
+```
+
+### Your own engine
+
+Register any callable (or object with `.recognize`) and use it by name. chunkr
+serves it to liteparse through a loopback HTTP server, so reading order, rotation
+handling and text-layer merging stay inside liteparse:
+
+```python
+import chunkr
+
+def my_engine(image_png: bytes, *, language: str = "en", options: dict | None = None):
+    # ... run your model over the page image ...
+    return [{"text": "Detected line", "bbox": [10, 20, 200, 40], "confidence": 0.98},
+            # optional 4-point polygon (TL, TR, BR, BL) for rotated text
+            {"text": "Sidebar", "bbox": [5, 5, 30, 90], "confidence": 0.9,
+             "polygon": [[5, 5], [30, 5], [30, 90], [5, 90]]}]
+
+chunkr.register_ocr_backend("house-model", my_engine)
+documents = PDFParser(ocr={"mode": "always", "backend": "house-model"}).load_pages("scan.pdf")
+```
+
+Return a plain string for a single full-page block (layout is lost — prefer
+boxes). Cloud APIs work the same way: wrap the request in a callable that maps
+the vendor's response to `text`/`bbox`/`confidence`.
+
+Engine lifecycle: one engine instance per parser, started on first use and kept
+warm (`ocr.plugin.warmup` loads it up front so a missing package fails
+immediately), a lock serializes it unless `ocr.plugin.concurrency` is raised, and
+`parser.close()` (or the context manager) stops the server. `parser.ocr_servers`
+exposes the running servers for inspection.
 
 ## Options worth knowing
 
@@ -153,6 +209,11 @@ documents = PDFParser(ocr={"mode": "auto"}).load_pages("scanned.pdf")
   (`Arti昀椀cially` → `Artificially`); `"report"` only counts them.
 - `sanitize.junk_guard="fallback_fast"` marks the result for a fast-backend retry
   when the text is full of unmapped-glyph markers.
+- Native Rust users get the same gate and the same engines: `ocr.backend`,
+  `ocr.auto_reasons`, `PdfParser::with_ocr_engine(Arc<dyn OcrEngine>)`, Tesseract
+  via `pdf-ocr`, and any HTTP OCR server via `ocr.server_url`. PP-OCR in-process
+  (`pdf-ocr-ppocr`) is planned; until then use the `ppocr` ONNX path through the
+  Python plugin (`backend="rapidocr"`) or a server.
 
 ## License
 

@@ -116,12 +116,89 @@ pub enum OcrMode {
     /// Never OCR (default).
     #[default]
     Off,
-    /// OCR only pages the backend flags as needing it.
+    /// OCR only pages whose complexity signals say the text layer is broken.
     Auto,
     /// OCR every page.
     Always,
-    /// Use an external OCR HTTP server.
+    /// OCR every page through an external OCR HTTP server.
     Server,
+}
+
+/// Which OCR engine a config resolves to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OcrBackendKind {
+    /// Built-in Tesseract.
+    Tesseract,
+    /// Built-in ONNX PP-OCR (needs the `pdf-ocr-ppocr` feature).
+    Ppocr,
+    /// HTTP server speaking the liteparse OCR API.
+    Server,
+    /// A Python-registered engine, forwarded through the plugin's loopback proxy.
+    Custom(String),
+}
+
+/// Complexity reasons that make a page worth OCRing under `mode="auto"`.
+///
+/// Deliberately excludes `sparse_text`/`embedded_images`/`vector_text`: slides,
+/// covers and image-heavy digital pages carry those signals while their text
+/// layer is fine, so gating on them would OCR most pages of a normal report.
+/// Add them through `ocr.auto_reasons` when a corpus needs it.
+pub const DEFAULT_OCR_REASONS: [&str; 3] = ["scanned", "no_text", "garbled"];
+
+/// Accelerators `oar-ocr` can be compiled with.
+pub const PPOCR_DEVICES: [&str; 7] = [
+    "cpu", "coreml", "cuda", "directml", "openvino", "tensorrt", "webgpu",
+];
+
+/// PP-OCR (ONNX) options, used by the `pdf-ocr-ppocr` feature.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PpocrConfig {
+    /// Model trio: `tiny`, `small`, `medium`.
+    pub preset: String,
+    /// Model cache / download directory (`$OAR_HOME` when unset).
+    pub models_dir: Option<String>,
+    /// Accelerator the engine was compiled with.
+    pub device: String,
+}
+
+impl Default for PpocrConfig {
+    fn default() -> Self {
+        Self {
+            preset: "small".to_string(),
+            models_dir: None,
+            device: "cpu".to_string(),
+        }
+    }
+}
+
+/// Python-engine options, forwarded to the plugin's loopback OCR server.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PluginOcrConfig {
+    /// Engine-specific options (model name, base URL, API key env var, ...).
+    pub options: serde_json::Map<String, serde_json::Value>,
+    /// Timeout for one page image.
+    pub timeout_ms: u64,
+    /// Page images the engine serves at once; engines that are not thread-safe
+    /// serialize behind a lock regardless of this value.
+    pub concurrency: usize,
+    /// Load the engine when the parser is built instead of on the first page.
+    pub warmup: bool,
+    /// Loopback port; `0` picks an ephemeral one.
+    pub port: u16,
+}
+
+impl Default for PluginOcrConfig {
+    fn default() -> Self {
+        Self {
+            options: serde_json::Map::new(),
+            timeout_ms: 60_000,
+            concurrency: 1,
+            warmup: true,
+            port: 0,
+        }
+    }
 }
 
 /// Heading emission.
@@ -282,27 +359,210 @@ impl Default for ExtractConfig {
 #[serde(default, deny_unknown_fields)]
 pub struct OcrConfig {
     pub mode: OcrMode,
+    /// `tesseract`, `ppocr`, `server`, or the name of a registered engine.
+    pub backend: String,
     pub language: String,
     pub server_url: Option<String>,
     pub headers: Vec<(String, String)>,
+    /// Send hedged duplicate requests after these delays (ms) and take the
+    /// first reply; useful for slow remote OCR.
+    pub hedge_delays_ms: Vec<u64>,
     pub tessdata_path: Option<String>,
     pub num_workers: usize,
     /// Fail the load when a requested OCR pass fails.
     pub failure_fatal: bool,
+    /// Complexity reasons that trigger OCR under `mode="auto"`.
+    /// Empty means [`DEFAULT_OCR_REASONS`].
+    pub auto_reasons: Vec<String>,
+    /// Minimum text length for a page to count as fine under `mode="auto"`.
+    pub auto_min_chars: usize,
+    pub ppocr: PpocrConfig,
+    pub plugin: PluginOcrConfig,
 }
 
 impl Default for OcrConfig {
     fn default() -> Self {
         Self {
             mode: OcrMode::Off,
+            backend: "tesseract".to_string(),
             language: "eng".to_string(),
             server_url: None,
             headers: Vec::new(),
+            hedge_delays_ms: Vec::new(),
             tessdata_path: None,
             num_workers: 0,
             failure_fatal: false,
+            auto_reasons: Vec::new(),
+            auto_min_chars: 0,
+            ppocr: PpocrConfig::default(),
+            plugin: PluginOcrConfig::default(),
         }
     }
+}
+
+impl OcrConfig {
+    /// Which engine the config selects. `mode="server"`, or a `server_url` left
+    /// with the default backend, both mean the HTTP engine.
+    pub fn backend_kind(&self) -> OcrBackendKind {
+        if matches!(self.mode, OcrMode::Server) {
+            return OcrBackendKind::Server;
+        }
+        match self.backend.trim().to_ascii_lowercase().as_str() {
+            "ppocr" | "pp-ocr" | "oar" | "oar-ocr" => OcrBackendKind::Ppocr,
+            "server" | "http" | "http-server" => OcrBackendKind::Server,
+            "" | "tesseract" if self.server_url.is_none() => OcrBackendKind::Tesseract,
+            "" | "tesseract" => OcrBackendKind::Server,
+            other => OcrBackendKind::Custom(other.to_string()),
+        }
+    }
+
+    /// True when OCR runs at all.
+    pub fn is_enabled(&self) -> bool {
+        !matches!(self.mode, OcrMode::Off)
+    }
+
+    /// Reasons gating `mode="auto"`, normalized (`sparse-text` == `sparse_text`).
+    pub fn reasons(&self) -> Vec<String> {
+        let source: Vec<&str> = if self.auto_reasons.is_empty() {
+            DEFAULT_OCR_REASONS.to_vec()
+        } else {
+            self.auto_reasons.iter().map(String::as_str).collect()
+        };
+        source
+            .iter()
+            .map(|reason| normalize_reason(reason))
+            .collect()
+    }
+
+    /// Language in the form the selected engine expects.
+    pub fn engine_language(&self) -> String {
+        match self.backend_kind() {
+            OcrBackendKind::Tesseract => ocr_language_tesseract(&self.language),
+            _ => ocr_language_iso(&self.language),
+        }
+    }
+
+    /// Whether one page needs OCR under `mode="auto"`.
+    ///
+    /// The reason list decides; the backend's `needs_ocr` flag is only used when
+    /// a backend reports no reasons at all, because that flag is true for
+    /// ordinary digital pages too.
+    pub fn page_needs_ocr(&self, page: &crate::parser::PagePayload) -> bool {
+        let text_length = if page.complexity.is_some() {
+            page.complexity.as_ref().map(|c| c.text_length).unwrap_or(0)
+        } else {
+            page.text.chars().count()
+        };
+        let too_short = text_length < self.auto_min_chars;
+        match page.complexity.as_ref() {
+            Some(complexity) => {
+                if complexity.reasons.is_empty() {
+                    return complexity.needs_ocr || complexity.is_garbled || too_short;
+                }
+                let gated = self.reasons().iter().any(|wanted| {
+                    complexity
+                        .reasons
+                        .iter()
+                        .map(|reason| normalize_reason(reason))
+                        .any(|reason| reason == *wanted)
+                });
+                gated || complexity.is_garbled || too_short
+            }
+            // No complexity signals: OCR the page rather than return an empty one.
+            None => true,
+        }
+    }
+}
+
+/// `sparse-text` and `sparse_text` name the same signal.
+fn normalize_reason(reason: &str) -> String {
+    reason.trim().to_lowercase().replace('-', "_")
+}
+
+/// ISO 639-1 code for engines specified in it (HTTP OCR API, plugin registry).
+pub fn ocr_language_iso(code: &str) -> String {
+    let lowered = code.trim().to_ascii_lowercase();
+    match lowered.as_str() {
+        "eng" => "en",
+        "chi_sim" | "chi" | "zho" | "zh_cn" => "zh",
+        "chi_tra" | "zh_tw" => "zh-tw",
+        "jpn" => "ja",
+        "kor" => "ko",
+        "fra" | "fre" => "fr",
+        "deu" | "ger" => "de",
+        "spa" => "es",
+        "ita" => "it",
+        "por" => "pt",
+        "nld" | "dut" => "nl",
+        "rus" => "ru",
+        "ara" => "ar",
+        "hin" => "hi",
+        "tur" => "tr",
+        "pol" => "pl",
+        "ukr" => "uk",
+        "vie" => "vi",
+        "tha" => "th",
+        "heb" => "he",
+        "ell" | "gre" => "el",
+        "ces" | "cze" => "cs",
+        "swe" => "sv",
+        "dan" => "da",
+        "fin" => "fi",
+        "nor" => "no",
+        "hun" => "hu",
+        "ron" | "rum" => "ro",
+        "ind" => "id",
+        "msa" | "may" => "ms",
+        "tam" => "ta",
+        "tel" => "te",
+        "ben" => "bn",
+        "urd" => "ur",
+        other => other,
+    }
+    .to_string()
+}
+
+/// Tesseract code for a language named in any supported form.
+pub fn ocr_language_tesseract(code: &str) -> String {
+    let lowered = code.trim().to_ascii_lowercase();
+    match lowered.as_str() {
+        "en" => "eng",
+        "zh" | "zh_cn" | "zh-hans" => "chi_sim",
+        "zh-tw" | "zh_tw" | "zh-hant" => "chi_tra",
+        "ja" => "jpn",
+        "ko" => "kor",
+        "fr" => "fra",
+        "de" => "deu",
+        "es" => "spa",
+        "it" => "ita",
+        "pt" => "por",
+        "nl" => "nld",
+        "ru" => "rus",
+        "ar" => "ara",
+        "hi" => "hin",
+        "tr" => "tur",
+        "pl" => "pol",
+        "uk" => "ukr",
+        "vi" => "vie",
+        "th" => "tha",
+        "he" => "heb",
+        "el" => "ell",
+        "cs" => "ces",
+        "sv" => "swe",
+        "da" => "dan",
+        "fi" => "fin",
+        "no" => "nor",
+        "hu" => "hun",
+        "ro" => "ron",
+        "id" => "ind",
+        "ms" => "msa",
+        "ta" => "tam",
+        "te" => "tel",
+        "bn" => "ben",
+        "ur" => "urd",
+        other => other,
+    }
+    .to_string()
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -381,6 +641,64 @@ impl Default for ParserConfig {
 }
 
 impl ParserConfig {
+    /// Reject configurations that cannot work, with actionable messages.
+    ///
+    /// Backend availability (a Cargo feature, an installed plugin) is checked
+    /// where the parse runs, not here, because it differs per language.
+    pub fn validate(&self) -> Result<(), String> {
+        if let Some(spec) = self.scope.target_pages.as_deref() {
+            let spec = spec.trim();
+            if !spec.is_empty() {
+                parse_page_spec(spec).map_err(|e| format!("invalid scope.target_pages: {e}"))?;
+            }
+        }
+        if self.scope.dpi <= 0.0 {
+            return Err(format!(
+                "scope.dpi must be positive, got {}",
+                self.scope.dpi
+            ));
+        }
+        let ocr = &self.ocr;
+        match ocr.backend_kind() {
+            OcrBackendKind::Server if ocr.is_enabled() && ocr.server_url.is_none() => {
+                return Err(
+                    "ocr.backend=\"server\" needs ocr.server_url (masked to the liteparse OCR API)"
+                        .to_string(),
+                )
+            }
+            OcrBackendKind::Ppocr => {
+                if !["tiny", "small", "medium"].contains(&ocr.ppocr.preset.as_str()) {
+                    return Err(format!(
+                        "ocr.ppocr.preset must be one of tiny, small, medium (got {:?})",
+                        ocr.ppocr.preset
+                    ));
+                }
+                let device = ocr.ppocr.device.trim().to_ascii_lowercase();
+                if !PPOCR_DEVICES.contains(&device.as_str()) {
+                    return Err(format!(
+                        "ocr.ppocr.device must be one of {} (got {:?})",
+                        PPOCR_DEVICES.join(", "),
+                        ocr.ppocr.device
+                    ));
+                }
+            }
+            _ => {}
+        }
+        if ocr.is_enabled() && ocr.backend.trim().is_empty() {
+            return Err(
+                "ocr.backend must not be empty; use tesseract, ppocr, server, or a registered name"
+                    .to_string(),
+            );
+        }
+        if ocr.plugin.concurrency == 0 {
+            return Err("ocr.plugin.concurrency must be at least 1".to_string());
+        }
+        if ocr.plugin.timeout_ms == 0 {
+            return Err("ocr.plugin.timeout_ms must be positive".to_string());
+        }
+        Ok(())
+    }
+
     /// Named presets. Unknown names return an error listing valid ones.
     pub fn preset(name: &str) -> Result<Self, String> {
         match name {
@@ -424,12 +742,61 @@ impl ParserConfig {
             None => Ok(Self::default()),
             Some(s) => {
                 let trimmed = s.trim();
-                if trimmed.starts_with('{') {
-                    serde_json::from_str(trimmed).map_err(|e| e.to_string())
+                let config: Self = if trimmed.starts_with('{') {
+                    serde_json::from_str(trimmed).map_err(|e| e.to_string())?
                 } else {
-                    Self::preset(trimmed)
+                    Self::preset(trimmed)?
+                };
+                config.validate()?;
+                Ok(config)
+            }
+        }
+    }
+}
+
+/// Parse a `"1-5,10"` page spec, mirroring the backend's parser.
+pub(crate) fn parse_page_spec(spec: &str) -> Result<Vec<u32>, String> {
+    #[cfg(all(feature = "pdf", not(target_arch = "wasm32")))]
+    {
+        liteparse::config::parse_target_pages(spec)
+    }
+    #[cfg(not(all(feature = "pdf", not(target_arch = "wasm32"))))]
+    {
+        let mut pages = Vec::new();
+        for part in spec.split(',') {
+            let part = part.trim();
+            if part.is_empty() {
+                continue;
+            }
+            match part.split_once('-') {
+                Some((start, end)) => {
+                    let start: u32 = start
+                        .trim()
+                        .parse()
+                        .map_err(|_| format!("bad range {part:?}"))?;
+                    let end: u32 = end
+                        .trim()
+                        .parse()
+                        .map_err(|_| format!("bad range {part:?}"))?;
+                    if start == 0 || end < start {
+                        return Err(format!("bad range {part:?}"));
+                    }
+                    pages.extend(start..=end);
+                }
+                None => {
+                    let page: u32 = part.parse().map_err(|_| format!("bad page {part:?}"))?;
+                    if page == 0 {
+                        return Err(format!("bad page {part:?}"));
+                    }
+                    pages.push(page);
                 }
             }
         }
+        if pages.is_empty() {
+            return Err(format!("no pages in {spec:?}"));
+        }
+        pages.sort_unstable();
+        pages.dedup();
+        Ok(pages)
     }
 }

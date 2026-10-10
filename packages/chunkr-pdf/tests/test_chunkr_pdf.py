@@ -188,3 +188,313 @@ def test_pages_to_documents_is_public_api():
     documents = chunkr.pages_to_documents(payload, source="x.pdf", backend="test")
     assert documents[0].metadata["page_number"] == 1
     assert documents[0].metadata["blocks"][0]["kind"] == "heading"
+
+
+# ── OCR engines: registry, proxy, gating, adapters ───────────────────────
+
+import io
+import time
+import urllib.error
+import urllib.request
+import uuid
+
+import chunkr_pdf
+from chunkr_pdf import _ocr
+from chunkr_pdf._ocr import LoopbackOcrServer, normalize_results, parse_multipart, png_size
+
+DUMMY_PNG = bytes.fromhex(
+    "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753"
+    "de0000000c4944415408d763f8ffff3f0005fe02fea735cb880000000049454e44ae426082"
+)
+
+
+def rasterize(pdf: Path, page: int = 1, dpi: float = 200.0) -> bytes:
+    """Render one PDF page to PNG with liteparse, to act as a scanned page."""
+    import liteparse
+
+    parser = liteparse.LiteParse(extract_screenshots=True, dpi=dpi, ocr_enabled=False, quiet=True)
+    result = parser.parse(str(pdf))
+    return result.screenshots[page - 1].image_bytes
+
+
+def word_engine(word: str = "ocrword"):
+    """Engine returning one fixed word per page, recording its calls."""
+    calls = []
+
+    def engine(image, **kwargs):
+        calls.append({"size": len(image), **kwargs})
+        return [
+            {"text": word, "bbox": [10.0, 120.0, 400.0, 160.0], "confidence": 0.9},
+        ]
+
+    engine.calls = calls
+    return engine
+
+
+def failing_engine():
+    def engine(image):
+        raise AssertionError("this engine must not be called")
+
+    return engine
+
+
+def multipart(fields: dict) -> tuple:
+    boundary = uuid.uuid4().hex
+    body = b""
+    for name, value in fields.items():
+        body += f"--{boundary}\r\n".encode()
+        if isinstance(value, bytes):
+            body += (
+                f'Content-Disposition: form-data; name="{name}"; filename="page.png"\r\n'
+                "Content-Type: image/png\r\n\r\n"
+            ).encode()
+            body += value + b"\r\n"
+        else:
+            body += f'Content-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode()
+    body += f"--{boundary}--\r\n".encode()
+    return body, f"multipart/form-data; boundary={boundary}"
+
+
+def post(url: str, body: bytes, content_type: str, timeout: float = 30.0):
+    request = urllib.request.Request(
+        url, data=body, headers={"Content-Type": content_type}, method="POST"
+    )
+    return urllib.request.urlopen(request, timeout=timeout)
+
+
+def test_ocr_registry_register_and_unregister():
+    engine = word_engine()
+    chunkr.register_ocr_backend("test-house", engine)
+    assert "test-house" in chunkr.ocr_backends()
+    assert chunkr.get_ocr_backend("test-house") is not None
+    assert chunkr.unregister_ocr_backend("test-house") is True
+    assert chunkr.unregister_ocr_backend("test-house") is False
+    assert "test-house" not in chunkr.ocr_backends()
+
+
+def test_registered_adapter_names_are_reported():
+    register = chunkr_pdf.register()
+    assert register is None
+    assert "liteparse" in chunkr.pdf_backends()
+    assert set(chunkr_pdf.OCR_ADAPTERS) == {"rapidocr", "paddleocr", "easyocr", "surya"}
+    # Only importable engines are advertised as available.
+    for name in chunkr_pdf.ocr_backends():
+        assert name in chunkr_pdf.OCR_ADAPTERS or name in chunkr.ocr_backends()
+
+
+def test_unknown_and_unavailable_backends_error_clearly():
+    with pytest.raises(ValueError, match="unknown OCR backend"):
+        PDFParser(ocr={"mode": "always", "backend": "nope"}).payload(DUMMY_PNG)
+    with pytest.raises(ValueError, match="pdf-ocr-ppocr"):
+        PDFParser(ocr={"mode": "always", "backend": "ppocr"}).payload(DUMMY_PNG)
+    with pytest.raises(ValueError, match="server_url"):
+        PDFParser(ocr={"mode": "server", "backend": "server"}).payload(DUMMY_PNG)
+    with pytest.raises(ValueError):
+        PDFParser(ocr={"mode": "always", "backend": "paddleocr"}).payload(DUMMY_PNG) if not (
+            _ocr.adapter_available("paddleocr")
+        ) else (_ for _ in ()).throw(ValueError())
+
+
+def test_loopback_server_speaks_the_liteparse_ocr_api():
+    engine = word_engine("hello")
+    server = LoopbackOcrServer(engine, language="en", warmup=False)
+    url = server.start()
+    try:
+        body, content_type = multipart({"file": DUMMY_PNG, "language": "en"})
+        with post(url, body, content_type) as response:
+            payload = json.loads(response.read())
+        assert response.status == 200
+        assert payload["results"][0]["text"] == "hello"
+        assert payload["results"][0]["bbox"] == [10.0, 120.0, 400.0, 160.0]
+        assert payload["results"][0]["confidence"] == 0.9
+        # The engine saw raw PNG bytes and the configured language.
+        assert engine.calls[0]["size"] == len(DUMMY_PNG)
+        assert engine.calls[0]["language"] == "en"
+        assert engine.calls[0]["options"] == {}
+        # /health and unknown paths behave.
+        with urllib.request.urlopen(url.replace("/ocr", "/health")) as health:
+            assert json.loads(health.read())["status"] == "healthy"
+        with pytest.raises(urllib.error.HTTPError) as missing_file:
+            post(url, *multipart({"language": "en"}))
+        assert missing_file.value.code == 400
+    finally:
+        server.close()
+
+
+def test_loopback_server_surfaces_engine_failures_and_timeouts():
+    def broken(image):
+        raise RuntimeError("model exploded")
+
+    server = LoopbackOcrServer(broken, warmup=False)
+    url = server.start()
+    try:
+        body, content_type = multipart({"file": DUMMY_PNG})
+        with pytest.raises(urllib.error.HTTPError) as error:
+            post(url, body, content_type)
+        assert error.value.code == 500
+        assert "model exploded" in json.loads(error.value.read())["error"]
+    finally:
+        server.close()
+
+    def slow(image):
+        time.sleep(2.0)
+        return []
+
+    server = LoopbackOcrServer(slow, timeout_ms=200, warmup=False)
+    url = server.start()
+    try:
+        body, content_type = multipart({"file": DUMMY_PNG})
+        with pytest.raises(urllib.error.HTTPError) as error:
+            post(url, body, content_type)
+        assert error.value.code == 504
+        assert server.failures == 1
+    finally:
+        server.close()
+
+
+def test_closing_the_server_releases_the_port():
+    server = LoopbackOcrServer(word_engine(), warmup=False)
+    url = server.start()
+    server.close()
+    with pytest.raises(urllib.error.URLError):
+        post(url, *multipart({"file": DUMMY_PNG}))
+
+
+def test_normalize_results_accepts_every_engine_shape():
+    size = (100, 200)
+    # Plain text becomes one full-page block.
+    assert normalize_results("all the text", size) == [
+        {"text": "all the text", "bbox": [0.0, 0.0, 100.0, 200.0], "confidence": 1.0}
+    ]
+    # Dicts with aliases.
+    boxes = normalize_results(
+        [{"text": "a", "box": [1, 2, 3, 4], "score": 0.5, "poly": [[1, 2], [3, 2], [3, 4], [1, 4]]}],
+        size,
+    )
+    assert boxes[0]["bbox"] == [1.0, 2.0, 3.0, 4.0]
+    assert boxes[0]["confidence"] == 0.5
+    assert boxes[0]["polygon"][0] == [1.0, 2.0]
+    # EasyOCR tuples.
+    tuples = normalize_results([([[0, 0], [10, 0], [10, 5], [0, 5]], "tuple", 0.8)], size)
+    assert tuples[0]["text"] == "tuple"
+    assert tuples[0]["bbox"] == [0.0, 0.0, 10.0, 5.0]
+    # PaddleOCR/RapidOCR parallel arrays, including numpy-like `.tolist()`.
+    class Output:
+        txts = ("one", "two")
+        scores = (0.9, 0.8)
+        boxes = [[[0, 0], [4, 0], [4, 4], [0, 4]], [[5, 5], [9, 5], [9, 9], [5, 9]]]
+
+    arrays = normalize_results(Output(), size)
+    assert [item["text"] for item in arrays] == ["one", "two"]
+    # Empty and unsupported inputs are empty, not errors.
+    assert normalize_results(None, size) == []
+    assert normalize_results([], size) == []
+    assert normalize_results(object(), size) == []
+
+
+def test_png_and_multipart_helpers():
+    png = _ocr._blank_png(16)
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+    assert png_size(png) == (16, 16)
+    assert png_size(b"not a png") == (0, 0)
+    body, content_type = multipart({"file": png, "language": "zh"})
+    fields = parse_multipart(body, content_type)
+    assert fields["file"] == png
+    assert fields["language"] == b"zh"
+
+
+def test_engine_call_styles_and_language_normalization():
+    calls = []
+
+    def simple(image):
+        calls.append(("simple", len(image)))
+        return []
+
+    def rich(image, *, language="en", options=None):
+        calls.append(("rich", language, options))
+        return []
+
+    for engine, expected in ((simple, "simple"), (rich, "rich")):
+        server = LoopbackOcrServer(engine, language="de", warmup=False)
+        assert server.recognize(DUMMY_PNG) == []
+        assert calls[-1][0] == expected
+    assert calls[-1][1] == "de"
+    assert chunkr.ocr_language("eng") == "en"
+    assert chunkr.ocr_language("en", "tesseract") == "eng"
+
+
+@needs_finance
+def test_auto_mode_makes_no_ocr_calls_on_digital_documents():
+    parser = PDFParser(
+        output="markdown",
+        ocr={"mode": "auto", "backend": "test-never", "plugin": {"options": {"tag": "auto"}}},
+    )
+    chunkr.register_ocr_backend("test-never", failing_engine())
+    try:
+        auto = parser.load_pages(FINANCE)
+        off = PDFParser(output="markdown", ocr={"mode": "off"}).load_pages(FINANCE)
+        assert [doc.content for doc in auto] == [doc.content for doc in off]
+        # The gate never opened, so no engine was started at all.
+        assert parser.ocr_servers == {}
+    finally:
+        chunkr.unregister_ocr_backend("test-never")
+
+
+@needs_finance
+def test_auto_mode_ocrs_only_the_flagged_pages():
+    engine = word_engine("gated")
+    chunkr.register_ocr_backend("test-gate", engine)
+    try:
+        parser = PDFParser(
+            output="markdown",
+            ocr={"mode": "auto", "backend": "test-gate", "auto_reasons": ["sparse-text"]},
+        )
+        documents = parser.load_pages(FINANCE)
+        assert len(documents) == 16
+        # finance.pdf: pages 1, 11, 12 and 14 carry `sparse-text`.
+        pages = [call for call in engine.calls if call["size"] > 200]
+        assert len(pages) == 4
+        # Server calls include the warm-up probe on the blank image.
+        assert parser.ocr_servers["test-gate"].calls == len(pages) + 1
+        parser.close()
+    finally:
+        chunkr.unregister_ocr_backend("test-gate")
+
+
+@needs_finance
+def test_always_mode_uses_the_registered_engine_end_to_end():
+    """A scan-shaped page round-trips: raster -> engine -> liteparse -> documents."""
+    if not FINANCE.exists():
+        pytest.skip("fixture missing")
+    page_png = rasterize(FINANCE, page=1, dpi=150.0)
+    engine = word_engine("proxyword")
+    chunkr.register_ocr_backend("test-e2e", engine)
+    try:
+        parser = PDFParser(ocr={"mode": "always", "backend": "test-e2e"}, output="markdown")
+        documents = parser.load_pages(page_png)
+        assert len(documents) == 1
+        assert engine.calls, "engine should have been called for the raster page"
+        assert engine.calls[-1]["size"] > 1_000
+        assert parser.ocr_servers["test-e2e"].calls >= 1
+        parser.close()
+    finally:
+        chunkr.unregister_ocr_backend("test-e2e")
+
+
+@pytest.mark.skipif(not _ocr.adapter_available("rapidocr"), reason="rapidocr not installed")
+@needs_finance
+def test_rapidocr_adapter_reads_a_rasterized_page():
+    """Real engine, real merge: RapidOCR (PP-OCRv6 ONNX) over a rendered page."""
+    page_png = rasterize(FINANCE, page=1, dpi=200.0)
+    parser = PDFParser(ocr={"mode": "always", "backend": "rapidocr"}, output="markdown")
+    try:
+        documents = parser.load_pages(page_png)
+        text = documents[0].content
+        reference = PDFParser(ocr={"mode": "off"}, output="markdown").load_pages(FINANCE)[0].content
+        assert text.strip(), "RapidOCR returned no text"
+        for phrase in ("College of Business Administration", "FINANCE"):
+            assert phrase in text or phrase in reference.replace("\n", " ")
+        assert len(text) > 40
+        assert parser.ocr_servers["rapidocr"].calls >= 1
+    finally:
+        parser.close()

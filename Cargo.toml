@@ -28,6 +28,8 @@ python = ["dep:pyo3", "pyo3/extension-module"]
 wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "dep:js-sys"]
 cli = ["dep:clap"]
 # High-fidelity PDF parsing (PDFium-backed) for Rust and CLI users.
+# OCR engines: `ocr.backend="tesseract"` needs `pdf-ocr`; any other engine is
+# reached through `ocr.server_url` or `PdfParser::with_ocr_engine`.
 pdf = ["dep:liteparse", "dep:tokio"]
 # Adds the bundled Tesseract engine to the `pdf` backend (compiles Tesseract).
 pdf-ocr = ["pdf", "liteparse/tesseract"]
