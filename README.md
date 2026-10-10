@@ -145,17 +145,44 @@ chunkr report.pdf --format text             # PDFs read directly
 
 ## Benchmarks
 
-Median of 15 runs, Apple M4, 1 MB prose, matched chunk sizes. Full harness, corpora and caveats: [`benchmarks/README.md`](benchmarks/README.md).
+Every number is reproducible with [`benchmarks/`](benchmarks/README.md) (raw samples in `benchmarks/results/`). Apple M4 (10 threads), Python 3.12, byte-identical corpora, matched chunk sizes, chunker construction excluded from timing; chunking figures are medians of 15 runs, PDF figures medians of 3-5 runs.
 
-| Case | Chunkr | LangChain | Chonkie | semchunk | text-splitter | LlamaIndex |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| Recursive 1000/200 | **2,219 MB/s** | 769 | 223 | 42 | 164 | 10 |
-| Fixed char 1000/200 | **750 MB/s** | 1.7 | 22 | — | — | — |
-| Markdown 1000/150 | **819 MB/s** | 67 | — | — | 40 | 19 |
-| Python code 1500/200 | **3,232 MB/s** | 622 | — | — | 5.7 | — |
-| BPE tokens 512/50 | 38 MB/s | 43 | **151** | — | 7.2 | 2.0 |
+**Chunking throughput** — MB/s, higher is better, `—` = no equivalent splitter.
 
-BPE is chunkr's weakest strategy (tiktoken encoding dominates; use `RecursiveChunker` unless exact token bounds matter). On Chroma's token-level retrieval benchmark, `RecursiveChunker` defaults reach **0.792 recall / 0.255 prec_Ω** — best recall and best chunk purity at every size from 500–900 chars when interpolated to equal chunk length. PDF: 9,300 pgs/s on a 10-page sample, 2,700 pgs/s on a 2,066-page textbook (15–23x PyPDF). OCR accuracy per engine: [`benchmarks/README.md`](benchmarks/README.md#ocr-accuracy-ocr_accuracypy).
+| Library | Recursive 1 MB | Fixed width 1 MB | Markdown 500 KB | Python 200 KB | BPE tokens 200 KB |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| **chunkr** | **2,219** | **750** | **819** | **3,232** | 38 |
+| LangChain | 769 | 1.7 | 67 | 622 | 43 |
+| Chonkie | 223 | 22 | — | — | **151** |
+| text-splitter | 164 | — | 40 | 5.7 | 7.2 |
+| semchunk | 42 | — | — | — | — |
+| LlamaIndex | 10 | — | 19 | — | 2.0 |
+
+On recursive prose that is **2.9× LangChain, 10× Chonkie, 53× semchunk, 222× LlamaIndex**; on fixed-width it is 34× the next best. Multi-core batch chunking (`par_chunk_texts`) reaches 3,224 MB/s (4.8× LangChain's loop), and a cold chunker costs 22 ms (LangChain 43 ms, Chonkie 457 ms). The one strategy where chunkr is *not* fastest is BPE token chunking — 38 MB/s against Chonkie's 151, because tiktoken encoding dominates the run — so prefer `RecursiveChunker` unless you need exact token bounds.
+
+**PDF extraction and latency** — the fast `lopdf` backend, i.e. what `PDFLoader` uses out of the box.
+
+| Extractor / pipeline | 10-page sample | 2,066-page textbook (19.9 MB) |
+| :--- | :--- | :--- |
+| **chunkr `PDFLoader`** | **1.07 ms · 9,344 pgs/s** | **748 ms · 2,762 pgs/s** |
+| PyMuPDF (`fitz`) | 11.16 ms · 896 pgs/s | 2,617 ms · 790 pgs/s |
+| pypdf (pure Python) | 24.41 ms · 410 pgs/s | 11,901 ms · 174 pgs/s |
+| pypdf + LangChain splitter | 24.55 ms | 12,054 ms |
+
+That is 22.8× and 15.9× faster than pypdf, and 10.4× and 3.5× faster than PyMuPDF. Extract *and* chunk the 2,066-page textbook in 798 ms (15× pypdf + LangChain, 3.3× PyMuPDF + LangChain). Installing `chunkr-rs[pdf]` swaps in the layout-aware liteparse backend for real headings, tables and reading order: 854 pgs/s on the 10-page sample and 1,491 pgs/s on the textbook (2.1× and 8.6× pypdf; about PyMuPDF speed on the small sample, 1.9× faster on the textbook).
+
+**Retrieval quality** — Chroma's token-level benchmark (472 questions); `prec_Ω` is chunk purity at perfect recall.
+
+| Library | Recall | Purity (prec_Ω) | Avg chunk chars |
+| :--- | ---: | ---: | ---: |
+| **chunkr `RecursiveChunker` (defaults)** | **0.792** | 0.255 | 854 |
+| LangChain | 0.762 | 0.251 | 745 |
+| text-splitter | 0.762 | 0.262 | 790 |
+| Chonkie | 0.752 | **0.292** | 701 |
+| semchunk | 0.736 | 0.260 | 644 |
+| LlamaIndex | 0.654 | 0.054 | 4,136 |
+
+Purity tracks chunk length at least as much as boundary quality, which is why the libraries emitting smaller chunks score higher here. Interpolated to *the same* chunk length (500-900 chars) chunkr's sentence-aware defaults lead on both recall and purity at every budget. OCR accuracy per engine: [`benchmarks/README.md`](benchmarks/README.md#ocr-accuracy-ocr_accuracypy).
 
 ## FAQ
 
