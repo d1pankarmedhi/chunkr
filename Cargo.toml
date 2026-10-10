@@ -27,6 +27,10 @@ default = ["cli"]
 python = ["dep:pyo3", "pyo3/extension-module"]
 wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "dep:js-sys"]
 cli = ["dep:clap"]
+# High-fidelity PDF parsing (PDFium-backed) for Rust and CLI users.
+pdf = ["dep:liteparse", "dep:tokio"]
+# Adds the bundled Tesseract engine to the `pdf` backend (compiles Tesseract).
+pdf-ocr = ["pdf", "liteparse/tesseract"]
 
 [dependencies]
 lopdf = { version = "0.32.0", features = ["pom", "pom_parser"] }
@@ -49,6 +53,8 @@ js-sys = { version = "0.3.69", optional = true }
 tree-sitter = "0.24"
 tree-sitter-rust = "0.23.2"
 tree-sitter-python = "0.23"
+liteparse = { version = "2.15", default-features = false, optional = true }
+tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-thread"], optional = true }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 getrandom = { version = "0.3", features = ["wasm_js"] }

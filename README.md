@@ -78,6 +78,12 @@ pip install chunkr-rs
 
 *Pre-compiled wheels are available for Linux, Windows, and macOS (Intel & Apple Silicon) on Python 3.8 through 3.13. No Rust compiler required!*
 
+Optional high-fidelity PDF parsing (layout, tables, headings, OCR) lives in a separate, opt-in extension — the base package stays lean:
+
+```bash
+pip install "chunkr-rs[pdf]"
+```
+
 Or build from source with `maturin`:
 ```bash
 maturin develop --release
@@ -243,6 +249,42 @@ langchain_docs = chunkr.to_langchain(stream_chunks)      # List[langchain_core.d
 llamaindex_nodes = chunkr.to_llamaindex(stream_chunks)  # List[llama_index.core.schema.TextNode]
 records = chunkr.to_dict_list(stream_chunks)            # Direct DataFrame / Dataset input
 ```
+
+---
+
+## 📄 High-Fidelity PDF Parsing (`chunkr-rs[pdf]`)
+
+The base package ships a lean `lopdf` extractor: fastest possible text extraction, no layout structure, and unmapped glyphs dropped on PDFs with broken CMaps. When you want structure — reading order, headings, lists, tables, page labels, figures, complexity signals, OCR — install the optional extension:
+
+```bash
+pip install "chunkr-rs[pdf]"   # or: pip install chunkr-pdf
+```
+
+```python
+import chunkr
+from chunkr_pdf import PDFParser
+
+parser = PDFParser(preset="structure", output="markdown", granularity="block")
+chunks = chunkr.MarkdownChunker(1000, 120).chunk_documents(parser.load("report.pdf"))
+```
+
+Once installed, `chunkr.PDFLoader()` picks it up automatically (`backend="auto"`); pass `backend="fast"` to opt back out. Nothing is hidden: every option — output format, page/block/document granularity, tables, headings, figures, glyph repair, junk heuristics, OCR mode, page limits — is configurable, and `sanitize={"enabled": False}` returns backend output untouched.
+
+Rust users get the same backend without a plugin:
+
+```toml
+[dependencies]
+chunkr = { version = "1.6", features = ["pdf"] }   # add "pdf-ocr" to bundle Tesseract
+```
+
+```rust
+use chunkr::parser::{PdfParser, ParserConfig};
+
+let parser = PdfParser::from_spec(Some("structure"))?;
+let documents = parser.load("report.pdf")?;
+```
+
+See [`packages/chunkr-pdf/README.md`](packages/chunkr-pdf/README.md) for the full option reference.
 
 ---
 

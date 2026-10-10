@@ -68,7 +68,12 @@ Repository = "https://github.com/d1pankarmedhi/chunkr.git"
 Issues = "https://github.com/d1pankarmedhi/chunkr/issues"
 Changelog = "https://github.com/d1pankarmedhi/chunkr/blob/main/CHANGELOG.md"
 
+[project.optional-dependencies]
+# High-fidelity PDF parsing (layout, headings, tables, page labels, OCR).
+pdf = ["chunkr-pdf>=0.1"]
+
 [tool.maturin]
 features = ["pyo3/extension-module", "python"]
-module-name = "chunkr"
-include = ["chunkr.pyi", "py.typed"]
+module-name = "chunkr._core"
+python-source = "python"
+include = ["python/chunkr/py.typed", "python/chunkr/__init__.pyi"]

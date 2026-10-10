@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Added
+- **Optional high-fidelity PDF parsing — `chunkr-rs[pdf]` / `chunkr-pdf`**: a separate extension package (and the `pdf` Cargo feature for Rust) that extracts PDFs with layout awareness — reading order, headings, lists, tables, figures, page labels, per-page complexity signals and optional OCR — then maps the result to `Document`s inside chunkr, so both paths share one implementation.
+- **`chunkr::parser` module (base crate, no new dependencies)**: `ParserConfig` with presets (`retrieval`, `faithful`, `structure`) and every knob user-selectable (output `text`/`markdown`/`both`, granularity `page`/`block`/`document`, `extract` toggles, `sanitize` rules + thresholds, OCR mode, page scope, error policy), plus `pages_to_documents`, `render_markdown`, `sanitize_pages`, typed `PagePayload`/`BlockPayload` and `PdfParser` backend dispatch (`auto`/`fast`/`liteparse`).
+- **Configurable sanitizer** for backend layout blocks: table rejection (`require_header`, `header_missing` `demote`/`synthesize`/`keep`, `max_words_per_cell`, `prose_cell_ratio`, `min_rows`, `min_columns`, `demote_to`) and heading rejection (`max_len`, `drop_truncated`, levels `auto`/`as_is`/`flat`/`derive`), glyph repair (`repair`/`report`/`off`) and a junk-glyph guard (`flag`/`fallback_fast`/`off`). Every change is reported in `sanitize_report` metadata; `sanitize.enabled = false` is a byte-for-byte passthrough.
+- **Python plugin API**: `chunkr.ParserConfig`, `chunkr.pages_to_documents`, `chunkr.register_pdf_backend` / `unregister_pdf_backend` / `pdf_backends`, and `chunkr.PDFLoader(backend=..., config=...)` — `backend="auto"` uses an installed backend automatically, a name resolves a registered one, a callable is used inline.
+- **`chunkr-pdf` package**: `PDFParser` with presets and full config passthrough, `load`/`load_pages`/`load_document`/`text`/`blocks`/`stream` (bounded-memory page batches)/`is_complex`/`payload`, and a `chunkr.pdf_backends` entry point so `pip install "chunkr-rs[pdf]"` is enough. Requires Python 3.10+ (bumped by the optional dependency, not by the base package).
+
+### Changed
+- **Python package layout**: the native extension now ships as `chunkr._core` behind a thin `chunkr/__init__.py` that re-exports it and discovers PDF backends. `import chunkr` and every existing API are unchanged; `chunkr.pyi`/`py.typed` moved to `python/chunkr/`.
+- **Cargo feature `pdf`** (and `pdf-ocr` for the bundled Tesseract engine) — off by default, non-wasm; enabling it adds the `liteparse` dependency.
+
+### Fixed
+- Nothing yet.
+
+---
+
 ## [1.5.0] - 2026-10-07
 
 ### Changed

@@ -1245,75 +1245,434 @@ impl PyHFTokenChunker {
 }
 
 // 14. PDF Loader
+
+/// Configuration for high-fidelity PDF parsing.
+///
+/// Build one from a preset name, from a dict of overrides, or from JSON; every
+/// field is optional and falls back to the validated defaults.
+#[pyclass(name = "ParserConfig")]
+#[derive(Clone, Default)]
+pub struct PyParserConfig {
+    pub(crate) inner: crate::parser::ParserConfig,
+}
+
+impl PyParserConfig {
+    fn from_any(value: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        let Some(value) = value else {
+            return Ok(Self::default());
+        };
+        if value.is_none() {
+            return Ok(Self::default());
+        }
+        if let Ok(spec) = value.extract::<String>() {
+            return crate::parser::ParserConfig::from_json_or_preset(Some(&spec))
+                .map(|inner| Self { inner })
+                .map_err(PyValueError::new_err);
+        }
+        if let Ok(existing) = value.downcast::<PyParserConfig>() {
+            return Ok(existing.borrow().clone());
+        }
+        let json = py_to_json(value)?;
+        serde_json::from_value(json)
+            .map(|inner| Self { inner })
+            .map_err(|e| PyValueError::new_err(format!("invalid parser config: {e}")))
+    }
+}
+
+#[pymethods]
+impl PyParserConfig {
+    #[new]
+    #[pyo3(signature = (spec=None))]
+    pub fn new(spec: Option<&Bound<'_, PyAny>>) -> PyResult<Self> {
+        Self::from_any(spec)
+    }
+
+    /// Build from a preset name: `faithful`, `retrieval` or `structure`.
+    #[staticmethod]
+    pub fn preset(name: &str) -> PyResult<Self> {
+        crate::parser::ParserConfig::preset(name)
+            .map(|inner| Self { inner })
+            .map_err(PyValueError::new_err)
+    }
+
+    /// Overlay a dict of overrides on top of a preset (or the defaults).
+    #[staticmethod]
+    #[pyo3(signature = (overrides, preset=None))]
+    pub fn from_dict(overrides: &Bound<'_, PyDict>, preset: Option<&str>) -> PyResult<Self> {
+        let base = match preset {
+            Some(name) => {
+                crate::parser::ParserConfig::preset(name).map_err(PyValueError::new_err)?
+            }
+            None => crate::parser::ParserConfig::default(),
+        };
+        let mut value =
+            serde_json::to_value(&base).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        merge_json(&mut value, &py_to_json(overrides.as_any())?);
+        serde_json::from_value(value)
+            .map(|inner| Self { inner })
+            .map_err(|e| PyValueError::new_err(format!("invalid parser config: {e}")))
+    }
+
+    #[getter]
+    pub fn backend(&self) -> &'static str {
+        match self.inner.backend {
+            crate::parser::Backend::Auto => "auto",
+            crate::parser::Backend::Fast => "fast",
+            crate::parser::Backend::Liteparse => "liteparse",
+        }
+    }
+
+    pub fn to_dict(&self, py: Python) -> PyResult<PyObject> {
+        let value =
+            serde_json::to_value(&self.inner).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        json_to_py(py, &value)
+    }
+
+    pub fn to_json(&self) -> PyResult<String> {
+        serde_json::to_string(&self.inner).map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    fn __repr__(&self) -> String {
+        let cfg = &self.inner;
+        format!(
+            "ParserConfig(backend={:?}, output={:?}, granularity={:?}, sanitize={}, tables={:?}, ocr={:?})",
+            self.backend(),
+            cfg.output,
+            cfg.granularity,
+            cfg.sanitize.enabled,
+            cfg.extract.tables,
+            cfg.ocr.mode
+        )
+    }
+}
+
+/// Recursively overlay `patch` onto `base` (objects merge, everything else replaces).
+fn merge_json(base: &mut serde_json::Value, patch: &serde_json::Value) {
+    match (base, patch) {
+        (serde_json::Value::Object(base_map), serde_json::Value::Object(patch_map)) => {
+            for (key, value) in patch_map {
+                merge_json(
+                    base_map
+                        .entry(key.clone())
+                        .or_insert(serde_json::Value::Null),
+                    value,
+                );
+            }
+        }
+        (base_slot, patch_value) => *base_slot = patch_value.clone(),
+    }
+}
+
+/// Registered high-fidelity backends, keyed by name (`liteparse`, `custom`, ...).
+static PDF_BACKENDS: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::BTreeMap<String, Py<PyAny>>>,
+> = std::sync::OnceLock::new();
+
+fn pdf_backend_registry() -> &'static std::sync::Mutex<std::collections::BTreeMap<String, Py<PyAny>>>
+{
+    PDF_BACKENDS.get_or_init(|| std::sync::Mutex::new(std::collections::BTreeMap::new()))
+}
+
+/// Register a callable that parses PDFs into a chunkr payload.
+///
+/// The callable receives `(source, config_json)` where `source` is a path or
+/// `bytes`, and returns either a JSON string or an object with `to_json()`.
+#[pyfunction]
+pub fn register_pdf_backend(name: &str, backend: Py<PyAny>) -> PyResult<()> {
+    let mut registry = pdf_backend_registry()
+        .lock()
+        .map_err(|_| PyValueError::new_err("parser backend registry is poisoned"))?;
+    registry.insert(name.to_string(), backend);
+    Ok(())
+}
+
+/// Remove a registered backend. Returns True when one was removed.
+#[pyfunction]
+pub fn unregister_pdf_backend(name: &str) -> PyResult<bool> {
+    let mut registry = pdf_backend_registry()
+        .lock()
+        .map_err(|_| PyValueError::new_err("parser backend registry is poisoned"))?;
+    Ok(registry.remove(name).is_some())
+}
+
+/// Names of every registered backend, in name order.
+#[pyfunction]
+pub fn pdf_backends() -> PyResult<Vec<String>> {
+    let registry = pdf_backend_registry()
+        .lock()
+        .map_err(|_| PyValueError::new_err("parser backend registry is poisoned"))?;
+    Ok(registry.keys().cloned().collect())
+}
+
+/// A payload from a backend: either a list of pages or `{version, pages}`.
+fn split_payload(payload: &str) -> PyResult<(Vec<crate::parser::PagePayload>, Option<String>)> {
+    let value: serde_json::Value = serde_json::from_str(payload)
+        .map_err(|e| PyValueError::new_err(format!("invalid parser payload: {e}")))?;
+    let (pages_value, version) = match value {
+        serde_json::Value::Array(pages) => (serde_json::Value::Array(pages), None),
+        serde_json::Value::Object(mut map) => {
+            let version = map
+                .remove("version")
+                .and_then(|v| v.as_str().map(str::to_string));
+            let pages = map.remove("pages").ok_or_else(|| {
+                PyValueError::new_err("parser payload object needs a `pages` key")
+            })?;
+            (pages, version)
+        }
+        _ => {
+            return Err(PyValueError::new_err(
+                "parser payload must be a list of pages or an object with `pages`",
+            ))
+        }
+    };
+    let pages: Vec<crate::parser::PagePayload> = serde_json::from_value(pages_value)
+        .map_err(|e| PyValueError::new_err(format!("invalid page payload: {e}")))?;
+    Ok((pages, version))
+}
+
+/// Path-like source (`str` or `os.PathLike`), if the input is not bytes.
+fn source_path(source: &Bound<'_, PyAny>) -> PyResult<Option<String>> {
+    if let Ok(text) = source.extract::<String>() {
+        return Ok(Some(text));
+    }
+    if let Ok(path) = source.extract::<std::path::PathBuf>() {
+        return Ok(Some(path.to_string_lossy().to_string()));
+    }
+    Ok(None)
+}
+
+fn payload_to_documents(
+    payload: &str,
+    config: &PyParserConfig,
+    source: Option<&str>,
+    backend: &str,
+) -> PyResult<Vec<Document>> {
+    let (pages, version) = split_payload(payload)?;
+    let meta = crate::parser::SourceMeta {
+        source: source.map(str::to_string),
+        file_name: source
+            .and_then(|s| std::path::Path::new(s).file_name())
+            .map(|f| f.to_string_lossy().to_string()),
+        backend: backend.to_string(),
+        parser_version: version,
+    };
+    Ok(crate::parser::pages_to_documents(&pages, &config.inner, &meta).documents)
+}
+
+/// Map a backend payload (list of pages or `{version, pages}`) to documents.
+#[pyfunction]
+#[pyo3(signature = (payload, config=None, source=None, backend="plugin"))]
+pub fn pages_to_documents(
+    payload: &str,
+    config: Option<&Bound<'_, PyAny>>,
+    source: Option<&str>,
+    backend: &str,
+) -> PyResult<Vec<PyDocument>> {
+    let config = PyParserConfig::from_any(config)?;
+    payload_to_documents(payload, &config, source, backend).map(wrap_docs)
+}
+
+/// Run a registered backend callable and return its payload string.
+fn run_backend(
+    py: Python<'_>,
+    backend: &Py<PyAny>,
+    source: &Bound<'_, PyAny>,
+    config_json: &str,
+) -> PyResult<String> {
+    let raw = backend.call1(py, (source, config_json))?;
+    let bound = raw.bind(py);
+    if let Ok(text) = bound.extract::<String>() {
+        return Ok(text);
+    }
+    if bound.hasattr("to_json")? {
+        return bound.call_method0("to_json")?.extract::<String>();
+    }
+    Err(PyValueError::new_err(
+        "parser backend must return a JSON string or an object with to_json()",
+    ))
+}
+
+/// Which extractor a call resolves to.
+enum Resolved {
+    /// A registered Python plugin (name, callable).
+    Plugin(String, Py<PyAny>),
+    /// The compiled-in liteparse backend.
+    Native,
+    /// The built-in `lopdf` extractor.
+    Fast,
+}
+
+/// Resolve the effective backend: an explicit callable/name, or the best
+/// available backend for `auto` (plugin, then native, then fast).
+fn resolve_backend(py: Python<'_>, requested: Option<&Bound<'_, PyAny>>) -> PyResult<Resolved> {
+    if let Some(requested) = requested {
+        if requested.is_none() {
+            return Ok(Resolved::Fast);
+        }
+        if let Ok(name) = requested.extract::<String>() {
+            if name == "fast" {
+                return Ok(Resolved::Fast);
+            }
+            if name == "auto" {
+                return resolve_backend(py, None);
+            }
+            let registry = pdf_backend_registry()
+                .lock()
+                .map_err(|_| PyValueError::new_err("parser backend registry is poisoned"))?;
+            if let Some(backend) = registry.get(&name) {
+                return Ok(Resolved::Plugin(name, backend.clone_ref(py)));
+            }
+            if name == "liteparse" && cfg!(all(feature = "pdf", not(target_arch = "wasm32"))) {
+                return Ok(Resolved::Native);
+            }
+            return Err(PyValueError::new_err(format!(
+                "unknown PDF backend {name:?}; registered: {:?}",
+                registry.keys().collect::<Vec<_>>()
+            )));
+        }
+        if requested.is_callable() {
+            return Ok(Resolved::Plugin(
+                "custom".to_string(),
+                requested.clone().unbind(),
+            ));
+        }
+        return Err(PyValueError::new_err(
+            "backend must be a name, a callable, or None",
+        ));
+    }
+
+    // `auto`: prefer a liteparse plugin, then any plugin, then the native backend.
+    {
+        let registry = pdf_backend_registry()
+            .lock()
+            .map_err(|_| PyValueError::new_err("parser backend registry is poisoned"))?;
+        for preferred in ["liteparse", "pdf"] {
+            if let Some(backend) = registry.get(preferred) {
+                return Ok(Resolved::Plugin(
+                    preferred.to_string(),
+                    backend.clone_ref(py),
+                ));
+            }
+        }
+        if let Some((name, backend)) = registry.iter().next() {
+            return Ok(Resolved::Plugin(name.clone(), backend.clone_ref(py)));
+        }
+    }
+    if cfg!(all(feature = "pdf", not(target_arch = "wasm32"))) {
+        return Ok(Resolved::Native);
+    }
+    Ok(Resolved::Fast)
+}
+
 #[pyclass(name = "PDFLoader")]
 #[derive(Default)]
 pub struct PyPDFLoader {
     inner: PDFLoader,
+    backend: Option<Py<PyAny>>,
+    config: PyParserConfig,
 }
 
 #[pymethods]
 impl PyPDFLoader {
+    /// `backend` selects the extractor: `None`/`"auto"` uses a registered
+    /// high-fidelity backend when one is installed, `"fast"` forces the built-in
+    /// extractor, a name looks up a registered backend, and a callable is used
+    /// directly.
     #[new]
-    pub fn new() -> Self {
-        Self {
+    #[pyo3(signature = (backend=None, config=None))]
+    pub fn new(
+        backend: Option<&Bound<'_, PyAny>>,
+        config: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<Self> {
+        Ok(Self {
             inner: PDFLoader::new(),
+            backend: backend.map(|b| b.clone().unbind()),
+            config: PyParserConfig::from_any(config)?,
+        })
+    }
+
+    /// Names of the backends this installation can use.
+    #[staticmethod]
+    pub fn available_backends(py: Python<'_>) -> PyResult<Vec<String>> {
+        let mut names = pdf_backends()?;
+        if cfg!(all(feature = "pdf", not(target_arch = "wasm32"))) {
+            names.push("liteparse".to_string());
         }
+        names.push("fast".to_string());
+        names.push("auto".to_string());
+        let _ = py;
+        Ok(names)
     }
 
-    #[pyo3(signature = (path))]
-    pub fn load(&self, path: &str) -> PyResult<String> {
-        self.inner
-            .load_from_file(path)
-            .map_err(|e| PyValueError::new_err(e.to_string()))
+    #[getter]
+    pub fn config(&self) -> PyParserConfig {
+        self.config.clone()
     }
 
-    #[pyo3(signature = (path))]
-    pub fn load_from_file(&self, path: &str) -> PyResult<String> {
-        self.load(path)
+    /// Extract the full text of a PDF.
+    #[pyo3(signature = (inp))]
+    pub fn load(&self, py: Python<'_>, inp: &Bound<'_, PyAny>) -> PyResult<String> {
+        let docs = self.documents(py, inp)?;
+        Ok(docs
+            .iter()
+            .map(|d| d.content.trim())
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n"))
     }
 
-    #[pyo3(signature = (bytes))]
-    pub fn load_from_bytes(&self, bytes: &[u8]) -> PyResult<String> {
-        self.inner
-            .load_from_bytes(bytes)
-            .map_err(|e| PyValueError::new_err(e.to_string()))
-    }
-
-    #[pyo3(signature = (path))]
-    pub fn load_document(&self, path: &str) -> PyResult<PyDocument> {
-        self.inner
-            .load_document(path)
-            .map(PyDocument::from)
-            .map_err(|e| PyValueError::new_err(e.to_string()))
-    }
-
-    #[pyo3(signature = (bytes))]
-    pub fn load_document_from_bytes(&self, bytes: &[u8]) -> PyResult<PyDocument> {
-        self.inner
-            .load_document_from_bytes(bytes)
-            .map(PyDocument::from)
-            .map_err(|e| PyValueError::new_err(e.to_string()))
-    }
-
-    #[pyo3(signature = (path))]
-    pub fn load_pages(&self, path: &str) -> PyResult<Vec<PyDocument>> {
-        self.inner
-            .load_pages_from_file(path)
-            .map(wrap_docs)
-            .map_err(|e| PyValueError::new_err(e.to_string()))
-    }
-
-    #[pyo3(signature = (path))]
-    pub fn load_pages_from_file(&self, path: &str) -> PyResult<Vec<PyDocument>> {
-        self.load_pages(path)
+    #[pyo3(signature = (inp))]
+    pub fn load_from_file(&self, py: Python<'_>, inp: &Bound<'_, PyAny>) -> PyResult<String> {
+        self.load(py, inp)
     }
 
     #[pyo3(signature = (bytes))]
-    pub fn load_pages_from_bytes(&self, bytes: &[u8]) -> PyResult<Vec<PyDocument>> {
-        self.inner
-            .load_pages_from_bytes(bytes)
-            .map(wrap_docs)
-            .map_err(|e| PyValueError::new_err(e.to_string()))
+    pub fn load_from_bytes(&self, py: Python<'_>, bytes: &[u8]) -> PyResult<String> {
+        self.load(py, &pyo3::types::PyBytes::new_bound(py, bytes).into_any())
+    }
+
+    /// One document holding every page, in the configured output format.
+    #[pyo3(signature = (inp))]
+    pub fn load_document(&self, py: Python<'_>, inp: &Bound<'_, PyAny>) -> PyResult<PyDocument> {
+        let mut docs = self.documents(py, inp)?;
+        let content = docs
+            .iter()
+            .map(|d| d.content.trim())
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        let mut metadata = docs.first().map(|d| d.metadata.clone()).unwrap_or_default();
+        metadata.remove("page_number");
+        metadata.insert("total_pages".to_string(), serde_json::json!(docs.len()));
+        docs.clear();
+        Ok(PyDocument::from(Document::new(content, metadata)))
+    }
+
+    #[pyo3(signature = (bytes))]
+    pub fn load_document_from_bytes(&self, py: Python<'_>, bytes: &[u8]) -> PyResult<PyDocument> {
+        self.load_document(py, &pyo3::types::PyBytes::new_bound(py, bytes).into_any())
+    }
+
+    /// One document per page, tagged with `page_number` and `page_label`.
+    #[pyo3(signature = (inp))]
+    pub fn load_pages(&self, py: Python<'_>, inp: &Bound<'_, PyAny>) -> PyResult<Vec<PyDocument>> {
+        let mut page_config = self.config.clone();
+        page_config.inner.granularity = crate::parser::Granularity::Page;
+        self.documents_with(py, &page_config, inp).map(wrap_docs)
+    }
+
+    #[pyo3(signature = (inp))]
+    pub fn load_pages_from_file(
+        &self,
+        py: Python<'_>,
+        inp: &Bound<'_, PyAny>,
+    ) -> PyResult<Vec<PyDocument>> {
+        self.load_pages(py, inp)
+    }
+
+    #[pyo3(signature = (bytes))]
+    pub fn load_pages_from_bytes(&self, py: Python<'_>, bytes: &[u8]) -> PyResult<Vec<PyDocument>> {
+        self.load_pages(py, &pyo3::types::PyBytes::new_bound(py, bytes).into_any())
     }
 }
 
@@ -1643,6 +2002,59 @@ pub fn to_dict_list(py: Python, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Py
     Ok(list.into())
 }
 
+impl PyPDFLoader {
+    /// Documents for a path or bytes, using the high-fidelity backend when one
+    /// applies and the built-in extractor otherwise.
+    fn documents(&self, py: Python<'_>, source: &Bound<'_, PyAny>) -> PyResult<Vec<Document>> {
+        self.documents_with(py, &self.config.clone(), source)
+    }
+
+    fn documents_with(
+        &self,
+        py: Python<'_>,
+        config: &PyParserConfig,
+        source: &Bound<'_, PyAny>,
+    ) -> PyResult<Vec<Document>> {
+        let path = source_path(source)?;
+        match resolve_backend(py, self.backend.as_ref().map(|b| b.bind(py)))? {
+            Resolved::Plugin(name, backend) => {
+                let payload = run_backend(py, &backend, source, &config.to_json()?)?;
+                payload_to_documents(&payload, config, path.as_deref(), &name)
+            }
+            Resolved::Native => {
+                #[cfg(all(feature = "pdf", not(target_arch = "wasm32")))]
+                {
+                    let bytes = match &path {
+                        Some(path) => std::fs::read(path)?,
+                        None => source.extract::<Vec<u8>>()?,
+                    };
+                    let parser = crate::parser::PdfParser::new(config.inner.clone());
+                    parser
+                        .parse(&bytes, path.as_deref())
+                        .map(|outcome| outcome.documents)
+                        .map_err(|e| PyValueError::new_err(e.to_string()))
+                }
+                #[cfg(not(all(feature = "pdf", not(target_arch = "wasm32"))))]
+                {
+                    Err(PyValueError::new_err(
+                        "the liteparse backend is not available in this build",
+                    ))
+                }
+            }
+            Resolved::Fast => {
+                let docs = match &path {
+                    Some(path) => self.inner.load_pages_from_file(path),
+                    None => self
+                        .inner
+                        .load_pages_from_bytes(&source.extract::<Vec<u8>>()?),
+                }
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+                Ok(docs)
+            }
+        }
+    }
+}
+
 #[pyfunction]
 #[pyo3(signature = (path))]
 pub fn load_pdf(path: &str) -> PyResult<String> {
@@ -1660,8 +2072,9 @@ pub fn load_pdf_pages(path: &str) -> PyResult<Vec<PyDocument>> {
         .map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
-/// The `chunkr` Python native extension module
+/// The `chunkr._core` Python native extension module.
 #[pymodule]
+#[pyo3(name = "_core")]
 pub fn chunkr(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDocument>()?;
     m.add_class::<PyRecursiveChunker>()?;
@@ -1688,14 +2101,20 @@ pub fn chunkr(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyChunkPipeline>()?;
     m.add_class::<PyStreamChunker>()?;
     m.add_class::<PyPDFLoader>()?;
+    m.add_class::<PyParserConfig>()?;
     m.add_class::<PyDirectoryLoader>()?;
     m.add_function(wrap_pyfunction!(load_pdf, m)?)?;
     m.add_function(wrap_pyfunction!(load_pdf_pages, m)?)?;
+    m.add_function(wrap_pyfunction!(pages_to_documents, m)?)?;
+    m.add_function(wrap_pyfunction!(register_pdf_backend, m)?)?;
+    m.add_function(wrap_pyfunction!(unregister_pdf_backend, m)?)?;
+    m.add_function(wrap_pyfunction!(pdf_backends, m)?)?;
     m.add_function(wrap_pyfunction!(to_langchain, m)?)?;
     m.add_function(wrap_pyfunction!(from_langchain, m)?)?;
     m.add_function(wrap_pyfunction!(to_llamaindex, m)?)?;
     m.add_function(wrap_pyfunction!(from_llamaindex, m)?)?;
     m.add_function(wrap_pyfunction!(to_dict_list, m)?)?;
+    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add(
         "SENTENCE_SEPARATORS",
         crate::chunker::recursive::SENTENCE_SEPARATORS.to_vec(),
