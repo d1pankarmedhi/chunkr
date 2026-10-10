@@ -3,6 +3,39 @@
 Reproducible benchmarks for `chunkr` vs. the mainstream Python/Rust chunking libraries.
 Nothing here is part of the published crate or wheel — it is a dev-only harness.
 
+## OCR accuracy (`ocr_accuracy.py`)
+
+Ground truth here is the page's own text layer: a digital page is rasterised with
+liteparse (so the image carries no text), the backend OCRs it, and the result is
+compared with the text liteparse extracted digitally. No scanned sample files are
+needed and the comparison is exact per page.
+
+```bash
+python benchmarks/ocr_accuracy.py --pages 3 --dpi 200 --markdown
+```
+
+`char_sim` is difflib similarity of normalised text (order-sensitive, so column
+interleaving or duplicated lines cost it), `token_recall` is the share of the
+page's alphanumeric tokens that came back (bag of words, robust to ordering).
+Latency is render + OCR + merge per page, cold start included in the first page.
+
+Measured on an Apple Silicon laptop, Python 3.14, 2 pages each at 200 dpi, with
+Tesseract from liteparse's wheel and RapidOCR (PP-OCRv6 small ONNX) installed:
+
+| PDF | Engine | Pages | char_sim | token_recall | ms/page |
+| :--- | :--- | ---: | ---: | ---: | ---: |
+| finance.pdf (slides) | `tesseract` | 2 | 0.827 | 0.554 | 2373 |
+| finance.pdf (slides) | `rapidocr` | 2 | 0.819 | 0.558 | 842 |
+| lebs201.pdf (2-col text) | `tesseract` | 2 | 0.441 | 0.989 | 1909 |
+| lebs201.pdf (2-col text) | `rapidocr` | 2 | 0.948 | 0.989 | 2303 |
+
+Reading: on the two-column textbook both engines find essentially every word
+(`token_recall` 0.989), but Tesseract's segmentation interleaves reading order,
+which collapses `char_sim` (0.44 vs 0.95) — exactly the failure mode that makes a
+layout-aware backend worth its cost. On the slide deck both engines trail the
+ground truth on tokens because a lot of that text is vector artwork rather than a
+text layer, so the reference itself is the friendlier of the two.
+
 ## What is measured
 
 `bench_chunking.py` — text chunking throughput (the core claim), in-process:

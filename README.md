@@ -620,6 +620,10 @@ Full methodology and the size-matched sweep: [`benchmarks/README.md`](benchmarks
 | PyMuPDF + LangChain RecursiveTextSplitter | 11.23 ms | 890 pgs/s | 2.2x Faster |
 | pypdf + LangChain RecursiveTextSplitter | 24.55 ms | 407 pgs/s | 1.0x (baseline) |
 
+OCR accuracy (per engine, measured against the pages' own text layer) is in
+[`benchmarks/README.md`](benchmarks/README.md#ocr-accuracy-ocr_accuracypy);
+reproduce with `python benchmarks/ocr_accuracy.py --markdown`.
+
 **2,066-page textbook** (19.9 MB) — page count matters, so the lead narrows on large documents:
 
 | Extractor / Pipeline | Latency | Throughput | Speedup vs PyPDF |
