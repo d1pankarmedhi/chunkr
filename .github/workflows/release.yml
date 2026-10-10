@@ -477,11 +477,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write # npm trusted publishing (OIDC) — no long-lived token
     environment: npm
     steps:
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # Node 24 bundles npm >= 11.5.1, the floor for trusted publishing.
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
       - uses: actions/download-artifact@v4
         with:
@@ -493,9 +495,15 @@ jobs:
         # The `./` prefix is load-bearing: npm parses a bare `dist/x.tgz` as a
         # GitHub shorthand spec (`npa`) and fails in `git ls-remote`, never
         # reaching the registry.
+        #
+        # No NODE_AUTH_TOKEN: npm CLI detects the OIDC id-token and uses npm
+        # trusted publishing. A token is no longer an option worth keeping —
+        # write-enabled granular tokens now expire after 7 days by default and
+        # 90 days at most, so a stored secret dies between releases and npm
+        # reports it as a misleading E404. Configure the trusted publisher on
+        # the package page (PUBLISHING.md §1c); if NODE_AUTH_TOKEN is set, npm
+        # ignores OIDC and uses the token instead.
         run: |
           TARBALL=$(ls ./dist/chunkr-wasm-*.tgz 2>/dev/null || true)
           [ -n "$TARBALL" ] || { echo "::error::No wasm tarball in dist/"; ls -la dist; exit 1; }
           npm publish "$TARBALL" --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

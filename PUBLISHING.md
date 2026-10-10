@@ -50,11 +50,35 @@ a `v…-rc.1` prerelease tag before touching production PyPI.
    (select the `chunkr` crate if scoping is offered).
 2. In GitHub create environment `crates-io`, add secret `CARGO_REGISTRY_TOKEN`.
 
-### 1c. npm — `NPM_TOKEN`
+### 1c. npm — trusted publishing (OIDC), no token
 
-1. npmjs.com → Access Tokens → **Generate New Token → Automation** (classic).
-   Automation tokens bypass 2FA by design — never use one locally, only in CI.
-2. In GitHub create environment `npm`, add secret `NPM_TOKEN`.
+Tokens are no longer viable for npm releases: classic tokens were revoked in
+December 2025, and write-enabled granular tokens now expire after **7 days by
+default** (90 max). A stored `NPM_TOKEN` therefore dies between releases, and npm
+reports the failure as a misleading `E404 Not Found - PUT` even though the
+package exists — exactly what happened to the `v1.6.0` run, where the token was
+still valid for the `v1.5.0` publish seven days earlier.
+
+The workflow uses **trusted publishing** instead (`id-token: write`, no secret):
+
+1. npmjs.com → the `chunkr-wasm` package → **Settings → Trusted Publisher →
+   GitHub Actions**, and enter:
+   - Organization or user: `d1pankarmedhi`
+   - Repository: `chunkr`
+   - Workflow filename: `release.yml`
+   - Environment: `npm`
+2. That's it — nothing to store in GitHub. Delete the `NPM_TOKEN` secret
+   (`gh secret delete NPM_TOKEN --env npm`) so nothing silently falls back to it.
+3. Requires npm ≥ 11.5.1, which is why the job pins Node 24.
+
+To fall back to a token temporarily (e.g. while the trusted publisher is being
+set up): create a granular token with **Read and write** for `chunkr-wasm`, set
+the longest expiry offered (90 days), `gh secret set NPM_TOKEN --env npm`, and
+re-add `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}` to the publish step. Set a
+reminder — this is the trap described above.
+
+Recovery for a failed npm publish is unchanged:
+`gh workflow run release.yml -f dry_run=false -f target=npm`.
 
 ### 1c-bis. PyPI — `PYPI_API_TOKEN_PDF`
 
