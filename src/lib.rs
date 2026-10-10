@@ -52,6 +52,7 @@
 pub mod chunker;
 pub mod error;
 pub mod loader;
+pub mod parser;
 pub mod pipeline;
 pub mod structures;
 
@@ -103,6 +104,9 @@ pub mod prelude {
     #[cfg(not(target_arch = "wasm32"))]
     pub use crate::loader::directory::DirectoryLoader;
     pub use crate::loader::pdf::PDFLoader;
+    pub use crate::parser::{
+        Backend, Granularity, ParserConfig, ParserOutput, PdfParser, SanitizeConfig, TableMode,
+    };
     pub use crate::pipeline::{ChunkDeduplicator, ChunkFilter, ChunkPipeline, MetadataEnricher};
     pub use crate::structures::document::Document;
 }

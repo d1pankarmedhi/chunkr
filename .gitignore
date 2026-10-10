@@ -14,3 +14,10 @@ __pycache__
 *.egg-info
 .resource
 main.rs
+*.abi3.so
+*.so
+.pytest_cache
+
+# Local-only fixtures (vendor PDFs): the parser/OCR tests skip when absent.
+/tests/test_files/deck_16p.pdf
+/tests/test_files/textbook_27p.pdf

@@ -3,7 +3,7 @@ authors = ["Dipankar dipankarmedhi11@gmail.com"]
 edition = "2021"
 license = "MIT"
 name = "chunkr"
-version = "1.5.0"
+version = "1.6.0"
 description = "Blazingly fast document and text chunking library for LLMs, RAG, and AI agents in Rust and Python"
 repository = "https://github.com/d1pankarmedhi/chunkr"
 homepage = "https://github.com/d1pankarmedhi/chunkr"
@@ -27,6 +27,29 @@ default = ["cli"]
 python = ["dep:pyo3", "pyo3/extension-module"]
 wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "dep:js-sys"]
 cli = ["dep:clap"]
+# High-fidelity PDF parsing (PDFium-backed) for Rust and CLI users.
+# OCR engines: `ocr.backend="tesseract"` needs `pdf-ocr`; any other engine is
+# reached through `ocr.server_url` or `PdfParser::with_ocr_engine`.
+pdf = ["dep:liteparse", "dep:tokio"]
+# Adds the bundled Tesseract engine to the `pdf` backend (compiles Tesseract).
+pdf-ocr = ["pdf", "liteparse/tesseract"]
+# Adds the in-process ONNX PP-OCR engine (no Python, no server). Models are
+# downloaded and SHA-256-verified on first use into $OAR_HOME (~/.oar) unless
+# `ocr.ppocr.models_dir` points at locally cached artifacts, in which case the
+# standard file names for the selected preset are read from there.
+pdf-ocr-ppocr = [
+    "pdf",
+    "dep:ort",
+    "liteparse/oar-ocr",
+    "liteparse/oar-ocr-auto-download",
+]
+# Accelerators; enable at most one and match it with `ocr.ppocr.device`.
+pdf-ocr-ppocr-coreml = ["pdf-ocr-ppocr", "liteparse/oar-ocr-coreml"]
+pdf-ocr-ppocr-cuda = ["pdf-ocr-ppocr", "liteparse/oar-ocr-cuda"]
+pdf-ocr-ppocr-directml = ["pdf-ocr-ppocr", "liteparse/oar-ocr-directml"]
+pdf-ocr-ppocr-openvino = ["pdf-ocr-ppocr", "liteparse/oar-ocr-openvino"]
+pdf-ocr-ppocr-tensorrt = ["pdf-ocr-ppocr", "liteparse/oar-ocr-tensorrt"]
+pdf-ocr-ppocr-webgpu = ["pdf-ocr-ppocr", "liteparse/oar-ocr-webgpu"]
 
 [dependencies]
 lopdf = { version = "0.32.0", features = ["pom", "pom_parser"] }
@@ -49,7 +72,18 @@ js-sys = { version = "0.3.69", optional = true }
 tree-sitter = "0.24"
 tree-sitter-rust = "0.23.2"
 tree-sitter-python = "0.23"
+liteparse = { version = "2.15", default-features = false, optional = true }
+tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-thread"], optional = true }
+# Version pin, not a used dependency: `oar-ocr-core` 0.8.1 (pulled in by
+# `liteparse/oar-ocr`) is only source-compatible with `ort` 2.0.0-rc.12 — rc.13
+# renamed the CPU execution provider, so the pin keeps the ONNX backend
+# compiling. Drop it once oar-ocr requires rc.13 or newer.
+ort = { version = "=2.0.0-rc.12", default-features = false, optional = true }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 getrandom = { version = "0.3", features = ["wasm_js"] }
 
+# OCR accuracy harness for the native engines (needs the PDF backend).
+[[example]]
+name = "ocr_bench"
+required-features = ["pdf"]

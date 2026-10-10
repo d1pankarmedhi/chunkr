@@ -7,6 +7,7 @@ This repo ships **three artifacts from one codebase**:
 | Rust crate `chunkr` | [crates.io](https://crates.io/crates/chunkr) | `cargo add chunkr` | `use chunkr::prelude::*;` |
 | Python wheels `chunkr-rs` | [PyPI](https://pypi.org/project/chunkr-rs/) | `pip install chunkr-rs` | `import chunkr` |
 | Wasm package `chunkr-wasm` | [npm](https://www.npmjs.com/package/chunkr-wasm) | `npm install chunkr-wasm` | `import { RecursiveChunker } from "chunkr-wasm"` |
+| Python package `chunkr-pdf` (the `chunkr-rs[pdf]` extension) | [PyPI](https://pypi.org/project/chunkr-pdf/) | `pip install chunkr-pdf` | `import chunkr_pdf` |
 
 Two workflows automate everything (see [.github/workflows/](.github/workflows/)):
 
@@ -55,6 +56,22 @@ a `v…-rc.1` prerelease tag before touching production PyPI.
    Automation tokens bypass 2FA by design — never use one locally, only in CI.
 2. In GitHub create environment `npm`, add secret `NPM_TOKEN`.
 
+### 1c-bis. PyPI — `PYPI_API_TOKEN_PDF`
+
+The `chunkr-pdf` extension is published by the same workflow but with its own
+project-scoped token, because PyPI tokens only publish the project they are
+scoped to:
+
+1. PyPI → **API tokens → Add API token**, scope it to `chunkr-pdf`.
+2. Store it as an environment secret named `PYPI_API_TOKEN_PDF` in the same
+   `pypi` environment (so `environment: pypi` still gates both publishes).
+3. Release order inside the pipeline is fixed: `pypi` (base) → `pypi-pdf`
+   (extension), because `chunkr-pdf` pins `chunkr-rs>=<version>`.
+4. Until the secret exists, the `pypi-pdf` job still builds and smoke-tests the
+   extension, then skips the upload with a warning — a base release is never
+   blocked or half-failed by the extension's token. Publish the skipped version
+   by hand (or re-run the job) after adding the secret.
+
 ### 1d. Branch protection (do this today)
 
 **Settings → Branches → Add rule for `main`:**
@@ -70,6 +87,18 @@ a `v…-rc.1` prerelease tag before touching production PyPI.
 ---
 
 ## 2. Versioning policy
+
+`chunkr-rs` / `chunkr` / `chunkr-wasm` share one version and one tag.
+
+`chunkr-pdf` versions independently (currently `0.x`) because it is a thin
+extension: it pins `chunkr-rs>=<base minor>` and the base extra
+(`chunkr-rs[pdf]`) pins `chunkr-pdf>=0.1`. Bump the extension only when its own
+code changes; bump its `chunkr-rs>=` floor when it starts using new core API.
+The two release together anyway — the workflow publishes whichever `chunkr-pdf`
+version is in `packages/chunkr-pdf/pyproject.toml`, and PyPI rejects a
+re-upload of an existing version, so bump it before every base release that
+changes the extension.
+
 
 - **SemVer** (`MAJOR.MINOR.PATCH`), one version across all three manifests:
   `Cargo.toml` = `pyproject.toml` = `wasm/package.json`.
@@ -106,13 +135,14 @@ git push origin v1.4.0
 
 # 3. Watch Actions → release.yml:
 #    validate → wheels (linux/win/mac) + sdist + wasm →
-#    smoke test → GitHub Release → PyPI → crates.io → npm
+#    smoke test → GitHub Release → PyPI → crates.io → npm → PyPI (chunkr-pdf)
 #
 # 4. Verify (links are in the workflow summary):
 #    - GitHub Release shows wheels + sdist + wasm tarball + SHA256SUMS.txt
 #    - pip install chunkr-rs==1.4.0 && python -c "import chunkr"
 #    - cargo add chunkr@1.4.0 builds
 #    - npm view chunkr-wasm version
+#    - pip install "chunkr-rs[pdf]"==1.4.0 && python -c "import chunkr_pdf"
 ```
 
 **Tag conventions:**
