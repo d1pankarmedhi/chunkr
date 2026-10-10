@@ -59,12 +59,35 @@ a `v…-rc.1` prerelease tag before touching production PyPI.
 ### 1c-bis. PyPI — `PYPI_API_TOKEN_PDF`
 
 The `chunkr-pdf` extension is published by the same workflow but with its own
-project-scoped token, because PyPI tokens only publish the project they are
-scoped to:
+token, because PyPI tokens only publish the project(s) they are scoped to.
 
-1. PyPI → **API tokens → Add API token**, scope it to `chunkr-pdf`.
-2. Store it as an environment secret named `PYPI_API_TOKEN_PDF` in the same
-   `pypi` environment (so `environment: pypi` still gates both publishes).
+**First release — the scope cannot be `chunkr-pdf` yet.** PyPI only lets you
+scope a token to a project that already exists, and `chunkr-pdf` is unpublished,
+so the first upload needs a token scoped to **Entire account**. Steps:
+
+1. PyPI → **Account settings → API tokens → Add API token**. Name it
+   `chunkr-pdf release (GitHub Actions)`, scope **Entire account**, create, copy
+   the `pypi-…` value (shown once). Requires 2FA on the account.
+2. Store it as a secret named `PYPI_API_TOKEN_PDF` — repo level, next to the
+   existing `PYPI_API_TOKEN`:
+
+   ```bash
+   gh secret set PYPI_API_TOKEN_PDF     # paste when prompted, no trailing newline
+   gh secret list | grep PDF            # verify
+   ```
+
+3. **Immediately after the first successful publish:** create a second token
+   scoped to the `chunkr-pdf` project, overwrite the secret with it, and delete
+   the account-wide token. Rotating is a 2-minute job and shrinks the blast
+   radius from "your whole account" to "this one project".
+
+**Better long-term: no token at all.** PyPI supports Trusted Publishing (OIDC),
+including a *pending publisher* that can be registered before the project
+exists: PyPI → Account settings → Publishing → Add pending publisher → project
+`chunkr-pdf`, owner `d1pankarmedhi`, repo `chunkr`, workflow `release.yml`,
+environment `pypi`. The publish step then drops `password:` and the job gains
+`id-token: write`. The base package and crates.io still use tokens today; moving
+all three to OIDC removes every long-lived upload secret.
 3. Release order inside the pipeline is fixed: `pypi` (base) → `pypi-pdf`
    (extension), because `chunkr-pdf` pins `chunkr-rs>=<version>`.
 4. Until the secret exists, the `pypi-pdf` job still builds and smoke-tests the

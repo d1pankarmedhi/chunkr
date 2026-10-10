@@ -355,8 +355,9 @@ jobs:
 
   # ── 5b. PyPI: the `chunkr-pdf` extension (separate distribution) ────────
   # It pins `chunkr-rs>=<this release>`, so it publishes after the base package.
-  # Token: PyPI → API tokens (scope: chunkr-pdf project) → secret PYPI_API_TOKEN_PDF.
-  # See PUBLISHING.md §1c.
+  # Token: secret PYPI_API_TOKEN_PDF — account-scoped for the first release
+  # (PyPI cannot scope a token to a project that does not exist yet), rotated to
+  # project scope right after. See PUBLISHING.md §1c-bis.
   pypi-pdf:
     name: Publish chunkr-pdf to PyPI
     needs: [validate, pypi]
