@@ -90,7 +90,128 @@ pub fn pages_from_bytes(
     if matches!(cfg.ocr.mode, OcrMode::Auto) {
         return pages_auto(bytes, cfg, engine);
     }
+    // Built-in engines (Tesseract, HTTP server) are liteparse's business; the
+    // PP-OCR one is ours and is only built when a page will actually be OCRed.
+    let engine = if cfg.ocr.is_enabled() {
+        resolve_engine(cfg, engine)?
+    } else {
+        engine
+    };
     parse_pass(bytes, cfg, engine, cfg.ocr.is_enabled(), None)
+}
+
+/// Pick up the engine the config asks for when the caller supplied none.
+#[cfg(feature = "pdf-ocr-ppocr")]
+fn resolve_engine(
+    cfg: &ParserConfig,
+    engine: Option<OcrEngine>,
+) -> Result<Option<OcrEngine>, ChunkrError> {
+    use super::config::OcrBackendKind;
+
+    if engine.is_some() || !matches!(cfg.ocr.backend_kind(), OcrBackendKind::Ppocr) {
+        return Ok(engine);
+    }
+    ppocr::engine(cfg).map(Some)
+}
+
+#[cfg(not(feature = "pdf-ocr-ppocr"))]
+fn resolve_engine(
+    _cfg: &ParserConfig,
+    engine: Option<OcrEngine>,
+) -> Result<Option<OcrEngine>, ChunkrError> {
+    Ok(engine)
+}
+
+/// In-process ONNX PP-OCR (PP-OCRv6), shared process-wide so the models load once.
+#[cfg(feature = "pdf-ocr-ppocr")]
+mod ppocr {
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex, OnceLock};
+
+    use crate::error::ChunkrError;
+
+    use super::super::config::{ppocr_compiled_device, ParserConfig, PpocrConfig};
+    use super::OcrEngine;
+
+    type Engines = Mutex<BTreeMap<String, OcrEngine>>;
+
+    fn engines() -> &'static Engines {
+        static ENGINES: OnceLock<Engines> = OnceLock::new();
+        ENGINES.get_or_init(|| Mutex::new(BTreeMap::new()))
+    }
+
+    /// Detector, recognizer and dictionary for a preset (upstream file names).
+    fn preset_files(preset: &str) -> (&'static str, &'static str, &'static str) {
+        match preset {
+            "tiny" => (
+                "pp-ocrv6_tiny_det.onnx",
+                "pp-ocrv6_tiny_rec.onnx",
+                "ppocrv6_tiny_dict.txt",
+            ),
+            "medium" => (
+                "pp-ocrv6_medium_det.onnx",
+                "pp-ocrv6_medium_rec.onnx",
+                "ppocrv6_dict.txt",
+            ),
+            _ => (
+                "pp-ocrv6_small_det.onnx",
+                "pp-ocrv6_small_rec.onnx",
+                "ppocrv6_dict.txt",
+            ),
+        }
+    }
+
+    /// A loaded PP-OCR engine for this config, building it on first use.
+    pub fn engine(cfg: &ParserConfig) -> Result<OcrEngine, ChunkrError> {
+        let ppocr = &cfg.ocr.ppocr;
+        let key = format!(
+            "{}|{}|{}",
+            ppocr.preset,
+            ppocr.models_dir.as_deref().unwrap_or("$OAR_HOME"),
+            ppocr.device
+        );
+        if let Some(existing) = engines().lock().map_err(|_| poisoned())?.get(&key).cloned() {
+            return Ok(existing);
+        }
+        let built = build(ppocr)?;
+        engines()
+            .lock()
+            .map_err(|_| poisoned())?
+            .insert(key, built.clone());
+        Ok(built)
+    }
+
+    fn build(ppocr: &PpocrConfig) -> Result<OcrEngine, ChunkrError> {
+        use liteparse::ocr::oar::OarOcrEngine;
+
+        let device = ppocr_compiled_device().unwrap_or("cpu");
+        let filename = preset_files(&ppocr.preset);
+        let loaded = match ppocr.models_dir.as_deref() {
+            // Locally cached artifacts: no download, no env-var guessing.
+            Some(dir) => {
+                let path = |name: &str| PathBuf::from(dir).join(name);
+                OarOcrEngine::from_models(path(filename.0), path(filename.1), path(filename.2))
+            }
+            None => match ppocr.preset.as_str() {
+                "tiny" => OarOcrEngine::ppocr_v6_tiny(),
+                "medium" => OarOcrEngine::ppocr_v6_medium(),
+                _ => OarOcrEngine::ppocr_v6_small(),
+            },
+        };
+        loaded
+            .map(|engine| Arc::new(engine) as OcrEngine)
+            .map_err(|error| {
+                ChunkrError::ParseError(format!(
+                    "PP-OCR {} engine ({device}) failed to load: {error}. Models download to                      $OAR_HOME (~/.oar) on first use; point `ocr.ppocr.models_dir` at local                      {}/{}/{} artifacts to stay offline",
+                    ppocr.preset, filename.0, filename.1, filename.2
+                ))
+            })
+    }
+
+    fn poisoned() -> ChunkrError {
+        ChunkrError::ParseError("PP-OCR engine cache is poisoned".to_string())
+    }
 }
 
 /// Reject OCR backends this build cannot run, before touching the document.
@@ -101,9 +222,10 @@ fn validate_backend(cfg: &ParserConfig) -> Result<(), ChunkrError> {
         return Ok(());
     }
     match cfg.ocr.backend_kind() {
-        OcrBackendKind::Ppocr => Err(ChunkrError::ParseError(
-            "ocr.backend=\"ppocr\" needs the `pdf-ocr-ppocr` Cargo feature, which is not built yet; \
-             use backend=\"server\" with a PP-OCR service, or the Python plugin \
+        OcrBackendKind::Ppocr if !super::config::ppocr_available() => Err(ChunkrError::ParseError(
+            "ocr.backend=\"ppocr\" needs the `pdf-ocr-ppocr` Cargo feature; pass it to Cargo \
+             (add `pdf-ocr-ppocr-coreml`/`-cuda`/... for an accelerator), use \
+             backend=\"server\" with a PP-OCR service, or the Python plugin \
              (chunkr_pdf.PDFParser(ocr={\"backend\": \"paddleocr\"}))"
                 .to_string(),
         )),
@@ -138,6 +260,9 @@ fn pages_auto(
     }
 
     let target = super::ocr::format_page_range(&selected);
+    // Only now is an engine worth building: `mode="auto"` must not download or
+    // load models for a document that never gets OCRed.
+    let engine = resolve_engine(cfg, engine)?;
     let ocr_pages = parse_pass(bytes, cfg, engine, true, Some(target))?;
     let mut replacements: std::collections::BTreeMap<usize, PagePayload> = ocr_pages
         .into_iter()

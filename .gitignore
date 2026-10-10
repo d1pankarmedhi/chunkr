@@ -17,3 +17,7 @@ main.rs
 *.abi3.so
 *.so
 .pytest_cache
+
+# Local-only fixtures (vendor PDFs): the parser/OCR tests skip when absent.
+/tests/test_files/finance.pdf
+/tests/test_files/lebs201.pdf

@@ -270,13 +270,16 @@ chunks = chunkr.MarkdownChunker(1000, 120).chunk_documents(parser.load("report.p
 
 Once installed, `chunkr.PDFLoader()` picks it up automatically (`backend="auto"`); pass `backend="fast"` to opt back out. Nothing is hidden: every option — output format, page/block/document granularity, tables, headings, figures, glyph repair, junk heuristics, OCR mode, page limits — is configurable, and `sanitize={"enabled": False}` returns backend output untouched.
 
-OCR is pluggable too. `ocr.mode="auto"` OCRs *only* the pages whose text layer is broken, and `ocr.backend` picks the engine: bundled Tesseract, any liteparse-compatible OCR server, or a package adapter such as RapidOCR / PaddleOCR / EasyOCR / Surya (`pip install "chunkr-pdf[ocr-rapid]"`) — plus `chunkr.register_ocr_backend("name", engine)` for your own callable or a cloud API.
+OCR is pluggable too. `ocr.mode="auto"` OCRs *only* the pages whose text layer is broken, and `ocr.backend` picks the engine: bundled Tesseract, in-process ONNX PP-OCR (`features = ["pdf-ocr-ppocr"]`, models auto-downloaded and SHA-256 verified), any liteparse-compatible OCR server, or a package adapter such as RapidOCR / PaddleOCR / EasyOCR / Surya (`pip install "chunkr-pdf[ocr-rapid]"`) — plus `chunkr.register_ocr_backend("name", engine)` for your own callable or a cloud API.
 
 Rust users get the same backend without a plugin:
 
 ```toml
 [dependencies]
-chunkr = { version = "1.6", features = ["pdf"] }   # add "pdf-ocr" to bundle Tesseract
+chunkr = { version = "1.6", features = ["pdf"] }
+# `pdf-ocr` bundles Tesseract; `pdf-ocr-ppocr` adds the in-process ONNX PP-OCR
+# engine (`-coreml`, `-cuda`, `-directml`, `-openvino`, `-tensorrt`, `-webgpu`
+# pick an accelerator — match it with ocr.ppocr.device).
 ```
 
 ```rust

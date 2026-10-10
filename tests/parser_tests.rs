@@ -907,12 +907,15 @@ mod ocr_native {
 
     #[test]
     fn unavailable_ocr_backends_fail_before_parsing() {
-        let ppocr = PdfParser::from_spec(Some(
-            r#"{"backend": "liteparse", "ocr": {"mode": "always", "backend": "ppocr"}}"#,
-        ))
-        .unwrap();
-        let error = ppocr.parse(&[], None).unwrap_err().to_string();
-        assert!(error.contains("pdf-ocr-ppocr"), "{error}");
+        #[cfg(not(feature = "pdf-ocr-ppocr"))]
+        {
+            let ppocr = PdfParser::from_spec(Some(
+                r#"{"backend": "liteparse", "ocr": {"mode": "always", "backend": "ppocr"}}"#,
+            ))
+            .unwrap();
+            let error = ppocr.parse(&[], None).unwrap_err().to_string();
+            assert!(error.contains("pdf-ocr-ppocr"), "{error}");
+        }
 
         let custom = PdfParser::from_spec(Some(
             r#"{"backend": "liteparse", "ocr": {"mode": "always", "backend": "our-inhouse"}}"#,
@@ -932,4 +935,49 @@ mod ocr_native {
         .to_string();
         assert!(error.contains("server_url"), "{error}");
     }
+}
+
+/// The accelerator is a compile-time choice upstream, so a config that asks for
+/// a different one is an error rather than a silent CPU fallback.
+#[cfg(feature = "pdf-ocr-ppocr")]
+#[test]
+fn ppocr_device_must_match_the_compiled_feature() {
+    let mut config = ParserConfig::default();
+    config.ocr.mode = chunkr::parser::OcrMode::Always;
+    config.ocr.backend = "ppocr".to_string();
+    config.ocr.ppocr.device = "tensorrt".to_string();
+    let error = config.validate().unwrap_err();
+    assert!(error.contains("compiled PP-OCR for"), "{error}");
+
+    config.ocr.ppocr.device = chunkr::parser::config::ppocr_compiled_device()
+        .unwrap()
+        .to_string();
+    assert!(config.validate().is_ok());
+}
+
+/// Opt-in: `CHUNKR_PPOCR_E2E=<page.png>` runs the real ONNX engine over a
+/// rasterised page (models download into $OAR_HOME on first use). Rasterise a
+/// page with `liteparse` and `extract_screenshots=True`.
+#[cfg(feature = "pdf-ocr-ppocr")]
+#[test]
+fn ppocr_reads_a_rasterized_page() {
+    let Ok(page) = std::env::var("CHUNKR_PPOCR_E2E") else {
+        return;
+    };
+    let parser = PdfParser::from_spec(Some(
+        r#"{"backend": "liteparse", "output": "markdown",
+             "ocr": {"mode": "always", "backend": "ppocr", "language": "en",
+                     "ppocr": {"preset": "tiny"}}}"#,
+    ))
+    .unwrap();
+    let documents = parser.load_pages(&page).unwrap();
+    let text = documents
+        .iter()
+        .map(|document| document.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        text.contains("College of Business Administration") || text.contains("FINANCE"),
+        "PP-OCR returned {text:?}"
+    );
 }

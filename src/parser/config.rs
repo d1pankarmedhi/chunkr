@@ -145,6 +145,48 @@ pub enum OcrBackendKind {
 /// Add them through `ocr.auto_reasons` when a corpus needs it.
 pub const DEFAULT_OCR_REASONS: [&str; 3] = ["scanned", "no_text", "garbled"];
 
+/// The PP-OCR accelerator this build was compiled with, if any.
+///
+/// Device selection is a compile-time feature upstream, so a configured device
+/// that differs from this one is a configuration error, not a silent fallback.
+pub const fn ppocr_compiled_device() -> Option<&'static str> {
+    #[cfg(feature = "pdf-ocr-ppocr-coreml")]
+    {
+        return Some("coreml");
+    }
+    #[cfg(feature = "pdf-ocr-ppocr-cuda")]
+    {
+        return Some("cuda");
+    }
+    #[cfg(feature = "pdf-ocr-ppocr-directml")]
+    {
+        return Some("directml");
+    }
+    #[cfg(feature = "pdf-ocr-ppocr-openvino")]
+    {
+        return Some("openvino");
+    }
+    #[cfg(feature = "pdf-ocr-ppocr-tensorrt")]
+    {
+        return Some("tensorrt");
+    }
+    #[cfg(feature = "pdf-ocr-ppocr-webgpu")]
+    {
+        return Some("webgpu");
+    }
+    #[cfg(feature = "pdf-ocr-ppocr")]
+    {
+        return Some("cpu");
+    }
+    #[allow(unreachable_code)]
+    None
+}
+
+/// True when the in-process ONNX PP-OCR engine is compiled in.
+pub const fn ppocr_available() -> bool {
+    cfg!(feature = "pdf-ocr-ppocr")
+}
+
 /// Accelerators `oar-ocr` can be compiled with.
 pub const PPOCR_DEVICES: [&str; 7] = [
     "cpu", "coreml", "cuda", "directml", "openvino", "tensorrt", "webgpu",
@@ -680,6 +722,14 @@ impl ParserConfig {
                         PPOCR_DEVICES.join(", "),
                         ocr.ppocr.device
                     ));
+                }
+                if let Some(compiled) = ppocr_compiled_device() {
+                    if device != compiled {
+                        return Err(format!(
+                            "ocr.ppocr.device={:?} but this build compiled PP-OCR for {compiled:?};                              rebuild with the matching `pdf-ocr-ppocr-{compiled}` feature",
+                            ocr.ppocr.device
+                        ));
+                    }
                 }
             }
             _ => {}
