@@ -208,6 +208,43 @@ immediately), a lock serializes it unless `ocr.plugin.concurrency` is raised, an
 `parser.close()` (or the context manager) stops the server. `parser.ocr_servers`
 exposes the running servers for inspection.
 
+## Whole-document parser backends
+
+When a service returns page-level markdown rather than word boxes, it belongs in
+the *parser* registry instead of the OCR one — it replaces the parse rather than
+feeding it. Three adapters ship in `chunkr_pdf.parsers`, and each is a plain
+callable you register yourself:
+
+```python
+import chunkr
+from chunkr_pdf.parsers import docling, mistral, vlm
+
+# docling-serve: POST /v1/convert/file, structured output grouped by page
+chunkr.register_pdf_backend("docling", docling("http://localhost:5001"))
+chunkr.PDFLoader(backend="docling").load("report.pdf")
+
+# Mistral OCR: page markdown (+ optional bboxes)
+chunkr.register_pdf_backend("mistral", mistral(os.environ["MISTRAL_API_KEY"]))
+
+# any OpenAI-compatible vision model: pages are rasterised with liteparse and
+# sent per page, so olmOCR / Qwen-VL / dots.ocr / a self-hosted vLLM all work
+chunkr.register_pdf_backend(
+    "olmocr", vlm("http://localhost:8000/v1", "olmocr-2", prompt="Transcribe to markdown.")
+)
+```
+
+Everything downstream is unchanged: granularity, block metadata, sanitizers, page
+labels. Two things worth knowing:
+
+- Markdown becomes blocks (`#` headings, bullets, ordered lists, paragraphs) so
+  structured output works, and the raw markdown is kept per page — with
+  `sanitize={"enabled": False}` and `output="markdown"` you get the service's
+  markdown byte for byte.
+- `sanitize.headings.levels="auto"` treats a page whose headings are *all* one
+  level as uninformative and flattens them to `h2`. A backend that reports real
+  levels (docling does) should either report varying levels or run with
+  `levels="as_is"` to keep them exactly.
+
 ## Options worth knowing
 
 - `sanitize.enabled=False` is a true passthrough: backend markdown is returned

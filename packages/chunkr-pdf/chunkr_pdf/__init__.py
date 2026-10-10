@@ -22,11 +22,12 @@ from typing import Any, Dict, Iterable, Iterator, List, Optional, Union
 
 import chunkr
 
-from . import _liteparse, _ocr
+from . import _liteparse, _ocr, parsers
 from ._liteparse import BACKEND_NAME, liteparse_version
 
 __all__ = [
     "PDFParser",
+    "parsers",
     "BACKEND_NAME",
     "liteparse_version",
     "register",

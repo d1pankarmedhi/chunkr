@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **In-process ONNX PP-OCR** for Rust users: `Cargo.toml` features `pdf-ocr-ppocr` (plus `-coreml`, `-cuda`, `-directml`, `-openvino`, `-tensorrt`, `-webgpu`) wire liteparse's `oar-ocr` engine to `ocr.backend="ppocr"`, with `ocr.ppocr.preset` (`tiny`/`small`/`medium`), `models_dir` for offline caches and `device` validated against the compiled accelerator. Models auto-download into `$OAR_HOME` and are SHA-256 verified; engines are cached process-wide, and `mode="auto"` only builds one after the gate actually selects a page. Verified end-to-end: rasterised fixture page OCRed and merged in 0.20 s warm (release), 30 parser tests green with the feature on.
 
+- **Page-level parser backends**: `chunkr_pdf.parsers` adds `docling(url)` (docling-serve `/v1/convert/file`, structured output grouped by page), `mistral(api_key)` (`/v1/ocr`, page markdown) and `vlm(base_url, model)` (any OpenAI-compatible vision model — olmOCR, Qwen-VL, dots.ocr, vLLM — with pages rasterised through liteparse). Register one and `chunkr.PDFLoader(backend="docling")` uses it; markdown is split into headings/list items/paragraphs for structured output and kept verbatim for `sanitize={"enabled": False}`.
+
 ### Changed
 - **Python package layout**: the native extension now ships as `chunkr._core` behind a thin `chunkr/__init__.py` that re-exports it and discovers PDF backends. `import chunkr` and every existing API are unchanged; `chunkr.pyi`/`py.typed` moved to `python/chunkr/`.
 - **Cargo feature `pdf`** (and `pdf-ocr` for the bundled Tesseract engine) — off by default, non-wasm; enabling it adds the `liteparse` dependency.

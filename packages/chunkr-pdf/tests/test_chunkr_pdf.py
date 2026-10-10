@@ -538,3 +538,197 @@ def test_adapter_without_its_package_gives_an_install_hint():
         pytest.skip("all adapters are installed here")
     with pytest.raises(ValueError, match=r"pip install \"chunkr-pdf\[ocr-"):
         PDFParser(ocr={"mode": "always", "backend": missing[0]}).payload(DUMMY_PNG)
+
+
+# ── page-level parser backends (docling-serve, Mistral OCR, OpenAI-compatible VLM) ──
+
+from chunkr_pdf import parsers as parser_backends
+
+
+def mock_server(handler):
+    """Run `handler(path, body) -> (status, payload)` on loopback for one test."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def log_message(self, *_: Any) -> None:
+            pass
+
+        def _respond(self, status: int, payload: dict) -> None:
+            body = json.dumps(payload).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self) -> None:  # noqa: N802
+            length = int(self.headers.get("Content-Length") or 0)
+            body = self.rfile.read(length)
+            status, payload = handler(self.path, body)
+            self._respond(status, payload)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server.daemon_threads = True
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, f"http://127.0.0.1:{server.server_address[1]}"
+
+
+def test_markdown_blocks_structure_and_plain_text():
+    markdown = "# Title\n\nIntro paragraph\ncontinued here.\n\n- one\n- two\n\n1. first\n\n| a | b |\n| - | - |\n"
+    blocks = parser_backends.markdown_blocks(markdown)
+    assert blocks[0] == {"kind": "heading", "text": "Title", "level": 1}
+    assert blocks[1]["kind"] == "paragraph" and "continued here." in blocks[1]["text"]
+    assert [b["text"] for b in blocks if b["kind"] == "list_item"] == ["one", "two", "first"]
+    assert blocks[-1]["kind"] == "paragraph" and blocks[-1]["text"].startswith("| a |")
+    assert parser_backends._markdown_text("# T\n\n- x\n1. y\n") == "T\n\nx\ny"
+
+
+@needs_sample
+def test_docling_backend_maps_structured_pages():
+    def handler(path, body):
+        assert path == "/v1/convert/file"
+        assert b"document.pdf" in body  # the PDF travelled as multipart
+        return 200, {
+            "status": "success",
+            "document": {
+                "md_content": "# Ignored when json_content exists",
+                "json_content": {
+                    "texts": [
+                        {"text": "Report Title", "label": "title", "level": 1, "prov": [{"page_no": 1}]},
+                        {"text": "Section", "label": "section_header", "level": 2, "prov": [{"page_no": 1}]},
+                        {"text": "First paragraph.", "label": "text", "prov": [{"page_no": 1}]},
+                        {"text": "Bullet", "label": "list_item", "prov": [{"page_no": 2}]},
+                        {"text": "  ", "label": "text", "prov": [{"page_no": 2}]},
+                    ]
+                },
+            },
+        }
+
+    server, url = mock_server(handler)
+    try:
+        chunkr.register_pdf_backend("test-docling", parser_backends.docling(url))
+        loader = chunkr.PDFLoader(backend="test-docling")
+        documents = loader.load_pages(SAMPLE)
+        assert len(documents) == 2
+        assert documents[0].metadata["page_number"] == 1
+        assert documents[0].content.startswith("Report Title")
+        blocks = documents[0].metadata["blocks"]
+        assert [b["kind"] for b in blocks] == ["heading", "heading", "paragraph"]
+        # Backend levels survive when they differ; a page whose headings are all
+        # one level gets flattened by `sanitize.headings.levels="auto"` (h2).
+        assert [b["level"] for b in blocks[:2]] == [1, 2]
+        assert documents[0].content.splitlines()[0] == "Report Title"
+        assert documents[1].content.strip() == "Bullet"
+    finally:
+        chunkr.unregister_pdf_backend("test-docling")
+        server.shutdown()
+        server.server_close()
+
+
+def test_docling_backend_falls_back_to_markdown_and_reports_errors():
+    def handler(path, body):
+        return 200, {"document": {"md_content": "# Only markdown\n\nBody text"}}
+
+    server, url = mock_server(handler)
+    try:
+        parser = parser_backends.docling(url)
+        payload = json.loads(parser(b"%PDF-1.4 fake", '{"output": "markdown"}'))
+        assert payload["pages"][0]["markdown"].startswith("# Only markdown")
+        assert payload["pages"][0]["blocks"] == [
+            {"kind": "heading", "text": "Only markdown", "level": 1},
+            {"kind": "paragraph", "text": "Body text"},
+        ]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    def failing(path, body):
+        return 500, {"error": "conversion failed"}
+
+    server, url = mock_server(failing)
+    try:
+        with pytest.raises(RuntimeError, match="HTTP 500"):
+            parser_backends.docling(url)(b"%PDF-1.4", "")
+    finally:
+        server.shutdown()
+        server.server_close()
+
+    with pytest.raises(RuntimeError, match="unreachable"):
+        parser_backends.docling("http://127.0.0.1:1")(b"%PDF-1.4", "")
+
+
+def test_mistral_backend_keeps_page_markdown():
+    def handler(path, body):
+        assert path == "/v1/ocr"
+        request = json.loads(body)
+        assert request["model"] == "mistral-ocr-latest"
+        assert request["document"]["document_url"].startswith("data:application/pdf;base64,")
+        return 200, {
+            "pages": [
+                {"index": 0, "markdown": "# Page one\n\nText"},
+                {"index": 1, "markdown": "- a\n- b"},
+            ]
+        }
+
+    server, url = mock_server(handler)
+    try:
+        parser = parser_backends.mistral("test-key", base_url=url)
+        payload = json.loads(parser(b"%PDF-1.4", ""))
+        assert payload["version"] == "mistral-ocr:mistral-ocr-latest"
+        assert [page["page_number"] for page in payload["pages"]] == [1, 2]
+        assert payload["pages"][0]["markdown"].startswith("# Page one")
+        assert payload["pages"][1]["text"] == "a\nb"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+@needs_sample
+def test_vlm_backend_renders_pages_and_sends_them():
+    prompts = []
+
+    def handler(path, body):
+        assert path == "/chat/completions"
+        request = json.loads(body)
+        content = request["messages"][0]["content"]
+        prompts.append(content[0]["text"])
+        assert content[1]["image_url"]["url"].startswith("data:image/png;base64,")
+        return 200, {"choices": [{"message": {"content": f"# Page from {request['model']}"}}]}
+
+    def render(data, dpi):
+        assert data.startswith(b"%PDF")
+        assert dpi == 150.0
+        return [b"\x89PNG\r\n\x1a\nfake-page-1", b"\x89PNG\r\n\x1a\nfake-page-2"]
+
+    server, url = mock_server(handler)
+    try:
+        chunkr.register_pdf_backend(
+            "test-vlm", parser_backends.vlm(url, "olmocr-2", dpi=150.0, render=render)
+        )
+        documents = chunkr.PDFLoader(backend="test-vlm").load_pages(SAMPLE)
+        assert len(documents) == 2
+        assert documents[0].content.startswith("Page from olmocr-2")
+        assert documents[0].metadata["blocks"][0]["kind"] == "heading"
+        assert prompts and "Transcribe this page to markdown" in prompts[0]
+
+        # Raw markdown passthrough keeps the model's own formatting.
+        raw = chunkr.PDFLoader(
+            backend="test-vlm", config={"output": "markdown", "sanitize": {"enabled": False}}
+        ).load_pages(SAMPLE)
+        assert raw[0].content.startswith("# Page from olmocr-2")
+    finally:
+        chunkr.unregister_pdf_backend("test-vlm")
+        server.shutdown()
+        server.server_close()
+
+
+@needs_sample
+def test_vlm_backend_renders_for_real_with_liteparse():
+    """The default renderer is liteparse screenshots: no mocks on that path."""
+    page_pngs = parser_backends._render_pages(SAMPLE.read_bytes(), 150.0)
+    assert len(page_pngs) == 10
+    assert all(png[:8] == b"\x89PNG\r\n\x1a\n" for png in page_pngs)
