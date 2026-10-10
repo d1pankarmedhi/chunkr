@@ -3,38 +3,100 @@
 Reproducible benchmarks for `chunkr` vs. the mainstream Python/Rust chunking libraries.
 Nothing here is part of the published crate or wheel — it is a dev-only harness.
 
-## OCR accuracy (`ocr_accuracy.py`)
+## OCR accuracy (`ocr_accuracy.py`, `examples/ocr_bench.rs`)
 
 Ground truth here is the page's own text layer: a digital page is rasterised with
 liteparse (so the image carries no text), the backend OCRs it, and the result is
-compared with the text liteparse extracted digitally. No scanned sample files are
-needed and the comparison is exact per page.
+compared with the text liteparse extracted from that page. No scanned sample
+files are needed and nothing is hand-scored.
 
 ```bash
-python benchmarks/ocr_accuracy.py --pages 3 --dpi 200 --markdown
+# Python engines: tesseract (liteparse's wheel) plus whatever adapters are installed
+python benchmarks/ocr_accuracy.py --dpi 200 --markdown
+
+# Native Rust engines: in-process ONNX PP-OCR (Tesseract too, with pdf-ocr)
+cargo run --release --features pdf-ocr-ppocr --example ocr_bench -- \
+    tests/test_files/lebs201.pdf --preset medium
 ```
 
-`char_sim` is difflib similarity of normalised text (order-sensitive, so column
-interleaving or duplicated lines cost it), `token_recall` is the share of the
-page's alphanumeric tokens that came back (bag of words, robust to ordering).
-Latency is render + OCR + merge per page, cold start included in the first page.
+| metric | meaning |
+| --- | --- |
+| `char_sim` | 1 − normalised Levenshtein / max length. Order-sensitive: interleaved columns, duplicated lines or reflowed tables all cost it. |
+| `token_recall` | share of the page's alphanumeric tokens that came back. Bag of words, so it measures "did the words survive" independently of order. |
+| `chars_ratio` | OCR characters / ground-truth characters, to expose missing or duplicated text. |
+| `ms/page` | render + OCR + merge per page, cold start included in the mean. |
 
-Measured on an Apple Silicon laptop, Python 3.14, 2 pages each at 200 dpi, with
-Tesseract from liteparse's wheel and RapidOCR (PP-OCRv6 small ONNX) installed:
+**All 43 pages of both fixtures, 200 dpi, one measurement session**, Apple
+Silicon laptop (CPU only), macOS 15, Python 3.14 for the Python rows (PaddleOCR
+needs ≤3.13 in practice, so that venv used 3.12), release builds for the Rust
+rows. Quality metrics are deterministic; latencies are single-session and move
+with disk cache and thermals (see the last bullet below).
 
-| PDF | Engine | Pages | char_sim | token_recall | ms/page |
-| :--- | :--- | ---: | ---: | ---: | ---: |
-| finance.pdf (slides) | `tesseract` | 2 | 0.827 | 0.554 | 2373 |
-| finance.pdf (slides) | `rapidocr` | 2 | 0.819 | 0.558 | 842 |
-| lebs201.pdf (2-col text) | `tesseract` | 2 | 0.441 | 0.989 | 1909 |
-| lebs201.pdf (2-col text) | `rapidocr` | 2 | 0.948 | 0.989 | 2303 |
+Python harness — `tesseract` is liteparse's bundled engine, the other three are
+adapter engines served to liteparse over the loopback OCR proxy:
 
-Reading: on the two-column textbook both engines find essentially every word
-(`token_recall` 0.989), but Tesseract's segmentation interleaves reading order,
-which collapses `char_sim` (0.44 vs 0.95) — exactly the failure mode that makes a
-layout-aware backend worth its cost. On the slide deck both engines trail the
-ground truth on tokens because a lot of that text is vector artwork rather than a
-text layer, so the reference itself is the friendlier of the two.
+| PDF | Engine | Pages | char_sim | token_recall | chars_ratio | ms/page |
+| :--- | :--- | ---: | ---: | ---: | ---: | ---: |
+| finance.pdf | `rapidocr` | 16 | 0.929 | 0.913 | 0.940 | 746 |
+| finance.pdf | `paddleocr` | 16 | 0.945 | 0.915 | 0.968 | 8592 |
+| finance.pdf | `tesseract` | 16 | 0.876 | 0.915 | 0.915 | 400 |
+| finance.pdf | `easyocr` | 16 | 0.848 | 0.914 | 0.950 | 2865 |
+| lebs201.pdf | `paddleocr` | 27 | 0.722 | 0.986 | 1.013 | 20169 |
+| lebs201.pdf | `tesseract` | 27 | 0.674 | 0.982 | 1.003 | 1925 |
+| lebs201.pdf | `rapidocr` | 27 | 0.609 | 0.981 | 0.992 | 2435 |
+| lebs201.pdf | `easyocr` | 27 | 0.464 | 0.979 | 1.009 | 4565 |
+
+Native harness — in-process ONNX PP-OCR, no Python and no server:
+
+| PDF | Engine | Pages | char_sim | token_recall | chars_ratio | ms/page |
+| :--- | :--- | ---: | ---: | ---: | ---: | ---: |
+| finance.pdf | `ppocr-tiny` | 16 | 0.897 | 0.909 | 0.958 | 169 |
+| finance.pdf | `ppocr-small` | 16 | 0.900 | 0.915 | 0.961 | 291 |
+| finance.pdf | `ppocr-medium` | 16 | 0.917 | 0.916 | 0.952 | 936 |
+| lebs201.pdf | `ppocr-tiny` | 27 | 0.643 | 0.980 | 1.008 | 339 |
+| lebs201.pdf | `ppocr-small` | 27 | 0.622 | 0.984 | 1.010 | 1010 |
+| lebs201.pdf | `ppocr-medium` | 27 | 0.817 | 0.985 | 1.010 | 4000 |
+
+### Per-engine aggregate (43 pages)
+
+Page-weighted means across both fixtures, so the 27-page textbook counts for more
+than the 16-page deck; the Python harness prints this table itself.
+
+| Engine | Where it runs | Pages | char_sim | token_recall | chars_ratio | ms/page |
+| :--- | :--- | ---: | ---: | ---: | ---: | ---: |
+| `ppocr-medium` | Rust, ONNX in-process | 43 | 0.854 | 0.959 | 0.988 | 2860 |
+| `paddleocr` | Python, Paddle runtime via proxy | 43 | 0.805 | 0.960 | 0.996 | 15861 |
+| `tesseract` | liteparse wheel | 43 | 0.749 | 0.957 | 0.970 | 1358 |
+| `ppocr-tiny` | Rust, ONNX in-process | 43 | 0.738 | 0.954 | 0.989 | 276 |
+| `rapidocr` | Python, ONNX via proxy | 43 | 0.728 | 0.956 | 0.973 | 1807 |
+| `ppocr-small` | Rust, ONNX in-process | 43 | 0.725 | 0.958 | 0.992 | 742 |
+| `easyocr` | Python, torch via proxy | 43 | 0.607 | 0.955 | 0.987 | 3932 |
+
+Native Tesseract is the same engine as the wheel row: the Rust `pdf-ocr` build
+compiles Tesseract from source and needs `cmake`, which this machine does not
+have, so that row is the Python-wheel measurement of the identical engine.
+
+### What the numbers say
+
+- **Layout-aware reading order is the whole story on the textbook**: every engine
+  recovers ~98% of the words (`token_recall` 0.979–0.986) yet `char_sim` spans
+  0.46–0.82 — the differences are segmentation and ordering, not recognition.
+- **The runtime is not a footnote**: the same PP-OCRv6 medium models score 0.854
+  `char_sim` at 2.9 s per page in-process (ONNX, Rust) and 0.805 at 15.9 s per
+  page through the Python Paddle runtime. Want that accuracy without the runtime
+  cost? Use the native `pdf-ocr-ppocr` feature or `rapidocr`.
+- **`tiny` is the speed/quality sweet spot for the native path**: 0.738
+  `char_sim` at 276 ms per page — it beats `small` on both axes here, and
+  `medium` buys +0.12 `char_sim` for 10x the time.
+- **Tesseract remains a sane default and a poor specialist**: fastest Python
+  engine, decent on slides, mid-table on the textbook, and it never wins
+  `char_sim` where the layout is hard — which is why OCR is pluggable.
+- **A 2-page sample lied twice**: on lebs201's first two pages Tesseract scored
+  0.441 `char_sim` (0.674 across all 27) and RapidOCR 0.948 (0.609 across 27).
+  Run the whole document before drawing conclusions.
+- **Latency is the noisy axis**: a disk-cold first session put `ppocr-small` at
+  2.1 s per page on the deck, the clean session above at 0.29 s. Treat quality
+  columns as results and latency columns as orders of magnitude.
 
 ## What is measured
 

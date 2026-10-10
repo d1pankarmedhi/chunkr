@@ -83,3 +83,7 @@ ort = { version = "=2.0.0-rc.12", default-features = false, optional = true }
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 getrandom = { version = "0.3", features = ["wasm_js"] }
 
+# OCR accuracy harness for the native engines (needs the PDF backend).
+[[example]]
+name = "ocr_bench"
+required-features = ["pdf"]

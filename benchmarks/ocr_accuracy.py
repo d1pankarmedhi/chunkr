@@ -9,10 +9,13 @@ reproducible accuracy number without shipping scanned sample files.
     python benchmarks/ocr_accuracy.py --pages 5 --dpi 200
     python benchmarks/ocr_accuracy.py --markdown          # table for README pastes
 
-Metrics per engine: `char_sim` (difflib similarity of normalised text) and
+Metrics per engine: `char_sim` (difflib similarity of normalised text),
 `token_recall` (share of the page's alphanumeric tokens the engine recovered),
-plus mean latency per page. Engines are whatever is installed; Tesseract comes
-from liteparse itself, the rest from `chunkr_pdf.OCR_ADAPTERS`.
+`chars_ratio` (OCR characters / ground-truth characters, to make missing or
+duplicated text visible) and mean latency per page. Engines are whatever is
+installed; Tesseract comes from liteparse itself, the rest from
+`chunkr_pdf.OCR_ADAPTERS`. The native Rust PP-OCR engine has its own harness:
+`examples/ocr_bench.rs`.
 """
 
 from __future__ import annotations
@@ -95,7 +98,9 @@ def run(engine: str, images: list[bytes], reference: list[str], dpi: float) -> d
 
     similarities: list[float] = []
     recalls: list[float] = []
+    ratios: list[float] = []
     latencies: list[float] = []
+    characters = 0
     try:
         for png, expected in zip(images, reference):
             start = time.perf_counter()
@@ -104,6 +109,10 @@ def run(engine: str, images: list[bytes], reference: list[str], dpi: float) -> d
             similarity, recall = score(expected, text)
             similarities.append(similarity)
             recalls.append(recall)
+            characters += len(" ".join(text.split()))
+            ground_truth_chars = len(" ".join(expected.split()))
+            if ground_truth_chars:
+                ratios.append(len(" ".join(text.split())) / ground_truth_chars)
     finally:
         parser.close()
     return {
@@ -111,6 +120,8 @@ def run(engine: str, images: list[bytes], reference: list[str], dpi: float) -> d
         "pages": len(latencies),
         "char_sim": statistics.mean(similarities) if similarities else 0.0,
         "token_recall": statistics.mean(recalls) if recalls else 0.0,
+        "chars_ratio": statistics.mean(ratios) if ratios else 0.0,
+        "characters": characters,
         "ms_per_page": 1000 * statistics.mean(latencies) if latencies else 0.0,
     }
 
@@ -118,7 +129,9 @@ def run(engine: str, images: list[bytes], reference: list[str], dpi: float) -> d
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("pdfs", nargs="*", type=Path, help="PDFs to use (default: fixtures)")
-    parser.add_argument("--pages", type=int, default=3, help="pages per PDF (default 3)")
+    parser.add_argument(
+        "--pages", type=int, default=0, help="pages per PDF (default: all pages)"
+    )
     parser.add_argument("--dpi", type=float, default=200.0, help="render DPI (default 200)")
     parser.add_argument("--engine", action="append", help="limit to this engine (repeatable)")
     parser.add_argument("--markdown", action="store_true", help="print a markdown table only")
@@ -140,8 +153,14 @@ def main() -> int:
 
     rows = []
     for pdf in pdfs:
-        images = rasterize(pdf, args.pages, args.dpi)
-        reference = ground_truth(pdf, args.pages)
+        import liteparse
+
+        total_pages = len(
+            liteparse.LiteParse(ocr_enabled=False, quiet=True).parse(str(pdf)).pages
+        )
+        pages = args.pages or total_pages
+        images = rasterize(pdf, pages, args.dpi)
+        reference = ground_truth(pdf, pages)
         if len(images) != len(reference):
             print(f"{pdf.name}: rendered {len(images)} pages, read {len(reference)} — skipped")
             continue
@@ -151,19 +170,38 @@ def main() -> int:
             rows.append(result)
             if not args.markdown:
                 print(
-                    f"{pdf.name:16} {engine:10} pages={result['pages']} "
+                    f"{pdf.name:16} {engine:10} pages={result['pages']:3} "
                     f"char_sim={result['char_sim']:.3f} "
                     f"token_recall={result['token_recall']:.3f} "
+                    f"chars_ratio={result['chars_ratio']:.3f} "
                     f"{result['ms_per_page']:.0f} ms/page"
                 )
 
     if args.markdown:
-        print("| PDF | Engine | Pages | char_sim | token_recall | ms/page |")
-        print("| :--- | :--- | ---: | ---: | ---: | ---: |")
+        print("| PDF | Engine | Pages | char_sim | token_recall | chars_ratio | ms/page |")
+        print("| :--- | :--- | ---: | ---: | ---: | ---: | ---: |")
         for row in rows:
             print(
                 f"| {row['pdf']} | `{row['engine']}` | {row['pages']} | "
-                f"{row['char_sim']:.3f} | {row['token_recall']:.3f} | {row['ms_per_page']:.0f} |"
+                f"{row['char_sim']:.3f} | {row['token_recall']:.3f} | "
+                f"{row['chars_ratio']:.3f} | {row['ms_per_page']:.0f} |"
+            )
+        print()
+        print("| Engine | Pages | char_sim | token_recall | chars_ratio | ms/page |")
+        print("| :--- | ---: | ---: | ---: | ---: | ---: |")
+        for engine in available:
+            engine_rows = [row for row in rows if row["engine"] == engine]
+            if not engine_rows:
+                continue
+            # Page-weighted: a 27-page fixture counts more than a 16-page one.
+            pages = sum(row["pages"] for row in engine_rows)
+            weighted = lambda key: sum(  # noqa: E731
+                row[key] * row["pages"] for row in engine_rows
+            ) / max(pages, 1)
+            print(
+                f"| `{engine}` | {pages} | {weighted('char_sim'):.3f} | "
+                f"{weighted('token_recall'):.3f} | {weighted('chars_ratio'):.3f} | "
+                f"{weighted('ms_per_page'):.0f} |"
             )
     return 0
 
