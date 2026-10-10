@@ -222,9 +222,11 @@ exposes the running servers for inspection.
   when the text is full of unmapped-glyph markers.
 - Native Rust users get the same gate and the same engines: `ocr.backend`,
   `ocr.auto_reasons`, `PdfParser::with_ocr_engine(Arc<dyn OcrEngine>)`, Tesseract
-  via `pdf-ocr`, and any HTTP OCR server via `ocr.server_url`. PP-OCR in-process
-  (`pdf-ocr-ppocr`) is planned; until then use the `ppocr` ONNX path through the
-  Python plugin (`backend="rapidocr"`) or a server.
+  via `pdf-ocr`, in-process ONNX PP-OCR via `pdf-ocr-ppocr` (plus `-coreml`,
+  `-cuda`, `-directml`, `-openvino`, `-tensorrt`, `-webgpu` accelerators, with
+  `ocr.ppocr.preset`/`models_dir`/`device`), and any HTTP OCR server via
+  `ocr.server_url`. PP-OCR ignores `ocr.language`: its recognizer language is
+  fixed by the model and character dictionary.
 
 ## License
 
