@@ -92,8 +92,18 @@ all three to OIDC removes every long-lived upload secret.
    (extension), because `chunkr-pdf` pins `chunkr-rs>=<version>`.
 4. Until the secret exists, the `pypi-pdf` job still builds and smoke-tests the
    extension, then skips the upload with a warning — a base release is never
-   blocked or half-failed by the extension's token. Publish the skipped version
-   by hand (or re-run the job) after adding the secret.
+   blocked or half-failed by the extension's token.
+   **Recovering from a skipped or failed extension upload:** you cannot re-run
+   that job alone (a full workflow re-run would try to re-upload the base
+   version and be rejected by PyPI as a duplicate). Publish by hand instead:
+
+   ```bash
+   python -m build packages/chunkr-pdf --outdir dist-pdf
+   twine upload dist-pdf/*        # uses ~/.pypirc or TWINE_PASSWORD
+   ```
+
+   The base wheel is already on PyPI, and the extension's smoke test only needs
+   `liteparse`, so this needs no extra setup.
 5. **After the first extension release only:** refresh the base lockfile
    (`uv lock`, commit `uv.lock`). Until `chunkr-pdf` exists on PyPI, uv cannot
    resolve the base `pdf` extra, so `uv lock` / `uv sync` fail in the base repo;
