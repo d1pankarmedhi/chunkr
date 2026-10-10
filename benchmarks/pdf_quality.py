@@ -31,6 +31,11 @@ from collections import Counter
 from pathlib import Path
 
 WORD = re.compile(r"[A-Za-z][A-Za-z'\u2019-]{1,}")
+# Typographic punctuation differs per extractor for the same source text: liteparse
+# normalizes U+2019 to an ASCII apostrophe, pypdf/PyMuPDF keep the curly one, so
+# "network's" and "network\u2019s" would be counted as two different words and both
+# engines would look worse than they are. Fold quotes before tokenizing.
+QUOTES = str.maketrans({"\u2019": "'", "\u2018": "'", "\u00b4": "'", "\u201c": '"', "\u201d": '"'})
 JUNK = re.compile(
     "[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\ufffd\ue000-\uf8ff\u200b-\u200f\u0300-\u036f]"
 )
@@ -47,6 +52,7 @@ ENGINES = ("chunkr fast (lopdf)", "chunkr [pdf] (liteparse)", "PyMuPDF", "pypdf"
 
 
 def words(text: str) -> list[str]:
+    text = text.translate(QUOTES)
     return [w.lower() for w in WORD.findall(text)]
 
 

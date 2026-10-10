@@ -175,12 +175,14 @@ The fast path is 17-23× pypdf and 3.5-11× PyMuPDF *when it can read the docume
 
 | Extractor | Pages returned | Words recovered | Precision | `?` chars | Most frequent word | Structure found (whole document) |
 | :--- | ---: | ---: | ---: | ---: | :--- | :--- |
-| **chunkr `[pdf]`** (liteparse) | 2,033 of 2,066 | **98.5%** | 98.2% | 0.0% | `the` (4%) | 9,915 headings, 580 tables |
-| PyMuPDF (`fitz`) | 2,066 | 99.9% | 99.9% | 0.6% | `the` (4%) | — |
-| pypdf | 2,066 | 99.6% | 98.3% | 0.6% | `the` (4%) | — |
+| **chunkr `[pdf]`** (liteparse) | 2,033 of 2,066 | **99.6%** | 99.3% | 0.0% | `the` (4%) | 9,915 headings, 580 tables |
+| PyMuPDF (`fitz`) | 2,066 | 99.9% | 100.0% | 0.6% | `the` (4%) | — |
+| pypdf | 2,066 | 99.5% | 98.3% | 0.6% | `the` (4%) | — |
 | **chunkr fast (`lopdf`)** | 2,066 | **0.8%** | 42.7% | 7.6% | `identity-h` (50%) | — |
 
-This is the speed/quality tradeoff in one table. On the textbook the fonts are Identity-H encoded, so the fast path cannot map glyphs and emits `?Identity-H Unimplemented?` instead of text: half of all its tokens are that one string and it recovers 0.8% of the document's words, so chunks built from it are mostly noise for retrieval. The extension recovers 98.5% of them (words two independent extractors agree on) with no `?` noise, matching PyMuPDF and pypdf, and adds the 9,915 headings, 580 tables and 2,127 list items that become chunk `header_path` metadata and keep tables out of prose chunks. On a clean single-column PDF (the 10-page sample) the fast path is fine — 99.0% of words, no `?` characters — so it remains the right default when the extra is not installed. Blank pages are skipped by the extension, which is why it returns 2,033 pages; each `Document` carries its real `page_number`.
+This is the speed/quality tradeoff in one table. On the textbook the fonts are Identity-H encoded, so the fast path cannot map glyphs and emits `?Identity-H Unimplemented?` instead of text: half of all its tokens are that one string and it recovers 0.8% of the document's words, so chunks built from it are mostly noise for retrieval. The extension recovers **99.6%** of them (words at least two independent extractors agree on) with no `?` noise, matching PyMuPDF and pypdf, and adds the 9,915 headings, 580 tables and 2,127 list items that become chunk `header_path` metadata and keep tables out of prose chunks. On a clean single-column PDF (the 10-page sample) the fast path is fine — 98.6% of words, no `?` characters — so it remains the right default when the extra is not installed.
+
+The `pages` column is a page count, not a word count: the extension returns 2,033 `Document`s for this book because 33 of its 2,066 pages have no text at all — verified against pypdf and PyMuPDF, which extract nothing from any of them, and none of them contain images either. Every `Document` carries its real `page_number`, so page alignment with the source stays exact.
 
 **Retrieval quality** — Chroma's token-level benchmark (472 questions); `prec_Ω` is chunk purity at perfect recall.
 

@@ -266,10 +266,23 @@ python benchmarks/pdf_quality.py book.pdf --sample 120 --json out.json
 
 | extractor | pages | words/kchar | consensus recall | precision | `?` chars | top word | junk chunks | layout |
 | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- |
-| chunkr `[pdf]` (liteparse) | 2,033 | 119.4 | **98.5%** | 98.2% | 0.0% | `the` (4%) | 1.3% | 9,915 headings, 580 tables |
-| PyMuPDF (`fitz`) | 2,066 | 132.8 | 99.9% | 99.9% | 0.6% | `the` (4%) | 5.5% | — |
-| pypdf | 2,066 | 132.4 | 99.6% | 98.3% | 0.6% | `the` (4%) | 5.5% | — |
+| chunkr `[pdf]` (liteparse) | 2,033 | 119.4 | **99.6%** | 99.3% | 0.0% | `the` (4%) | 1.3% | 9,915 headings, 580 tables |
+| PyMuPDF (`fitz`) | 2,066 | 132.8 | 99.9% | 100.0% | 0.6% | `the` (4%) | 5.5% | — |
+| pypdf | 2,066 | 132.4 | 99.5% | 98.3% | 0.6% | `the` (4%) | 5.5% | — |
 | chunkr fast (`lopdf`) | 2,066 | 76.5 | 0.8% | 42.7% | 7.6% | `identity-h` (50%) | 0.0% | — |
+
+The `pages` column is a document page count, not a word count: the extension returns
+2,033 documents because 33 of the book's pages are entirely without text (pypdf and
+PyMuPDF also extract nothing from them, and they hold no images), and every emitted
+`Document` carries its true `page_number`, so nothing is lost and alignment stays exact.
+
+Tokens are compared with quotes folded to ASCII: extractors differ on typography alone
+(liteparse normalizes U+2019 to `'`, pypdf and PyMuPDF keep the curly one), and counting
+`network's` (ASCII) and `network’s` (U+2019) as different words artificially cost every engine ~1
+point of recall and precision. With that normalization the extension recovers 99.6% of
+the book's agreed words; what remains is hyphenation and ligature handling, e.g. a
+line-broken `bench-mark` or the `fi` ligature that pypdf and PyMuPDF emit as a stray CJK
+glyph (visible in their own `?`/odd-character columns).
 
 The textbook's fonts are Identity-H encoded. lopdf cannot map them, so it emits
 `?Identity-H Unimplemented?` for the whole document: half its tokens are that string and
