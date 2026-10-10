@@ -31,6 +31,13 @@ def _as_dict(value: Any) -> Any:
     return _prune(dataclasses.asdict(value)) if dataclasses.is_dataclass(value) else None
 
 
+# liteparse's Python binding drops the argument when it is None, which falls back
+# to its own 1000-page default and silently truncates longer documents. chunkr
+# documents `scope.max_pages: None` as "every page" (the Rust backend passes
+# usize::MAX for it), so mirror that here.
+UNLIMITED_PAGES = 2**63 - 1
+
+
 def liteparse_kwargs(
     config: Dict[str, Any], overrides: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
@@ -54,7 +61,9 @@ def liteparse_kwargs(
         "tessdata_path": ocr.get("tessdata_path"),
         "ocr_failure_fatal": bool(ocr.get("failure_fatal", False)),
         "num_workers": ocr.get("num_workers") or None,
-        "max_pages": scope.get("max_pages"),
+        "max_pages": (
+            UNLIMITED_PAGES if scope.get("max_pages") is None else int(scope["max_pages"])
+        ),
         "target_pages": scope.get("target_pages"),
         "password": scope.get("password"),
         "dpi": scope.get("dpi"),
@@ -122,10 +131,13 @@ def page_payload(page: Any) -> Dict[str, Any]:
 
 
 def result_payload(result: Any) -> Dict[str, Any]:
-    return {
-        "version": liteparse_version(),
-        "pages": [page_payload(page) for page in result.pages],
-    }
+    return _prune(
+        {
+            "version": liteparse_version(),
+            "total_pages": getattr(result, "total_pages", None),
+            "pages": [page_payload(page) for page in result.pages],
+        }
+    )
 
 
 def parse_payload(source: Any, config_json: str) -> str:

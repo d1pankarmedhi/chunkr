@@ -44,6 +44,32 @@ def test_config_defaults_are_retrieval_shaped():
     assert config["ocr"]["mode"] == "off"
 
 
+def test_page_cap_defaults_to_every_page():
+    """liteparse's binding falls back to a 1000-page default when max_pages is
+    omitted, which silently truncated longer documents (a 2,066-page PDF came back
+    with 1,000 pages). The plugin must mirror the Rust backend, which documents
+    `scope.max_pages: None` as "every page"."""
+    from chunkr_pdf import _liteparse
+
+    kwargs = _liteparse.liteparse_kwargs(PDFParser().config)
+    assert kwargs["max_pages"] > 1000
+
+    explicit = _liteparse.liteparse_kwargs(PDFParser(scope={"max_pages": 5}).config)
+    assert explicit["max_pages"] == 5
+
+
+def test_long_documents_are_not_truncated():
+    """Opt-in: point CHUNKR_BIG_PDF at a PDF with more than 1000 pages."""
+    import os
+
+    path = os.environ.get("CHUNKR_BIG_PDF")
+    if not path:
+        pytest.skip("set CHUNKR_BIG_PDF to a >1000-page PDF to run this")
+    payload = json.loads(PDFParser().payload(path))
+    assert len(payload["pages"]) > 1000
+    assert payload["total_pages"] == len(payload["pages"])
+
+
 def test_config_overrides_and_unknown_keys():
     parser = PDFParser(
         preset="structure",
