@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The `Fixed` entry below ships with **`chunkr-pdf` 0.1.1**: the extension is versioned
+independently of the base package, which has no code changes pending and stays at 1.6.0. The
+`Added` entries are repository tooling, not part of any published artifact.
+
 ### Fixed
 
 - **PDF documents longer than 1,000 pages were silently truncated** by the `chunkr-rs[pdf]` /
