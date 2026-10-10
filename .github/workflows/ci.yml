@@ -119,8 +119,12 @@ jobs:
         run: |
           uv venv
           uv pip install maturin pytest
-          uv run maturin develop --features python
-          uv run pytest tests/test_python_bindings.py -q
+          # --no-project: do not let `uv run` re-resolve the project. uv locks
+          # every extra, and the `pdf` extra points at `chunkr-pdf`, which does
+          # not exist on PyPI before its first release — resolving it here
+          # would fail the build for reasons unrelated to this crate.
+          uv run --no-project maturin develop --features python
+          uv run --no-project pytest tests/test_python_bindings.py -q
 
   # ── 4. Wasm build + Node smoke test ──────────────────────────────────────
   test-wasm:
@@ -187,7 +191,9 @@ jobs:
           uv pip install maturin pytest liteparse
           # RapidOCR is the lightest real engine (PP-OCRv6 ONNX, no torch/paddle)
           uv pip install rapidocr onnxruntime
-          uv run maturin develop --features python
+          # --no-project for the same reason as the Python bindings job: the
+          # plugin is installed from this checkout, not resolved from PyPI.
+          uv run --no-project maturin develop --features python
           uv pip install --no-deps -e packages/chunkr-pdf
       - name: Extension tests (loopback OCR proxy, adapters, parser backends)
-        run: uv run pytest packages/chunkr-pdf/tests -q
+        run: uv run --no-project pytest packages/chunkr-pdf/tests -q

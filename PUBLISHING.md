@@ -71,6 +71,11 @@ scoped to:
    extension, then skips the upload with a warning — a base release is never
    blocked or half-failed by the extension's token. Publish the skipped version
    by hand (or re-run the job) after adding the secret.
+5. **After the first extension release only:** refresh the base lockfile
+   (`uv lock`, commit `uv.lock`). Until `chunkr-pdf` exists on PyPI, uv cannot
+   resolve the base `pdf` extra, so `uv lock` / `uv sync` fail in the base repo;
+   the CI jobs therefore run with `uv run --no-project` and never read the lock.
+   `uv.lock` has been stale since 1.2.0 — this is a good moment to catch it up.
 
 ### 1d. Branch protection (do this today)
 
