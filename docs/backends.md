@@ -122,6 +122,40 @@ Two capabilities make a Python-side engine plug-in possible anyway:
 - `ocr_server_url` is just HTTP → a **local proxy we control** can expose any
   Python engine to liteparse, keeping liteparse's merge/reading-order logic.
 
+### 2.3b Why the built-in `fast` backend is not a fallback for real documents
+
+`chunkr`'s `fast` backend is `lopdf` 0.32 (`Cargo.toml`). Its text extraction dispatches
+on the font's `/Encoding` *name* and, for the composite fonts modern exporters emit, it
+has nothing to work with:
+
+```rust
+// lopdf-0.32.0/src/document.rs:523
+"Identity-H" => "?Identity-H Unimplemented?".to_string(), // Unimplemented
+```
+
+`decode_text` handles only `StandardEncoding`, `MacRomanEncoding`, `MacExpertEncoding`,
+`WinAnsiEncoding` and `UniGB-*`; everything else is either that placeholder or
+`from_utf8_lossy` of raw glyph ids. lopdf 0.32 contains **no `/ToUnicode` CMap support at
+all** (no occurrences of `ToUnicode` in its source), so a `/Subtype /Type0` font with
+`/Encoding /Identity-H` produces the placeholder once per text-show operator regardless of
+what the file describes.
+
+Measured on a 2,066-page textbook whose fonts are all `/Type0` + `/Identity-H` **with a
+`/ToUnicode` CMap present in every one**: 1,043,881 placeholder occurrences (~505 per
+page), 50% of the backend's tokens are the string `identity-h`, and consensus word recall
+is 0.8%. The 0.8% that survives comes from diagram labels drawn with simple fonts (`gpu`,
+`data`, `layer`, `model`, ...). PDFium (liteparse), pypdf and PyMuPDF all parse the
+`/ToUnicode` map that is sitting in the file and recover 99-100% of the same words.
+
+Two consequences:
+
+- The `chunkr-rs[pdf]` extension is the supported way to read such documents today.
+- Upstream fixed this after 0.32: lopdf 0.38 drops the placeholder and adds
+  `encodings/cmap.rs` with a `ToUnicodeCMap` parser used by `decode_text`. Bumping the
+  dependency would raise the base fast path from 0.8% to roughly the 99% the other
+  extractors reach; that is a separate change (pin, API surface, test matrix) and the
+  harness in `benchmarks/pdf_quality.py` is what would verify it.
+
 ### 2.4 What `chunkr` has today
 
 - Parser registry: `chunkr.register_pdf_backend(name, callable)`,
