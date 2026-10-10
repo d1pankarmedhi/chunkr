@@ -21,11 +21,11 @@ on:
         type: boolean
         default: true
       target:
-        description: "Publish target (all | pypi | crates | npm | github)"
+        description: "Publish target (all | pypi | pdf | crates | npm | github)"
         required: false
         type: choice
         default: all
-        options: [all, pypi, crates, npm, github]
+        options: [all, pypi, pdf, crates, npm, github]
 
 concurrency:
   group: release-${{ github.ref }}
@@ -361,10 +361,18 @@ jobs:
   pypi-pdf:
     name: Publish chunkr-pdf to PyPI
     needs: [validate, pypi]
+    # `always()` + explicit result checks (same pattern as the npm job): a
+    # skipped dependency otherwise skips this job, which made recovery
+    # impossible. A tag push still requires the base publish to have succeeded;
+    # a manual dispatch is how you re-publish the extension on its own
+    # (`-f target=pdf`, no local PyPI token needed) or rehearse it (dry run
+    # builds + smoke-tests, only the upload is skipped).
     if: >-
-      github.event_name != 'workflow_dispatch' ||
-      inputs.dry_run == false &&
-      (inputs.target == 'all' || inputs.target == 'pypi')
+      always() &&
+      needs.validate.result == 'success' &&
+      needs.pypi.result != 'failure' &&
+      (github.event_name != 'workflow_dispatch' ||
+       inputs.target == 'all' || inputs.target == 'pypi' || inputs.target == 'pdf')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -379,17 +387,24 @@ jobs:
           python -m pip install --upgrade build
           python -m build packages/chunkr-pdf --outdir dist-pdf
           ls -l dist-pdf
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: wheels-*
-          merge-multiple: true
-          path: dist
-      - name: Smoke-test the extension against the freshly built base wheel
+      - name: Smoke-test the extension against the released base package
         run: |
           python -m venv /tmp/smoke
           /tmp/smoke/bin/pip install --upgrade pip liteparse
-          /tmp/smoke/bin/pip install --no-deps dist/chunkr_rs-*manylinux*.whl dist-pdf/chunkr_pdf-*.whl
-          /tmp/smoke/bin/python -c "import chunkr, chunkr_pdf; print(chunkr_pdf.ocr_backends(), chunkr.pdf_backends())"
+          # Base from PyPI (the `pypi` job published it) rather than from local
+          # wheel artifacts: this is the combination users actually install, and
+          # it avoids platform globs (a dist/chunkr_rs-*manylinux*.whl glob
+          # matches the aarch64 wheel on an x86_64 runner and pip refuses it).
+          # --no-deps: the plugin's own dependency on chunkr-rs would otherwise
+          # be resolved from the index and could match a different version.
+          /tmp/smoke/bin/pip install --no-deps "chunkr-rs==${{ needs.validate.outputs.version }}"
+          /tmp/smoke/bin/pip install --no-deps dist-pdf/chunkr_pdf-*.whl
+          /tmp/smoke/bin/python -c "
+          import chunkr, chunkr_pdf
+          print('pdf backends:', chunkr.pdf_backends())
+          print('ocr adapters:', sorted(chunkr_pdf.OCR_ADAPTERS))
+          assert 'liteparse' in chunkr.pdf_backends(), 'entry point not discovered'
+          "
       # Job-level `if` cannot read `secrets`, so check it in a step: a release
       # must not fail halfway just because the extension token is not set up
       # yet (see PUBLISHING.md §1c-bis).
@@ -405,7 +420,9 @@ jobs:
             echo "::warning::PYPI_API_TOKEN_PDF is unset — skipping the chunkr-pdf publish. See PUBLISHING.md §1c-bis."
           fi
       - name: Publish to PyPI
-        if: steps.token.outputs.present == 'true'
+        if: >-
+          steps.token.outputs.present == 'true' &&
+          (github.event_name != 'workflow_dispatch' || inputs.dry_run == false)
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist-pdf/

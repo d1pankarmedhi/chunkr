@@ -93,17 +93,19 @@ all three to OIDC removes every long-lived upload secret.
 4. Until the secret exists, the `pypi-pdf` job still builds and smoke-tests the
    extension, then skips the upload with a warning — a base release is never
    blocked or half-failed by the extension's token.
-   **Recovering from a skipped or failed extension upload:** you cannot re-run
-   that job alone (a full workflow re-run would try to re-upload the base
-   version and be rejected by PyPI as a duplicate). Publish by hand instead:
+   **Recovering from a skipped or failed extension upload:** re-dispatch this
+   job on its own. Do *not* re-run the whole workflow — it would re-upload the
+   already-published base version, which PyPI rejects as a duplicate.
 
    ```bash
-   python -m build packages/chunkr-pdf --outdir dist-pdf
-   twine upload dist-pdf/*        # uses ~/.pypirc or TWINE_PASSWORD
+   gh workflow run release.yml -f dry_run=false -f target=pdf   # default branch
    ```
 
-   The base wheel is already on PyPI, and the extension's smoke test only needs
-   `liteparse`, so this needs no extra setup.
+   `target=pdf` runs only `validate` + the extension job (base install taken from
+   PyPI), so recovery needs no local PyPI token. `twine upload dist-pdf/*` after
+   `python -m build packages/chunkr-pdf` remains the offline fallback. A plain
+   dry run (`-f dry_run=true`) now builds and smoke-tests the extension and skips
+   only the upload.
 5. **After the first extension release only:** refresh the base lockfile
    (`uv lock`, commit `uv.lock`). Until `chunkr-pdf` exists on PyPI, uv cannot
    resolve the base `pdf` extra, so `uv lock` / `uv sync` fail in the base repo;
