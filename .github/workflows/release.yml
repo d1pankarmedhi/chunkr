@@ -453,11 +453,12 @@ jobs:
       - name: cargo publish
         run: cargo publish --locked --token "${{ secrets.CARGO_REGISTRY_TOKEN }}"
 
-  # ── 5c. npm via automation token ────────────────────────────────────────
-  # Token: npmjs.com → Access Tokens → Generate New Token → Automation
-  # (Automation bypasses 2FA by design; keep it secret). Stored as
-  # repo/environment secret NPM_TOKEN. See PUBLISHING.md §1.
-  # TODO: migrate to npm provenance (OIDC) for Sigstore-signed publishes.
+  # ── 5c. npm via trusted publishing (OIDC) ──────────────────────────────
+  # No secret: the job requests an id-token and npm CLI authenticates through
+  # the trusted publisher configured on the package page, then signs a SLSA
+  # provenance statement. Stored npm tokens are not an option any more —
+  # write-enabled granular tokens expire after 7 days by default (90 max) and
+  # silently fail as a misleading E404. See PUBLISHING.md §1c.
   npm:
     name: Publish to npm
     needs: [validate, wasm, github]
