@@ -46,7 +46,8 @@ def build_impls(reps: int) -> dict[str, Callable[[Path], Any]]:
     import chunkr
     from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-    loader = chunkr.PDFLoader()
+    loader = chunkr.PDFLoader()  # backend="auto"
+    fast = chunkr.PDFLoader(backend="fast")  # built-in lopdf extractor, no extra needed
     recursive = chunkr.RecursiveChunker(1000, 200)
     lc = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     def pypdf_text(path: Path) -> str:
@@ -60,18 +61,40 @@ def build_impls(reps: int) -> dict[str, Callable[[Path], Any]]:
         finally:
             doc.close()
 
-    return {
+    # The high-fidelity backend is optional: `chunkr-rs[pdf]` (chunkr-pdf).
+    high = None
+    try:
+        candidate = chunkr.PDFLoader(backend="liteparse")
+        candidate.load_pages(str(SAMPLE))
+        high = candidate
+    except Exception:
+        pass
+
+    impls = {
         # --- extraction only -------------------------------------------------------
-        "chunkr PDFLoader.load": lambda p: loader.load(str(p)),
-        "chunkr PDFLoader.load_pages": lambda p: loader.load_pages(str(p)),
+        # `auto` resolves to liteparse when the `pdf` extra is installed and to the
+        # built-in lopdf extractor otherwise; `fast` is always lopdf.
+        "chunkr PDFLoader.load (auto)": lambda p: loader.load(str(p)),
+        "chunkr PDFLoader.load_pages (auto)": lambda p: loader.load_pages(str(p)),
+        "chunkr PDFLoader.load (fast/lopdf)": lambda p: fast.load(str(p)),
+        "chunkr PDFLoader.load_pages (fast/lopdf)": lambda p: fast.load_pages(str(p)),
         "pypdf PdfReader+extract_text": pypdf_text,
         "PyMuPDF (fitz) get_text": fitz_text,
         # --- extraction + recursive chunking (end-to-end) ---------------------------
-        "chunkr PDFLoader.load + RecursiveChunker": lambda p: recursive.chunk(loader.load(str(p))),
-        "chunkr PDFLoader.load_pages + RecursiveChunker": lambda p: recursive.chunk(extract_text(loader.load_pages(str(p)))),
+        "chunkr load (auto) + RecursiveChunker": lambda p: recursive.chunk(loader.load(str(p))),
+        "chunkr load (fast) + RecursiveChunker": lambda p: recursive.chunk(fast.load(str(p))),
         "pypdf + langchain RecursiveCharacterTextSplitter": lambda p: lc.split_text(pypdf_text(p)),
         "PyMuPDF + langchain RecursiveCharacterTextSplitter": lambda p: lc.split_text(fitz_text(p)),
     }
+    if high is not None:
+        impls.update(
+            {
+                "chunkr [pdf] PDFLoader.load (liteparse)": lambda p: high.load(str(p)),
+                "chunkr [pdf] PDFLoader.load_pages (liteparse)": lambda p: high.load_pages(str(p)),
+                "chunkr [pdf] load (liteparse) + RecursiveChunker": lambda p: recursive.chunk(high.load(str(p))),
+            }
+        )
+    return impls
 
 
 def run(impls: dict[str, Callable[[Path], Any]], path: Path, pages: int, size_mb: float, reps: int, warmup: int) -> list[dict[str, Any]]:

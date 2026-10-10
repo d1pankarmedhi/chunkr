@@ -5,6 +5,27 @@ All notable changes to `chunkr` (Rust crate) and `chunkr-rs` (PyPI package) are 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **PDF documents longer than 1,000 pages were silently truncated** by the `chunkr-rs[pdf]` /
+  `chunkr-pdf` extension. The plugin passed `max_pages=None` through to liteparse, whose Python
+  binding then fell back to its own 1,000-page default: a 2,066-page PDF came back as 1,000 pages,
+  with no warning and no error, and every page past that point simply did not exist downstream.
+  `scope.max_pages=None` now means every page, matching the documented behaviour and the Rust
+  backend. The payload also reports the document's `total_pages` now. Regression tests cover the
+  default, the explicit override, and (opt-in, `CHUNKR_BIG_PDF=<pdf>`) a >1000-page document.
+
+### Added
+
+- `benchmarks/pdf_quality.py`: measures what each PDF extractor preserves (consensus recall,
+  word precision, junk characters, engine error text) and what retrieval ends up with (chunks
+  polluted by junk, chunks with no sentence), aligning pages by page number. It is what exposed
+  the truncation above and the Identity-H failure mode of the built-in lopdf extractor.
+- `benchmarks/bench_pdf.py` now benchmarks the extension's liteparse backend alongside the
+  built-in fast path, PyMuPDF and pypdf, and labels `PDFLoader()`'s `auto` resolution explicitly.
+
 ---
 
 ## [1.6.0] - 2026-10-10

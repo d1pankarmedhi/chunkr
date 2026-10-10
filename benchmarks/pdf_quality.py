@@ -54,37 +54,56 @@ def junk_count(text: str) -> int:
     return len(JUNK.findall(text))
 
 
+def page_map(texts: list[str], page_numbers: list[int] | None = None) -> dict[int, str]:
+    """Align pages by their real page number.
+
+    Backends are not obliged to return one entry per document page, and they do not
+    all number pages the same way (blank pages get skipped, printed page labels differ
+    from physical pages), so index-based alignment silently compares different pages.
+    chunkr exposes metadata["page_number"]; the other two are index-ordered.
+    """
+    if page_numbers is None:
+        return {i + 1: t for i, t in enumerate(texts)}
+    return {n: t for n, t in zip(page_numbers, texts)}
+
+
 # ── extractors: each returns a list of page texts ──────────────────────────────
-def page_texts_chunkr(path: Path, backend: str) -> list[str] | None:
+def pages_chunkr(path: Path, backend: str) -> tuple[list[int], list[str], int] | None:
     try:
         import chunkr
     except ImportError:
         return None
     try:
-        pages = chunkr.PDFLoader(backend=backend).load_pages(str(path))
-        return [clean(d.content) for d in pages]
+        docs = chunkr.PDFLoader(backend=backend).load_pages(str(path))
     except Exception:  # backend not installed / not registered
         return None
+    nums = [d.metadata.get("page_number") for d in docs]
+    total = (docs[0].metadata.get("total_pages") if docs else None) or len(docs)
+    if any(n is None for n in nums):  # backend without page metadata
+        nums = list(range(1, len(docs) + 1))
+    return nums, [clean(d.content) for d in docs], int(total)
 
 
-def page_texts_pymupdf(path: Path) -> list[str] | None:
+def pages_pymupdf(path: Path) -> tuple[list[int], list[str], int] | None:
     try:
         import fitz
     except ImportError:
         return None
     with fitz.open(str(path)) as doc:
-        return [clean(page.get_text()) for page in doc]
+        texts = [clean(page.get_text()) for page in doc]
+    return list(range(1, len(texts) + 1)), texts, len(texts)
 
 
-def page_texts_pypdf(path: Path) -> list[str] | None:
+def pages_pypdf(path: Path) -> tuple[list[int], list[str], int] | None:
     try:
         import pypdf
     except ImportError:
         return None
-    return [clean(page.extract_text() or "") for page in pypdf.PdfReader(str(path)).pages]
+    texts = [clean(page.extract_text() or "") for page in pypdf.PdfReader(str(path)).pages]
+    return list(range(1, len(texts) + 1)), texts, len(texts)
 
 
-def structure_counts(path: Path, pages: list[int]) -> dict[str, int] | None:
+def structure_counts(path: Path, pages: set[int]) -> dict[str, int] | None:
     """Headings/tables/lists/figures reported by the layout-aware backend."""
     try:
         from chunkr_pdf import PDFParser
@@ -139,64 +158,71 @@ def sample_pages(total: int, want: int) -> list[int]:
 
 
 def evaluate(path: Path, want_pages: int, chunk_size: int, overlap: int) -> dict:
-    texts: dict[str, list[str]] = {}
+    engines: dict[str, tuple[dict[int, str], int]] = {}
     for name, fn in (
-        (ENGINES[0], lambda: page_texts_chunkr(path, "fast")),
-        (ENGINES[1], lambda: page_texts_chunkr(path, "liteparse")),
-        (ENGINES[2], lambda: page_texts_pymupdf(path)),
-        (ENGINES[3], lambda: page_texts_pypdf(path)),
+        (ENGINES[0], lambda: pages_chunkr(path, "fast")),
+        (ENGINES[1], lambda: pages_chunkr(path, "liteparse")),
+        (ENGINES[2], lambda: pages_pymupdf(path)),
+        (ENGINES[3], lambda: pages_pypdf(path)),
     ):
         out = fn()
         if out:
-            texts[name] = out
+            nums, texts, total = out
+            engines[name] = (page_map(texts, nums), total)
 
-    if len(texts) < 2:
+    if len(engines) < 2:
         raise SystemExit("need at least two extractors installed to build a consensus")
 
-    total_pages = max(len(t) for t in texts.values())
-    pages = sample_pages(total_pages, want_pages)
+    doc_pages = max(total for _, total in engines.values())
+    sample = set(sample_pages(doc_pages, want_pages))
 
-    # consensus: words seen by >= 2 independent extractors, per sampled page
+    # consensus: words that >= 2 independent extractors put on the same page
     consensus: set[str] = set()
-    for page in pages:
+    for page in sample:
         seen: Counter[str] = Counter()
-        for pages_text in texts.values():
-            if page - 1 < len(pages_text):
-                seen.update(set(words(pages_text[page - 1])))
+        for pages_map, _ in engines.values():
+            if page in pages_map:
+                seen.update(set(words(pages_map[page])))
         consensus.update(w for w, n in seen.items() if n >= 2)
 
     report: dict = {
         "corpus": str(path),
-        "pages_analysed": len(pages),
-        "pages_total": total_pages,
+        "pages_total": doc_pages,
+        "pages_analysed": len(sample),
         "consensus_words": len(consensus),
         "extractors": {},
     }
-    for name, pages_text in texts.items():
-        sel = [pages_text[p - 1] for p in pages if p - 1 < len(pages_text)]
+    for name, (pages_map, total) in engines.items():
+        sel = [pages_map[p] for p in sorted(sample) if p in pages_map]
         toks: list[str] = []
-        junk = chars = 0
+        junk = chars = questions = 0
         garbage_pages = 0
         for text in sel:
             toks.extend(words(text))
             junk += junk_count(text)
+            questions += text.count("?")
             chars += len(text)
             if text.strip() and not words(text):
                 garbage_pages += 1
         tok_set = set(toks)
         hits = len(tok_set & consensus)
-        entry = {
+        top_word, top_hits = Counter(toks).most_common(1)[0] if toks else ("", 0)
+        report["extractors"][name] = {
+            "pages_returned": len(pages_map),
+            "pages_extra": len(pages_map) - total,
             "words": len(toks),
             "words_per_kchar": 1000 * len(toks) / chars if chars else 0.0,
             "consensus_recall": hits / len(consensus) if consensus else 0.0,
             "precision": hits / len(tok_set) if tok_set else 0.0,
             "junk_per_kchar": 1000 * junk / chars if chars else 0.0,
+            "question_marks_pct": 100 * questions / chars if chars else 0.0,
+            "top_word": top_word,
+            "top_word_pct": 100 * top_hits / len(toks) if toks else 0.0,
             "pages_without_words": garbage_pages,
             **chunk_health(sel, chunk_size, overlap),
         }
-        report["extractors"][name] = entry
 
-    structure = structure_counts(path, pages)
+    structure = structure_counts(path, sample)
     if structure:
         report["structure"] = structure
     return report
@@ -204,26 +230,27 @@ def evaluate(path: Path, want_pages: int, chunk_size: int, overlap: int) -> dict
 
 def print_report(report: dict) -> None:
     print(
-        f"\n{report['corpus']}  "
-        f"({report['pages_analysed']}/{report['pages_total']} pages, "
-        f"{report['consensus_words']} consensus words)"
+        f"\n{report['corpus']}\n"
+        f"  {report['pages_analysed']} of {report['pages_total']} pages analysed, "
+        f"{report['consensus_words']} consensus words"
     )
     head = (
-        f"{'extractor':26} {'words/kchar':>11} {'consensus':>9} {'precision':>9} "
-        f"{'junk/kchar':>10} {'junk chunks':>11} {'no sentence':>11} {'empty pages':>11}"
+        f"{'extractor':24} {'pages':>6} {'words/kch':>9} {'consensus':>9} {'precision':>9} "
+        f"{'junk/kch':>8} {'? chars':>8} {'top word':>22} {'junk chunks':>11} {'no sentence':>11}"
     )
     print(head)
     print("-" * len(head))
     for name, m in report["extractors"].items():
+        top = f"{m['top_word'][:14]} {m['top_word_pct']:.0f}%"
         print(
-            f"{name:26} {m['words_per_kchar']:11.1f} {100 * m['consensus_recall']:8.1f}% "
-            f"{100 * m['precision']:8.1f}% {m['junk_per_kchar']:10.1f} "
-            f"{m['junk_chunks_pct']:10.1f}% {m['sentence_less_pct']:10.1f}% "
-            f"{m['pages_without_words']:11}"
+            f"{name:24} {m['pages_returned']:6} {m['words_per_kchar']:9.1f} "
+            f"{100 * m['consensus_recall']:8.1f}% {100 * m['precision']:8.1f}% "
+            f"{m['junk_per_kchar']:8.1f} {m['question_marks_pct']:7.1f}% {top:>22} "
+            f"{m['junk_chunks_pct']:10.1f}% {m['sentence_less_pct']:10.1f}%"
         )
     if report.get("structure"):
         counts = ", ".join(f"{k}={v}" for k, v in sorted(report["structure"].items()))
-        print(f"layout-aware structure: {counts}")
+        print(f"  layout-aware structure: {counts}")
 
 
 def main(argv: list[str] | None = None) -> int:

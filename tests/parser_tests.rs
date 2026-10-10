@@ -441,6 +441,31 @@ mod native_backend {
             .join("\n")
     }
 
+    /// Opt-in: point CHUNKR_BIG_PDF at a PDF with more than 1000 pages.
+    ///
+    /// Liteparse's own default caps parsing at 1000 pages; the backend must pass
+    /// `usize::MAX` for `max_pages: None` so a long document is never silently cut off.
+    #[test]
+    fn long_documents_are_not_truncated() {
+        let Ok(path) = std::env::var("CHUNKR_BIG_PDF") else {
+            eprintln!("set CHUNKR_BIG_PDF to a >1000-page PDF to run this");
+            return;
+        };
+        let parser = PdfParser::new(ParserConfig {
+            backend: chunkr::parser::Backend::Liteparse,
+            ..Default::default()
+        });
+        let documents = parser.load_pages(&path).unwrap();
+        assert!(
+            documents.len() > 1000,
+            "parsed {} pages, expected the whole document",
+            documents.len()
+        );
+        let last = documents.last().unwrap();
+        let page = last.metadata["page_number"].as_u64().unwrap();
+        assert!(page > 1000, "last page is {page}, so pages were dropped");
+    }
+
     #[test]
     fn liteparse_backend_recovers_glyphs_lopdf_drops() {
         let Some(path) = fixture("textbook_27p.pdf") else {

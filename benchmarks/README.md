@@ -244,6 +244,40 @@ pypdf+LangChain 12054 ms (15.1x) and PyMuPDF+LangChain 2659 ms (3.3x).
 `chunkr.PDFLoader.load_pages` is the fastest extraction path (721 ms, 2865 pgs/s).
 Raw data: `benchmarks/results/pdf-20261001-001557.json`.
 
+### PDF extraction quality (`pdf_quality.py`)
+
+Extraction quality is scored without a reference text: three or more independent
+extractors read the same embedded text layer, and a word that at least two of them put
+on the *same page* counts as really present (consensus). Each engine is then measured on
+how much of that consensus it recovers, how much of its own output the consensus
+supports (precision catches glyph-mapping bugs, which fabricate words rather than drop
+them), how much junk it emits (control characters, U+FFFD, private-use glyphs, lone
+surrogates, and engine error text such as `?Identity-H Unimplemented?`), and what the
+chunker hands to the embedder: chunks polluted by junk and chunks with no sentence at
+all. Pages are aligned by `page_number`, not by index: backends may skip blank pages
+(the extension returns 2,033 of the textbook's 2,066) and printed page labels differ
+from physical page numbers, so index-based comparison silently compares different pages.
+
+```bash
+python benchmarks/pdf_quality.py book.pdf --sample 120 --json out.json
+```
+
+2,066-page textbook (19.9 MB), 120 sampled pages:
+
+| extractor | pages | words/kchar | consensus recall | precision | `?` chars | top word | junk chunks | layout |
+| --- | ---: | ---: | ---: | ---: | ---: | --- | ---: | --- |
+| chunkr `[pdf]` (liteparse) | 2,033 | 119.4 | **98.5%** | 98.2% | 0.0% | `the` (4%) | 1.3% | 9,915 headings, 580 tables |
+| PyMuPDF (`fitz`) | 2,066 | 132.8 | 99.9% | 99.9% | 0.6% | `the` (4%) | 5.5% | — |
+| pypdf | 2,066 | 132.4 | 99.6% | 98.3% | 0.6% | `the` (4%) | 5.5% | — |
+| chunkr fast (`lopdf`) | 2,066 | 76.5 | 0.8% | 42.7% | 7.6% | `identity-h` (50%) | 0.0% | — |
+
+The textbook's fonts are Identity-H encoded. lopdf cannot map them, so it emits
+`?Identity-H Unimplemented?` for the whole document: half its tokens are that string and
+it recovers 0.8% of the page words. That is the failure mode behind the
+`chunkr-rs[pdf]` extension, and it is document-dependent: on the clean single-column
+10-page sample every engine scores 97-100% with no `?` characters, so the fast path stays
+a fine default on simple PDFs, where it is also 10x faster (see the table above).
+
 ### Accuracy (Apple M4, Python 3.12.11, `all-MiniLM-L6-v2`, k=5, global retrieval)
 
 Chroma's 5 corpora (1.44 M chars, 472 questions, 132 k gold chars). Higher is better on every

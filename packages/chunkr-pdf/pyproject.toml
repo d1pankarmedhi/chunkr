@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "chunkr-pdf"
-version = "0.1.0"
+version = "0.1.1"
 description = "High-fidelity PDF parsing for chunkr: layout, headings, tables, page labels and OCR via liteparse"
 readme = "README.md"
 license = { text = "MIT" }
