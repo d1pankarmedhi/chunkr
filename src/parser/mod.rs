@@ -1,5 +1,5 @@
 //! High-fidelity PDF parsing: backend selection, layout-aware structure, and
-//! the mapping from parsed pages to [`Document`](crate::structures::document::Document)s.
+//! the mapping from parsed pages to [`Document`s](crate::structures::document::Document).
 //!
 //! The base crate ships two backends:
 //!
