@@ -8,8 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 The `Fixed` entry below ships with **`chunkr-pdf` 0.1.1**: the extension is versioned
-independently of the base package, which has no code changes pending and stays at 1.6.0. The
-`Added` entries are repository tooling, not part of any published artifact.
+independently of the base package, which stays at 1.6.0 until the format-dispatcher entries below
+are released. The two `benchmarks/` entries are repository tooling, not part of any published
+artifact.
 
 ### Fixed
 
@@ -23,6 +24,23 @@ independently of the base package, which has no code changes pending and stays a
 
 ### Added
 
+- **One extraction dispatcher for every supported format**: `load_documents`,
+  `load_documents_from_bytes` and `supported_extensions` are exported from the Rust prelude, the
+  Python module (`chunkr.load_documents`, `chunkr.load_documents_from_bytes`,
+  `chunkr.supported_extensions`) and the CLI. Extracted formats cover PDF (`pdf`),
+  spreadsheets (`xlsx`, `xlsm`, `xlsb`, `xls`, `ods`), office documents (`docx`, `docm`, `pptx`,
+  `odt`), books and mail (`epub`, `eml`, `mbox`), markup and notebooks (`html`, `xml`, `rtf`,
+  `ipynb`) plus every text format, returning one `Document` per page, worksheet, slide, chapter or
+  message with `sheet_name`, `slide_number`, `chapter_href`, `page_number`, `source` and
+  `format` metadata attached.
+- `DirectoryLoader` (`load_files`, `load_and_chunk`, and their `_lenient` variants) and the CLI now
+  extract through that dispatcher instead of `read_to_string`, so structured formats are usable in
+  batch ingestion rather than failing with `stream did not contain valid UTF-8`. Spreadsheets route
+  to `TableChunker`, so the header row repeats on every chunk, and extraction errors are prefixed
+  with the offending path.
+- Text payloads follow one rule: a byte-order mark is always honoured, `.txt`/`.log`/`.csv`/`.tsv`
+  additionally accept legacy single-byte encodings, and formats that are UTF-8 by convention
+  (`md`, `json`, `xml`, source code) reject undecodable bytes instead of silently producing mojibake.
 - `benchmarks/pdf_quality.py`: measures what each PDF extractor preserves (consensus recall,
   word precision, junk characters, engine error text) and what retrieval ends up with (chunks
   polluted by junk, chunks with no sentence), aligning pages by page number. It is what exposed

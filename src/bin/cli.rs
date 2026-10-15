@@ -106,21 +106,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(path) => streamer.chunk_file(path)?.collect::<Result<Vec<_>, _>>()?,
         }
     } else {
-        // Read text from file or STDIN
-        let (raw_text, is_pdf) = match cli.input.as_deref() {
+        // Read text from file or STDIN. Structured formats (xlsx, docx, epub,
+        // eml, …) are extracted through the shared format dispatcher.
+        let raw_text = match cli.input.as_deref() {
             Some("-") | None => {
                 let mut buffer = String::new();
                 io::stdin().read_to_string(&mut buffer)?;
-                (buffer, false)
+                buffer
             }
             Some(path) => {
                 if path.to_lowercase().ends_with(".pdf") {
                     let loader = PDFLoader::new();
-                    let text = loader.load_from_file(path)?;
-                    (text, true)
+                    loader.load_from_file(path)?
                 } else {
-                    let text = fs::read_to_string(path)?;
-                    (text, false)
+                    load_documents(path)?
+                        .into_iter()
+                        .map(|document| document.content)
+                        .collect::<Vec<_>>()
+                        .join("\n\n")
                 }
             }
         };
@@ -129,8 +132,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("Warning: Empty input provided.");
             return Ok(());
         }
-
-        let _ = is_pdf;
 
         // Apply strategy
         match cli.strategy {

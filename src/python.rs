@@ -2177,6 +2177,40 @@ pub fn load_pdf_pages(path: &str) -> PyResult<Vec<PyDocument>> {
         .map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
+/// Extract documents from any supported file format, dispatched on the extension.
+///
+/// Structured formats keep their granularity: one `Document` per PDF page,
+/// worksheet, slide or EPUB chapter.
+#[pyfunction]
+#[pyo3(signature = (path))]
+pub fn load_documents(path: &str) -> PyResult<Vec<PyDocument>> {
+    crate::loader::auto::load_documents(path)
+        .map(wrap_docs)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// Extract documents from an in-memory payload whose extension is known.
+#[pyfunction]
+#[pyo3(signature = (data, extension, source=None))]
+pub fn load_documents_from_bytes(
+    data: &[u8],
+    extension: &str,
+    source: Option<&str>,
+) -> PyResult<Vec<PyDocument>> {
+    crate::loader::auto::load_documents_from_bytes(data, extension, source)
+        .map(wrap_docs)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
+
+/// File extensions handled by [`load_documents`], structured formats first.
+#[pyfunction]
+pub fn supported_extensions() -> Vec<String> {
+    crate::loader::auto::supported_extensions()
+        .into_iter()
+        .map(str::to_string)
+        .collect()
+}
+
 /// The `chunkr._core` Python native extension module.
 #[pymodule]
 #[pyo3(name = "_core")]
@@ -2210,6 +2244,9 @@ pub fn chunkr(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDirectoryLoader>()?;
     m.add_function(wrap_pyfunction!(load_pdf, m)?)?;
     m.add_function(wrap_pyfunction!(load_pdf_pages, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::python::load_documents, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::python::load_documents_from_bytes, m)?)?;
+    m.add_function(wrap_pyfunction!(crate::python::supported_extensions, m)?)?;
     m.add_function(wrap_pyfunction!(pages_to_documents, m)?)?;
     m.add_function(wrap_pyfunction!(register_pdf_backend, m)?)?;
     m.add_function(wrap_pyfunction!(unregister_pdf_backend, m)?)?;
