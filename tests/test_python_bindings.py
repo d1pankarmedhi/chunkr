@@ -271,5 +271,29 @@ class Worker:
         self.assertEqual(doc_li.content, "Hello LlamaIndex")
         self.assertEqual(doc_li.metadata["category"], "ai")
 
+    def test_subtitle_chunker_spans_and_dispatch(self):
+        vtt = (
+            "WEBVTT\n\n"
+            "00:00.000 --> 00:02.000\n<v Roger Bingham>We are in New York City.\n\n"
+            "00:02.000 --> 00:04.500\n<v Roger Bingham>Just <c.yellow>arrived</c>.\n"
+        )
+        self.assertIn("vtt", chunkr.supported_extensions())
+
+        cues = chunkr.load_documents_from_bytes(vtt.encode(), "vtt", "talk.vtt")
+        self.assertEqual(len(cues), 2)
+        self.assertEqual(cues[0].content, "We are in New York City.")
+        self.assertEqual(cues[0].metadata["speaker"], "Roger Bingham")
+        self.assertEqual(cues[0].metadata["start_time_s"], 0.0)
+
+        windows = chunkr.SubtitleChunker(max_seconds=2.5).chunk_documents(cues)
+        self.assertEqual(len(windows), 2)
+        self.assertEqual(windows[0].metadata["start_time_s"], 0.0)
+        self.assertEqual(windows[0].metadata["end_time_s"], 2.0)
+        self.assertEqual(windows[0].metadata["file_name"], "talk.vtt")
+
+        # Merged windows must not claim a source's span.
+        packed = chunkr.ChunkPacker(10_000).pack(windows)
+        self.assertNotIn("start_time_s", packed[0].metadata)
+
 if __name__ == "__main__":
     unittest.main()

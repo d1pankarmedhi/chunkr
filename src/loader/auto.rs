@@ -16,6 +16,7 @@ use crate::loader::epub::EpubLoader;
 use crate::loader::office::OfficeLoader;
 use crate::loader::pdf::PDFLoader;
 use crate::loader::spreadsheet::SpreadsheetLoader;
+use crate::loader::subtitle::SubtitleLoader;
 use crate::loader::text::{
     clean_text, decode_text, looks_binary, notebook_to_text, rtf_to_text, xml_to_text,
 };
@@ -25,7 +26,7 @@ use crate::structures::document::Document;
 /// Formats with a dedicated extractor rather than a plain-text fallback.
 pub const STRUCTURED_EXTENSIONS: &[&str] = &[
     "pdf", "xlsx", "xlsm", "xlsb", "xls", "ods", "docx", "docm", "pptx", "odt", "epub", "eml",
-    "mbox", "rtf", "xml", "ipynb", "html", "htm", "xhtml",
+    "mbox", "rtf", "xml", "ipynb", "html", "htm", "xhtml", "srt", "vtt", "webvtt",
 ];
 
 /// Extensions understood by [`load_documents`], structured formats first.
@@ -89,6 +90,7 @@ fn extract_documents(
             OfficeLoader::new().load_documents(bytes, extension, source)?
         }
         "epub" => EpubLoader::new().load_documents(bytes, source)?,
+        "srt" | "vtt" | "webvtt" => SubtitleLoader::new().load_documents(bytes, extension, source)?,
         "eml" | "mbox" | "mail" => EmailLoader::new().load_documents(bytes, extension, source)?,
         "html" | "htm" | "xhtml" => {
             vec![document(clean_text(&html_to_text(bytes)?), source, "html")]

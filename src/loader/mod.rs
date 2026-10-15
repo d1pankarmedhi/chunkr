@@ -8,8 +8,9 @@
 //! - [`DirectoryLoader`]: Recursively scans directories, filters by file extension,
 //!   and automatically routes files to the optimal chunking strategy.
 //! - [`PDFLoader`]: Extracts text page-by-page from PDF files into [`Document`](crate::structures::document::Document) structs.
-//! - [`SpreadsheetLoader`], [`OfficeLoader`], [`EpubLoader`], [`EmailLoader`]: one
-//!   loader per format family, callable directly when the extension is known.
+//! - [`SpreadsheetLoader`], [`OfficeLoader`], [`EpubLoader`], [`EmailLoader`],
+//!   [`SubtitleLoader`]: one loader per format family, callable directly when the
+//!   extension is known.
 
 pub mod base;
 pub mod pdf;
@@ -28,6 +29,8 @@ pub mod epub;
 pub mod office;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod spreadsheet;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod subtitle;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod text;
 #[cfg(not(target_arch = "wasm32"))]
@@ -48,3 +51,5 @@ pub use epub::EpubLoader;
 pub use office::OfficeLoader;
 #[cfg(not(target_arch = "wasm32"))]
 pub use spreadsheet::SpreadsheetLoader;
+#[cfg(not(target_arch = "wasm32"))]
+pub use subtitle::SubtitleLoader;

@@ -82,6 +82,7 @@ clean = (chunkr.ChunkPipeline()
 | Claims, contracts | `PropositionChunker` |
 | Query-time dynamic sizing | `QueryAwareChunker` |
 | Multi-GB files, stdin | `StreamChunker` |
+| Captions, meetings | `SubtitleChunker` (never splits a cue, tags `start_time_s`/`end_time_s`) |
 | Production cleanup and token packing | `ChunkPipeline`, `ChunkPacker` |
 
 Also available: `SentenceChunker`, `ParagraphChunker`, `SemanticChunker`, `ContextualChunker`, `AgenticChunker`, `JsonChunker`, `HtmlChunker`, `CharacterChunker`, `WordChunker`. Full API: [docs](docs/index.html) · [examples](examples/).
@@ -98,9 +99,13 @@ the natural unit of each format:
 | Office | `docx` `docm` `pptx` `odt` | document / slide |
 | Books & mail | `epub` `eml` `mbox` | chapter / message |
 | Markup & notebooks | `html` `xml` `rtf` `ipynb` | document |
+| Captions | `srt` `vtt` `webvtt` | cue |
 | Text | `txt` `md` `log`, any other extension | document |
 
 ```python
+subs   = chunkr.load_documents("talk.vtt")       # one Document per cue, with time spans
+windows = chunkr.SubtitleChunker(max_seconds=30).chunk_documents(subs)  # start_time_s/end_time_s
+
 docs = chunkr.load_documents("sales.xlsx")            # one Document per sheet
 pages = chunkr.load_documents_from_bytes(data, "docx", source="report.docx")
 chunkr.supported_extensions()                          # every extension the build handles
@@ -119,6 +124,15 @@ Extracted metadata rides along into every chunk (`sheet_name`, `slide_number`, `
 Encoding rules are explicit: byte-order marks are always honoured, `.txt`/`.log`/`.csv`/`.tsv`
 also decode legacy single-byte encodings, and formats that are UTF-8 by convention (`md`, `json`,
 `xml`, source code) report undecodable bytes as errors instead of indexing mojibake.
+
+Caption tracks are the first *time-indexed* format: `SubtitleChunker` merges cues into windows that
+never split a cue, and every window carries `start_time_s`, `end_time_s`, `duration_s`, `cue_count`
+and (for WebVTT voice tags) `speaker`, so retrieval can cite an exact moment:
+
+```python
+for window in chunkr.SubtitleChunker(max_seconds=30).chunk_documents(chunkr.load_documents("talk.vtt")):
+    print(window.metadata["start_time_s"], window.metadata["end_time_s"], window.content[:60])
+```
 
 ## PDF parsing and OCR — `chunkr-rs[pdf]`
 

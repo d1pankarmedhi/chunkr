@@ -413,6 +413,46 @@ impl PySentenceChunker {
     }
 }
 
+#[pyclass(name = "SubtitleChunker")]
+pub struct PySubtitleChunker {
+    inner: SubtitleChunker,
+}
+
+#[pymethods]
+impl PySubtitleChunker {
+    #[new]
+    #[pyo3(signature = (max_seconds=30.0, max_characters=1000))]
+    pub fn new(max_seconds: f64, max_characters: usize) -> Self {
+        Self {
+            inner: SubtitleChunker::new()
+                .with_max_seconds(max_seconds)
+                .with_max_characters(max_characters),
+        }
+    }
+
+    pub fn chunk(&self, text: &str) -> PyResult<Vec<PyDocument>> {
+        self.inner
+            .chunk(text)
+            .map(wrap_docs)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    pub fn chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_documents(
+        &self,
+        docs: Vec<PyRef<'_, PyDocument>>,
+    ) -> PyResult<Vec<PyDocument>> {
+        par_chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_texts(&self, texts: Vec<String>) -> PyResult<Vec<Vec<PyDocument>>> {
+        par_chunk_texts_helper(&self.inner, texts)
+    }
+}
+
 // 4. Paragraph Chunker
 #[pyclass(name = "ParagraphChunker")]
 pub struct PyParagraphChunker {
@@ -2220,6 +2260,7 @@ pub fn chunkr(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTokenChunker>()?;
     m.add_class::<PyHFTokenChunker>()?;
     m.add_class::<PySentenceChunker>()?;
+    m.add_class::<PySubtitleChunker>()?;
     m.add_class::<PyParagraphChunker>()?;
     m.add_class::<PySemanticChunker>()?;
     m.add_class::<PyPropositionChunker>()?;

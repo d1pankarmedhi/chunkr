@@ -24,15 +24,25 @@ artifact.
 
 ### Added
 
+- **Time-indexed chunking for caption tracks — `SubtitleChunker`**: SRT and WebVTT load one
+  `Document` per cue carrying `start_time_s`/`end_time_s`/`duration_s`/`cue_index`/`total_cues` and,
+  for WebVTT voice tags, `speaker`. `SubtitleChunker` merges consecutive cues into time windows and
+  emits `start_time_s`, `end_time_s`, `duration_s`, `cue_count` and a `speaker` when the window has
+  one, so retrieval can cite the exact moment in the media file. Cues are atomic — a cue is never
+  split, even when it alone exceeds a budget — and `DirectoryLoader` routes `.srt`/`.vtt`/`.webvtt`
+  to it. `Cue`/`parse_cues` are public for callers that want the parse without the windowing.
+- `ChunkPacker`'s span reconciliation now covers `start_time_s`, `end_time_s`, `duration_s` and
+  `speaker`: packing chunks with different spans drops the singular key and records
+  `merged_<key>` instead of letting a merged chunk claim one source's span.
 - **One extraction dispatcher for every supported format**: `load_documents`,
   `load_documents_from_bytes` and `supported_extensions` are exported from the Rust prelude, the
   Python module (`chunkr.load_documents`, `chunkr.load_documents_from_bytes`,
   `chunkr.supported_extensions`) and the CLI. Extracted formats cover PDF (`pdf`),
   spreadsheets (`xlsx`, `xlsm`, `xlsb`, `xls`, `ods`), office documents (`docx`, `docm`, `pptx`,
   `odt`), books and mail (`epub`, `eml`, `mbox`), markup and notebooks (`html`, `xml`, `rtf`,
-  `ipynb`) plus every text format, returning one `Document` per page, worksheet, slide, chapter or
-  message with `sheet_name`, `slide_number`, `chapter_href`, `page_number`, `source` and
-  `format` metadata attached.
+  `ipynb`), captions (`srt`, `vtt`, `webvtt`) plus every text format, returning one `Document` per
+  page, worksheet, slide, chapter, message or cue with `sheet_name`, `slide_number`,
+  `chapter_href`, `page_number`, `start_time_s`, `source` and `format` metadata attached.
 - `DirectoryLoader` (`load_files`, `load_and_chunk`, and their `_lenient` variants) and the CLI now
   extract through that dispatcher instead of `read_to_string`, so structured formats are usable in
   batch ingestion rather than failing with `stream did not contain valid UTF-8`. Spreadsheets route

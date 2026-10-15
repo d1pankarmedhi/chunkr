@@ -20,6 +20,7 @@
 //! - [`CodeChunker`](code::CodeChunker): Regex syntax-aware code chunking across multiple programming languages.
 //! - [`MarkdownChunker`](markdown::MarkdownChunker): Heading hierarchy (`#` through `######`) with breadcrumb headers.
 //! - [`TableChunker`](table::TableChunker): Row-based tabular chunking (Markdown, CSV, TSV) preserving column headers.
+//! - [`SubtitleChunker`](subtitle::SubtitleChunker): Time-window chunking for SRT/WebVTT tracks that never splits a cue and tags every chunk with `start_time_s`/`end_time_s`.
 //! - [`JsonChunker`](json::JsonChunker): Structural JSON tree chunking preserving valid objects.
 //! - [`HtmlChunker`](html::HtmlChunker): HTML DOM element boundary chunking.
 //!
@@ -56,6 +57,7 @@ pub mod recursive;
 pub mod semantic;
 pub mod sentence;
 pub mod stream;
+pub mod subtitle;
 pub mod table;
 pub mod token;
 pub mod word;

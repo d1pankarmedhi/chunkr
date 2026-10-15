@@ -98,6 +98,7 @@ pub mod prelude {
     };
     pub use crate::chunker::sentence::{ParagraphChunker, SentenceChunker};
     pub use crate::chunker::stream::StreamChunker;
+    pub use crate::chunker::subtitle::{parse_cues, Cue, SubtitleChunker};
     pub use crate::chunker::table::{TableChunker, TableFormat};
     pub use crate::chunker::token::{TokenChunker, TokenEncoding};
     pub use crate::chunker::word::WordChunker;
@@ -114,6 +115,8 @@ pub mod prelude {
     pub use crate::loader::pdf::PDFLoader;
     #[cfg(not(target_arch = "wasm32"))]
     pub use crate::loader::spreadsheet::SpreadsheetLoader;
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::loader::subtitle::SubtitleLoader;
     #[cfg(not(target_arch = "wasm32"))]
     pub use crate::loader::{
         is_structured, load_documents, load_documents_from_bytes, supported_extensions,

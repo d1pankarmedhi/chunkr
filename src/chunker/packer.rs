@@ -33,6 +33,12 @@ const SPAN_SENSITIVE_KEYS: &[&str] = &[
     "end_sentence",
     "start_paragraph",
     "end_paragraph",
+    // Time-indexed chunks (subtitles, transcripts): a packed chunk must never
+    // claim one source's span for merged content.
+    "start_time_s",
+    "end_time_s",
+    "duration_s",
+    "speaker",
 ];
 
 impl ChunkPacker {

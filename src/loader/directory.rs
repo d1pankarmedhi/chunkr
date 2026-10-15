@@ -8,6 +8,7 @@ use crate::chunker::html::HtmlChunker;
 use crate::chunker::json::JsonChunker;
 use crate::chunker::markdown::MarkdownChunker;
 use crate::chunker::recursive::RecursiveChunker;
+use crate::chunker::subtitle::SubtitleChunker;
 use crate::chunker::table::TableChunker;
 use crate::error::ChunkrError;
 use crate::loader::auto::load_documents;
@@ -270,6 +271,7 @@ impl DirectoryLoader {
         }
 
         // Spreadsheets arrive as Markdown tables, so they chunk by row like CSV.
+        // Caption tracks chunk into time windows via [`SubtitleChunker`].
         let chunker: Box<dyn Chunker> = match ext.as_str() {
             "xlsx" | "xlsm" | "xlsb" | "xls" | "ods" | "csv" | "tsv" => Box::new(
                 TableChunker::new()
@@ -281,6 +283,10 @@ impl DirectoryLoader {
                     .with_chunk_size(self.chunk_size)
                     .with_overlap(self.overlap),
             ),
+            // Caption tracks chunk by time window, not by character count.
+            "srt" | "vtt" | "webvtt" => {
+                Box::new(SubtitleChunker::new().with_max_characters(self.chunk_size))
+            }
             "json" => Box::new(JsonChunker::new().with_max_chunk_size(self.chunk_size)),
             "html" | "htm" => Box::new(
                 HtmlChunker::new()
