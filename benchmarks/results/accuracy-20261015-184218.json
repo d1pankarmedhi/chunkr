@@ -1,0 +1,1620 @@
+{
+ "meta": {
+  "timestamp": "2026-10-15T18:42:18+00:00",
+  "chunkr_commit": "446417c",
+  "platform": "Darwin 24.6.0",
+  "python": "3.12.11",
+  "dataset": "chroma/evaluating-chunking",
+  "dataset_source": "https://raw.githubusercontent.com/brandonstarxel/chunking_evaluation/e708410d1c61cb76a85cd9d433630ef89b9c6b85/chunking_evaluation/evaluation_framework/general_evaluation_data",
+  "n_questions": 472,
+  "n_corpora": 5,
+  "k": [
+   5,
+   10,
+   15
+  ],
+  "ks": [
+   5,
+   10,
+   15
+  ],
+  "scoped": false,
+  "embed_model": "sentence-transformers/all-MiniLM-L6-v2"
+ },
+ "groups": {
+  "recursive (others: 1000 chars / 200 overlap)": [
+   {
+    "impl": "chunkr RecursiveChunker (library defaults)",
+    "lib": "chunkr",
+    "note": "1000 chars / 120 overlap / sentence separators",
+    "diagnostics": {
+     "state_of_the_union": {
+      "n_chunks": 57,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 864.9,
+      "coverage_pct": 99.9
+     },
+     "wikitexts": {
+      "n_chunks": 145,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 838.8,
+      "coverage_pct": 99.9
+     },
+     "chatlogs": {
+      "n_chunks": 48,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 852.0,
+      "coverage_pct": 100.0
+     },
+     "finance": {
+      "n_chunks": 874,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 876.2,
+      "coverage_pct": 100.0
+     },
+     "pubmed": {
+      "n_chunks": 621,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 826.2,
+      "coverage_pct": 99.9
+     }
+    },
+    "by_k": {
+     "5": {
+      "overall": {
+       "recall": 0.7919,
+       "precision": 0.0573,
+       "iou": 0.057,
+       "precision_omega": 0.2549
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 0.9947,
+        "precision": 0.0937,
+        "iou": 0.0936,
+        "precision_omega": 0.2775
+       },
+       "finance": {
+        "recall": 0.6752,
+        "precision": 0.0371,
+        "iou": 0.0368,
+        "precision_omega": 0.2102
+       },
+       "pubmed": {
+        "recall": 0.6591,
+        "precision": 0.0601,
+        "iou": 0.0596,
+        "precision_omega": 0.3195
+       },
+       "state_of_the_union": {
+        "recall": 0.9561,
+        "precision": 0.0659,
+        "iou": 0.0656,
+        "precision_omega": 0.1897
+       },
+       "wikitexts": {
+        "recall": 0.7963,
+        "precision": 0.0502,
+        "iou": 0.05,
+        "precision_omega": 0.2662
+       }
+      }
+     },
+     "10": {
+      "overall": {
+       "recall": 0.8779,
+       "precision": 0.0342,
+       "iou": 0.0341,
+       "precision_omega": 0.2549
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 1.0,
+        "precision": 0.0521,
+        "iou": 0.0521,
+        "precision_omega": 0.2775
+       },
+       "finance": {
+        "recall": 0.8233,
+        "precision": 0.0208,
+        "iou": 0.0207,
+        "precision_omega": 0.2102
+       },
+       "pubmed": {
+        "recall": 0.7308,
+        "precision": 0.0332,
+        "iou": 0.0332,
+        "precision_omega": 0.3195
+       },
+       "state_of_the_union": {
+        "recall": 0.9956,
+        "precision": 0.0416,
+        "iou": 0.0413,
+        "precision_omega": 0.1897
+       },
+       "wikitexts": {
+        "recall": 0.9061,
+        "precision": 0.0329,
+        "iou": 0.0329,
+        "precision_omega": 0.2662
+       }
+      }
+     },
+     "15": {
+      "overall": {
+       "recall": 0.9126,
+       "precision": 0.0257,
+       "iou": 0.0256,
+       "precision_omega": 0.2549
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 1.0,
+        "precision": 0.0391,
+        "iou": 0.0391,
+        "precision_omega": 0.2775
+       },
+       "finance": {
+        "recall": 0.8401,
+        "precision": 0.0143,
+        "iou": 0.0143,
+        "precision_omega": 0.2102
+       },
+       "pubmed": {
+        "recall": 0.7808,
+        "precision": 0.0243,
+        "iou": 0.0243,
+        "precision_omega": 0.3195
+       },
+       "state_of_the_union": {
+        "recall": 0.9956,
+        "precision": 0.0327,
+        "iou": 0.0324,
+        "precision_omega": 0.1897
+       },
+       "wikitexts": {
+        "recall": 0.9742,
+        "precision": 0.0254,
+        "iou": 0.0254,
+        "precision_omega": 0.2662
+       }
+      }
+     }
+    }
+   },
+   {
+    "impl": "langchain RecursiveCharacterTextSplitter",
+    "lib": "langchain",
+    "note": "",
+    "diagnostics": {
+     "state_of_the_union": {
+      "n_chunks": 60,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 899.6,
+      "coverage_pct": 99.9
+     },
+     "wikitexts": {
+      "n_chunks": 183,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 704.5,
+      "coverage_pct": 99.7
+     },
+     "chatlogs": {
+      "n_chunks": 51,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 960.7,
+      "coverage_pct": 100.0
+     },
+     "finance": {
+      "n_chunks": 1115,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 761.0,
+      "coverage_pct": 99.8
+     },
+     "pubmed": {
+      "n_chunks": 775,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 704.6,
+      "coverage_pct": 99.8
+     }
+    },
+    "by_k": {
+     "5": {
+      "overall": {
+       "recall": 0.7617,
+       "precision": 0.0604,
+       "iou": 0.0601,
+       "precision_omega": 0.2514
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 0.9784,
+        "precision": 0.0946,
+        "iou": 0.0945,
+        "precision_omega": 0.2243
+       },
+       "finance": {
+        "recall": 0.6655,
+        "precision": 0.0432,
+        "iou": 0.0431,
+        "precision_omega": 0.2116
+       },
+       "pubmed": {
+        "recall": 0.5665,
+        "precision": 0.062,
+        "iou": 0.0613,
+        "precision_omega": 0.3237
+       },
+       "state_of_the_union": {
+        "recall": 0.8727,
+        "precision": 0.0571,
+        "iou": 0.0569,
+        "precision_omega": 0.1729
+       },
+       "wikitexts": {
+        "recall": 0.818,
+        "precision": 0.0594,
+        "iou": 0.0591,
+        "precision_omega": 0.2806
+       }
+      }
+     },
+     "10": {
+      "overall": {
+       "recall": 0.8624,
+       "precision": 0.0376,
+       "iou": 0.0375,
+       "precision_omega": 0.2514
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 0.9821,
+        "precision": 0.0521,
+        "iou": 0.0521,
+        "precision_omega": 0.2243
+       },
+       "finance": {
+        "recall": 0.8217,
+        "precision": 0.0262,
+        "iou": 0.0262,
+        "precision_omega": 0.2116
+       },
+       "pubmed": {
+        "recall": 0.7117,
+        "precision": 0.0384,
+        "iou": 0.0382,
+        "precision_omega": 0.3237
+       },
+       "state_of_the_union": {
+        "recall": 0.9298,
+        "precision": 0.0401,
+        "iou": 0.0399,
+        "precision_omega": 0.1729
+       },
+       "wikitexts": {
+        "recall": 0.9114,
+        "precision": 0.0378,
+        "iou": 0.0377,
+        "precision_omega": 0.2806
+       }
+      }
+     },
+     "15": {
+      "overall": {
+       "recall": 0.893,
+       "precision": 0.028,
+       "iou": 0.028,
+       "precision_omega": 0.2514
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 1.0,
+        "precision": 0.0402,
+        "iou": 0.0402,
+        "precision_omega": 0.2243
+       },
+       "finance": {
+        "recall": 0.8238,
+        "precision": 0.018,
+        "iou": 0.018,
+        "precision_omega": 0.2116
+       },
+       "pubmed": {
+        "recall": 0.7572,
+        "precision": 0.0265,
+        "iou": 0.0265,
+        "precision_omega": 0.3237
+       },
+       "state_of_the_union": {
+        "recall": 0.943,
+        "precision": 0.0328,
+        "iou": 0.0326,
+        "precision_omega": 0.1729
+       },
+       "wikitexts": {
+        "recall": 0.965,
+        "precision": 0.0286,
+        "iou": 0.0286,
+        "precision_omega": 0.2806
+       }
+      }
+     }
+    }
+   },
+   {
+    "impl": "chonkie RecursiveChunker",
+    "lib": "chonkie",
+    "note": "no overlap parameter",
+    "diagnostics": {
+     "state_of_the_union": {
+      "n_chunks": 53,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 906.6,
+      "coverage_pct": 100.0
+     },
+     "wikitexts": {
+      "n_chunks": 171,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 692.2,
+      "coverage_pct": 100.0
+     },
+     "chatlogs": {
+      "n_chunks": 48,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 833.3,
+      "coverage_pct": 100.0
+     },
+     "finance": {
+      "n_chunks": 1072,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 688.3,
+      "coverage_pct": 100.0
+     },
+     "pubmed": {
+      "n_chunks": 715,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 699.3,
+      "coverage_pct": 100.0
+     }
+    },
+    "by_k": {
+     "5": {
+      "overall": {
+       "recall": 0.7523,
+       "precision": 0.0616,
+       "iou": 0.0613,
+       "precision_omega": 0.2922
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 0.95,
+        "precision": 0.0927,
+        "iou": 0.0926,
+        "precision_omega": 0.3069
+       },
+       "finance": {
+        "recall": 0.633,
+        "precision": 0.0459,
+        "iou": 0.0458,
+        "precision_omega": 0.2636
+       },
+       "pubmed": {
+        "recall": 0.6133,
+        "precision": 0.0673,
+        "iou": 0.0667,
+        "precision_omega": 0.3534
+       },
+       "state_of_the_union": {
+        "recall": 0.8138,
+        "precision": 0.0558,
+        "iou": 0.0555,
+        "precision_omega": 0.1823
+       },
+       "wikitexts": {
+        "recall": 0.819,
+        "precision": 0.0591,
+        "iou": 0.0589,
+        "precision_omega": 0.3218
+       }
+      }
+     },
+     "10": {
+      "overall": {
+       "recall": 0.8424,
+       "precision": 0.0375,
+       "iou": 0.0374,
+       "precision_omega": 0.2922
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 0.9821,
+        "precision": 0.055,
+        "iou": 0.055,
+        "precision_omega": 0.3069
+       },
+       "finance": {
+        "recall": 0.7468,
+        "precision": 0.0266,
+        "iou": 0.0266,
+        "precision_omega": 0.2636
+       },
+       "pubmed": {
+        "recall": 0.6916,
+        "precision": 0.0374,
+        "iou": 0.0372,
+        "precision_omega": 0.3534
+       },
+       "state_of_the_union": {
+        "recall": 0.896,
+        "precision": 0.0383,
+        "iou": 0.038,
+        "precision_omega": 0.1823
+       },
+       "wikitexts": {
+        "recall": 0.9278,
+        "precision": 0.0377,
+        "iou": 0.0377,
+        "precision_omega": 0.3218
+       }
+      }
+     },
+     "15": {
+      "overall": {
+       "recall": 0.8921,
+       "precision": 0.0282,
+       "iou": 0.0282,
+       "precision_omega": 0.2922
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 0.9821,
+        "precision": 0.0423,
+        "iou": 0.0423,
+        "precision_omega": 0.3069
+       },
+       "finance": {
+        "recall": 0.8086,
+        "precision": 0.0181,
+        "iou": 0.0181,
+        "precision_omega": 0.2636
+       },
+       "pubmed": {
+        "recall": 0.7563,
+        "precision": 0.0264,
+        "iou": 0.0263,
+        "precision_omega": 0.3534
+       },
+       "state_of_the_union": {
+        "recall": 0.94,
+        "precision": 0.0321,
+        "iou": 0.0319,
+        "precision_omega": 0.1823
+       },
+       "wikitexts": {
+        "recall": 0.9815,
+        "precision": 0.0288,
+        "iou": 0.0288,
+        "precision_omega": 0.3218
+       }
+      }
+     }
+    }
+   },
+   {
+    "impl": "llama-index SentenceSplitter",
+    "lib": "llamaindex",
+    "note": "token-budgeted",
+    "diagnostics": {
+     "state_of_the_union": {
+      "n_chunks": 14,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 4216.5,
+      "coverage_pct": 100.0
+     },
+     "wikitexts": {
+      "n_chunks": 35,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 4108.6,
+      "coverage_pct": 100.0
+     },
+     "chatlogs": {
+      "n_chunks": 10,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 4835.4,
+      "coverage_pct": 100.0
+     },
+     "finance": {
+      "n_chunks": 215,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 4183.4,
+      "coverage_pct": 100.0
+     },
+     "pubmed": {
+      "n_chunks": 150,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 4020.4,
+      "coverage_pct": 100.0
+     }
+    },
+    "by_k": {
+     "5": {
+      "overall": {
+       "recall": 0.6544,
+       "precision": 0.0127,
+       "iou": 0.0127,
+       "precision_omega": 0.0545
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 0.9532,
+        "precision": 0.0279,
+        "iou": 0.0279,
+        "precision_omega": 0.0629
+       },
+       "finance": {
+        "recall": 0.4705,
+        "precision": 0.0047,
+        "iou": 0.0047,
+        "precision_omega": 0.0472
+       },
+       "pubmed": {
+        "recall": 0.5586,
+        "precision": 0.0111,
+        "iou": 0.0111,
+        "precision_omega": 0.0688
+       },
+       "state_of_the_union": {
+        "recall": 0.5526,
+        "precision": 0.0098,
+        "iou": 0.0098,
+        "precision_omega": 0.0394
+       },
+       "wikitexts": {
+        "recall": 0.7814,
+        "precision": 0.0148,
+        "iou": 0.0148,
+        "precision_omega": 0.0545
+       }
+      }
+     },
+     "10": {
+      "overall": {
+       "recall": 0.752,
+       "precision": 0.0098,
+       "iou": 0.0098,
+       "precision_omega": 0.0545
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 0.9711,
+        "precision": 0.0231,
+        "iou": 0.0231,
+        "precision_omega": 0.0629
+       },
+       "finance": {
+        "recall": 0.5221,
+        "precision": 0.0027,
+        "iou": 0.0027,
+        "precision_omega": 0.0472
+       },
+       "pubmed": {
+        "recall": 0.6941,
+        "precision": 0.0075,
+        "iou": 0.0075,
+        "precision_omega": 0.0688
+       },
+       "state_of_the_union": {
+        "recall": 0.7237,
+        "precision": 0.008,
+        "iou": 0.008,
+        "precision_omega": 0.0394
+       },
+       "wikitexts": {
+        "recall": 0.8765,
+        "precision": 0.0119,
+        "iou": 0.0119,
+        "precision_omega": 0.0545
+       }
+      }
+     },
+     "15": {
+      "overall": {
+       "recall": 0.8049,
+       "precision": 0.0086,
+       "iou": 0.0086,
+       "precision_omega": 0.0545
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 0.9924,
+        "precision": 0.0211,
+        "iou": 0.021,
+        "precision_omega": 0.0629
+       },
+       "finance": {
+        "recall": 0.6003,
+        "precision": 0.0022,
+        "iou": 0.0022,
+        "precision_omega": 0.0472
+       },
+       "pubmed": {
+        "recall": 0.7719,
+        "precision": 0.0056,
+        "iou": 0.0056,
+        "precision_omega": 0.0688
+       },
+       "state_of_the_union": {
+        "recall": 0.8158,
+        "precision": 0.0077,
+        "iou": 0.0077,
+        "precision_omega": 0.0394
+       },
+       "wikitexts": {
+        "recall": 0.8868,
+        "precision": 0.0106,
+        "iou": 0.0106,
+        "precision_omega": 0.0545
+       }
+      }
+     }
+    }
+   },
+   {
+    "impl": "semchunk chunk(token_counter=len)",
+    "lib": "semchunk",
+    "note": "",
+    "diagnostics": {
+     "state_of_the_union": {
+      "n_chunks": 90,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 670.7,
+      "coverage_pct": 100.0
+     },
+     "wikitexts": {
+      "n_chunks": 228,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 649.2,
+      "coverage_pct": 100.0
+     },
+     "chatlogs": {
+      "n_chunks": 74,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 676.6,
+      "coverage_pct": 100.0
+     },
+     "finance": {
+      "n_chunks": 1416,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 648.2,
+      "coverage_pct": 100.0
+     },
+     "pubmed": {
+      "n_chunks": 990,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 630.6,
+      "coverage_pct": 100.0
+     }
+    },
+    "by_k": {
+     "5": {
+      "overall": {
+       "recall": 0.7357,
+       "precision": 0.07,
+       "iou": 0.069,
+       "precision_omega": 0.2595
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 0.9275,
+        "precision": 0.119,
+        "iou": 0.117,
+        "precision_omega": 0.2975
+       },
+       "finance": {
+        "recall": 0.6671,
+        "precision": 0.0497,
+        "iou": 0.0489,
+        "precision_omega": 0.2182
+       },
+       "pubmed": {
+        "recall": 0.5723,
+        "precision": 0.067,
+        "iou": 0.0657,
+        "precision_omega": 0.2941
+       },
+       "state_of_the_union": {
+        "recall": 0.8935,
+        "precision": 0.0729,
+        "iou": 0.0726,
+        "precision_omega": 0.2072
+       },
+       "wikitexts": {
+        "recall": 0.7364,
+        "precision": 0.0651,
+        "iou": 0.0642,
+        "precision_omega": 0.2764
+       }
+      }
+     },
+     "10": {
+      "overall": {
+       "recall": 0.8512,
+       "precision": 0.0449,
+       "iou": 0.0447,
+       "precision_omega": 0.2595
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 0.9664,
+        "precision": 0.0694,
+        "iou": 0.0693,
+        "precision_omega": 0.2975
+       },
+       "finance": {
+        "recall": 0.8142,
+        "precision": 0.0306,
+        "iou": 0.0304,
+        "precision_omega": 0.2182
+       },
+       "pubmed": {
+        "recall": 0.7448,
+        "precision": 0.0476,
+        "iou": 0.0474,
+        "precision_omega": 0.2941
+       },
+       "state_of_the_union": {
+        "recall": 0.9298,
+        "precision": 0.0484,
+        "iou": 0.0482,
+        "precision_omega": 0.2072
+       },
+       "wikitexts": {
+        "recall": 0.863,
+        "precision": 0.0411,
+        "iou": 0.041,
+        "precision_omega": 0.2764
+       }
+      }
+     },
+     "15": {
+      "overall": {
+       "recall": 0.8831,
+       "precision": 0.0328,
+       "iou": 0.0327,
+       "precision_omega": 0.2595
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 1.0,
+        "precision": 0.0501,
+        "iou": 0.0501,
+        "precision_omega": 0.2975
+       },
+       "finance": {
+        "recall": 0.8457,
+        "precision": 0.0215,
+        "iou": 0.0214,
+        "precision_omega": 0.2182
+       },
+       "pubmed": {
+        "recall": 0.7828,
+        "precision": 0.0331,
+        "iou": 0.033,
+        "precision_omega": 0.2941
+       },
+       "state_of_the_union": {
+        "recall": 0.951,
+        "precision": 0.0376,
+        "iou": 0.0373,
+        "precision_omega": 0.2072
+       },
+       "wikitexts": {
+        "recall": 0.8961,
+        "precision": 0.0311,
+        "iou": 0.031,
+        "precision_omega": 0.2764
+       }
+      }
+     }
+    }
+   },
+   {
+    "impl": "text-splitter TextSplitter",
+    "lib": "text-splitter",
+    "note": "",
+    "diagnostics": {
+     "state_of_the_union": {
+      "n_chunks": 60,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 899.6,
+      "coverage_pct": 99.9
+     },
+     "wikitexts": {
+      "n_chunks": 167,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 750.2,
+      "coverage_pct": 99.8
+     },
+     "chatlogs": {
+      "n_chunks": 51,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 887.0,
+      "coverage_pct": 100.0
+     },
+     "finance": {
+      "n_chunks": 1000,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 855.5,
+      "coverage_pct": 99.9
+     },
+     "pubmed": {
+      "n_chunks": 760,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 698.7,
+      "coverage_pct": 99.8
+     }
+    },
+    "by_k": {
+     "5": {
+      "overall": {
+       "recall": 0.7625,
+       "precision": 0.0601,
+       "iou": 0.0599,
+       "precision_omega": 0.2615
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 0.9427,
+        "precision": 0.0954,
+        "iou": 0.0951,
+        "precision_omega": 0.2648
+       },
+       "finance": {
+        "recall": 0.651,
+        "precision": 0.0382,
+        "iou": 0.0381,
+        "precision_omega": 0.2028
+       },
+       "pubmed": {
+        "recall": 0.6178,
+        "precision": 0.0677,
+        "iou": 0.067,
+        "precision_omega": 0.3413
+       },
+       "state_of_the_union": {
+        "recall": 0.8859,
+        "precision": 0.0589,
+        "iou": 0.0587,
+        "precision_omega": 0.1729
+       },
+       "wikitexts": {
+        "recall": 0.8021,
+        "precision": 0.0567,
+        "iou": 0.0565,
+        "precision_omega": 0.2917
+       }
+      }
+     },
+     "10": {
+      "overall": {
+       "recall": 0.8464,
+       "precision": 0.0363,
+       "iou": 0.0362,
+       "precision_omega": 0.2615
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 0.982,
+        "precision": 0.0546,
+        "iou": 0.0546,
+        "precision_omega": 0.2648
+       },
+       "finance": {
+        "recall": 0.7815,
+        "precision": 0.0231,
+        "iou": 0.0231,
+        "precision_omega": 0.2028
+       },
+       "pubmed": {
+        "recall": 0.7064,
+        "precision": 0.0383,
+        "iou": 0.0381,
+        "precision_omega": 0.3413
+       },
+       "state_of_the_union": {
+        "recall": 0.9166,
+        "precision": 0.0389,
+        "iou": 0.0387,
+        "precision_omega": 0.1729
+       },
+       "wikitexts": {
+        "recall": 0.8964,
+        "precision": 0.0354,
+        "iou": 0.0354,
+        "precision_omega": 0.2917
+       }
+      }
+     },
+     "15": {
+      "overall": {
+       "recall": 0.892,
+       "precision": 0.0274,
+       "iou": 0.0273,
+       "precision_omega": 0.2615
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 0.9999,
+        "precision": 0.0417,
+        "iou": 0.0417,
+        "precision_omega": 0.2648
+       },
+       "finance": {
+        "recall": 0.8026,
+        "precision": 0.0159,
+        "iou": 0.0159,
+        "precision_omega": 0.2028
+       },
+       "pubmed": {
+        "recall": 0.7501,
+        "precision": 0.0266,
+        "iou": 0.0265,
+        "precision_omega": 0.3413
+       },
+       "state_of_the_union": {
+        "recall": 0.943,
+        "precision": 0.0323,
+        "iou": 0.0321,
+        "precision_omega": 0.1729
+       },
+       "wikitexts": {
+        "recall": 0.9811,
+        "precision": 0.0276,
+        "iou": 0.0276,
+        "precision_omega": 0.2917
+       }
+      }
+     }
+    }
+   }
+  ],
+  "markdown (1000 chars / 150 overlap)": [
+   {
+    "impl": "chunkr MarkdownChunker",
+    "lib": "chunkr",
+    "note": "",
+    "diagnostics": {
+     "state_of_the_union": {
+      "n_chunks": 58,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 881.4,
+      "coverage_pct": 99.9
+     },
+     "wikitexts": {
+      "n_chunks": 151,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 827.4,
+      "coverage_pct": 99.9
+     },
+     "chatlogs": {
+      "n_chunks": 48,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 874.0,
+      "coverage_pct": 100.0
+     },
+     "finance": {
+      "n_chunks": 900,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 874.7,
+      "coverage_pct": 100.0
+     },
+     "pubmed": {
+      "n_chunks": 635,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 825.3,
+      "coverage_pct": 99.9
+     }
+    },
+    "by_k": {
+     "5": {
+      "overall": {
+       "recall": 0.7768,
+       "precision": 0.0552,
+       "iou": 0.0549,
+       "precision_omega": 0.2491
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 0.9851,
+        "precision": 0.0919,
+        "iou": 0.0918,
+        "precision_omega": 0.2595
+       },
+       "finance": {
+        "recall": 0.7,
+        "precision": 0.0368,
+        "iou": 0.0366,
+        "precision_omega": 0.2032
+       },
+       "pubmed": {
+        "recall": 0.6421,
+        "precision": 0.0584,
+        "iou": 0.0579,
+        "precision_omega": 0.3112
+       },
+       "state_of_the_union": {
+        "recall": 0.8816,
+        "precision": 0.0549,
+        "iou": 0.0549,
+        "precision_omega": 0.1867
+       },
+       "wikitexts": {
+        "recall": 0.7849,
+        "precision": 0.0513,
+        "iou": 0.051,
+        "precision_omega": 0.2661
+       }
+      }
+     },
+     "10": {
+      "overall": {
+       "recall": 0.8663,
+       "precision": 0.0331,
+       "iou": 0.033,
+       "precision_omega": 0.2491
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 1.0,
+        "precision": 0.0518,
+        "iou": 0.0518,
+        "precision_omega": 0.2595
+       },
+       "finance": {
+        "recall": 0.8342,
+        "precision": 0.0222,
+        "iou": 0.0222,
+        "precision_omega": 0.2032
+       },
+       "pubmed": {
+        "recall": 0.7202,
+        "precision": 0.033,
+        "iou": 0.0329,
+        "precision_omega": 0.3112
+       },
+       "state_of_the_union": {
+        "recall": 0.9211,
+        "precision": 0.0333,
+        "iou": 0.0333,
+        "precision_omega": 0.1867
+       },
+       "wikitexts": {
+        "recall": 0.9076,
+        "precision": 0.033,
+        "iou": 0.033,
+        "precision_omega": 0.2661
+       }
+      }
+     },
+     "15": {
+      "overall": {
+       "recall": 0.9045,
+       "precision": 0.0249,
+       "iou": 0.0249,
+       "precision_omega": 0.2491
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 1.0,
+        "precision": 0.0392,
+        "iou": 0.0392,
+        "precision_omega": 0.2595
+       },
+       "finance": {
+        "recall": 0.888,
+        "precision": 0.0154,
+        "iou": 0.0154,
+        "precision_omega": 0.2032
+       },
+       "pubmed": {
+        "recall": 0.7807,
+        "precision": 0.0245,
+        "iou": 0.0245,
+        "precision_omega": 0.3112
+       },
+       "state_of_the_union": {
+        "recall": 0.9474,
+        "precision": 0.0269,
+        "iou": 0.0269,
+        "precision_omega": 0.1867
+       },
+       "wikitexts": {
+        "recall": 0.9411,
+        "precision": 0.025,
+        "iou": 0.025,
+        "precision_omega": 0.2661
+       }
+      }
+     }
+    }
+   },
+   {
+    "impl": "langchain MarkdownHeaderTextSplitter",
+    "lib": "langchain",
+    "note": "header-only, no size budget, strips headers",
+    "diagnostics": {
+     "state_of_the_union": {
+      "n_chunks": 1,
+      "unlocated_chunks": 1,
+      "avg_chunk_chars": 48420.0,
+      "coverage_pct": 0.0
+     },
+     "wikitexts": {
+      "n_chunks": 1,
+      "unlocated_chunks": 1,
+      "avg_chunk_chars": 117710.0,
+      "coverage_pct": 0.0
+     },
+     "chatlogs": {
+      "n_chunks": 1,
+      "unlocated_chunks": 1,
+      "avg_chunk_chars": 40018.0,
+      "coverage_pct": 0.0
+     },
+     "finance": {
+      "n_chunks": 1,
+      "unlocated_chunks": 1,
+      "avg_chunk_chars": 739013.0,
+      "coverage_pct": 0.0
+     },
+     "pubmed": {
+      "n_chunks": 1,
+      "unlocated_chunks": 1,
+      "avg_chunk_chars": 500220.0,
+      "coverage_pct": 0.0
+     }
+    },
+    "by_k": {
+     "5": {
+      "overall": {
+       "recall": 0.0,
+       "precision": 0.0,
+       "iou": 0.0,
+       "precision_omega": 0.0
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 0.0,
+        "precision": 0.0,
+        "iou": 0.0,
+        "precision_omega": 0.0
+       },
+       "finance": {
+        "recall": 0.0,
+        "precision": 0.0,
+        "iou": 0.0,
+        "precision_omega": 0.0
+       },
+       "pubmed": {
+        "recall": 0.0,
+        "precision": 0.0,
+        "iou": 0.0,
+        "precision_omega": 0.0
+       },
+       "state_of_the_union": {
+        "recall": 0.0,
+        "precision": 0.0,
+        "iou": 0.0,
+        "precision_omega": 0.0
+       },
+       "wikitexts": {
+        "recall": 0.0,
+        "precision": 0.0,
+        "iou": 0.0,
+        "precision_omega": 0.0
+       }
+      }
+     },
+     "10": {
+      "overall": {
+       "recall": 0.0,
+       "precision": 0.0,
+       "iou": 0.0,
+       "precision_omega": 0.0
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 0.0,
+        "precision": 0.0,
+        "iou": 0.0,
+        "precision_omega": 0.0
+       },
+       "finance": {
+        "recall": 0.0,
+        "precision": 0.0,
+        "iou": 0.0,
+        "precision_omega": 0.0
+       },
+       "pubmed": {
+        "recall": 0.0,
+        "precision": 0.0,
+        "iou": 0.0,
+        "precision_omega": 0.0
+       },
+       "state_of_the_union": {
+        "recall": 0.0,
+        "precision": 0.0,
+        "iou": 0.0,
+        "precision_omega": 0.0
+       },
+       "wikitexts": {
+        "recall": 0.0,
+        "precision": 0.0,
+        "iou": 0.0,
+        "precision_omega": 0.0
+       }
+      }
+     },
+     "15": {
+      "overall": {
+       "recall": 0.0,
+       "precision": 0.0,
+       "iou": 0.0,
+       "precision_omega": 0.0
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 0.0,
+        "precision": 0.0,
+        "iou": 0.0,
+        "precision_omega": 0.0
+       },
+       "finance": {
+        "recall": 0.0,
+        "precision": 0.0,
+        "iou": 0.0,
+        "precision_omega": 0.0
+       },
+       "pubmed": {
+        "recall": 0.0,
+        "precision": 0.0,
+        "iou": 0.0,
+        "precision_omega": 0.0
+       },
+       "state_of_the_union": {
+        "recall": 0.0,
+        "precision": 0.0,
+        "iou": 0.0,
+        "precision_omega": 0.0
+       },
+       "wikitexts": {
+        "recall": 0.0,
+        "precision": 0.0,
+        "iou": 0.0,
+        "precision_omega": 0.0
+       }
+      }
+     }
+    }
+   },
+   {
+    "impl": "llama-index MarkdownNodeParser",
+    "lib": "llamaindex",
+    "note": "header-only, no size budget",
+    "diagnostics": {
+     "state_of_the_union": {
+      "n_chunks": 1,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 48051.0,
+      "coverage_pct": 100.0
+     },
+     "wikitexts": {
+      "n_chunks": 1,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 118369.0,
+      "coverage_pct": 100.0
+     },
+     "chatlogs": {
+      "n_chunks": 1,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 39999.0,
+      "coverage_pct": 100.0
+     },
+     "finance": {
+      "n_chunks": 1,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 737905.0,
+      "coverage_pct": 100.0
+     },
+     "pubmed": {
+      "n_chunks": 1,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 500000.0,
+      "coverage_pct": 100.0
+     }
+    },
+    "by_k": {
+     "5": {
+      "overall": {
+       "recall": 1.0,
+       "precision": 0.0027,
+       "iou": 0.0027,
+       "precision_omega": 0.0027
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 1.0,
+        "precision": 0.0098,
+        "iou": 0.0098,
+        "precision_omega": 0.0098
+       },
+       "finance": {
+        "recall": 1.0,
+        "precision": 0.0003,
+        "iou": 0.0003,
+        "precision_omega": 0.0003
+       },
+       "pubmed": {
+        "recall": 1.0,
+        "precision": 0.0007,
+        "iou": 0.0007,
+        "precision_omega": 0.0007
+       },
+       "state_of_the_union": {
+        "recall": 1.0,
+        "precision": 0.0039,
+        "iou": 0.0039,
+        "precision_omega": 0.0039
+       },
+       "wikitexts": {
+        "recall": 1.0,
+        "precision": 0.0023,
+        "iou": 0.0023,
+        "precision_omega": 0.0023
+       }
+      }
+     },
+     "10": {
+      "overall": {
+       "recall": 1.0,
+       "precision": 0.0027,
+       "iou": 0.0027,
+       "precision_omega": 0.0027
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 1.0,
+        "precision": 0.0098,
+        "iou": 0.0098,
+        "precision_omega": 0.0098
+       },
+       "finance": {
+        "recall": 1.0,
+        "precision": 0.0003,
+        "iou": 0.0003,
+        "precision_omega": 0.0003
+       },
+       "pubmed": {
+        "recall": 1.0,
+        "precision": 0.0007,
+        "iou": 0.0007,
+        "precision_omega": 0.0007
+       },
+       "state_of_the_union": {
+        "recall": 1.0,
+        "precision": 0.0039,
+        "iou": 0.0039,
+        "precision_omega": 0.0039
+       },
+       "wikitexts": {
+        "recall": 1.0,
+        "precision": 0.0023,
+        "iou": 0.0023,
+        "precision_omega": 0.0023
+       }
+      }
+     },
+     "15": {
+      "overall": {
+       "recall": 1.0,
+       "precision": 0.0027,
+       "iou": 0.0027,
+       "precision_omega": 0.0027
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 1.0,
+        "precision": 0.0098,
+        "iou": 0.0098,
+        "precision_omega": 0.0098
+       },
+       "finance": {
+        "recall": 1.0,
+        "precision": 0.0003,
+        "iou": 0.0003,
+        "precision_omega": 0.0003
+       },
+       "pubmed": {
+        "recall": 1.0,
+        "precision": 0.0007,
+        "iou": 0.0007,
+        "precision_omega": 0.0007
+       },
+       "state_of_the_union": {
+        "recall": 1.0,
+        "precision": 0.0039,
+        "iou": 0.0039,
+        "precision_omega": 0.0039
+       },
+       "wikitexts": {
+        "recall": 1.0,
+        "precision": 0.0023,
+        "iou": 0.0023,
+        "precision_omega": 0.0023
+       }
+      }
+     }
+    }
+   },
+   {
+    "impl": "text-splitter MarkdownSplitter",
+    "lib": "text-splitter",
+    "note": "",
+    "diagnostics": {
+     "state_of_the_union": {
+      "n_chunks": 58,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 887.3,
+      "coverage_pct": 99.9
+     },
+     "wikitexts": {
+      "n_chunks": 153,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 823.1,
+      "coverage_pct": 100.0
+     },
+     "chatlogs": {
+      "n_chunks": 52,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 800.5,
+      "coverage_pct": 100.0
+     },
+     "finance": {
+      "n_chunks": 1043,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 762.0,
+      "coverage_pct": 99.9
+     },
+     "pubmed": {
+      "n_chunks": 736,
+      "unlocated_chunks": 0,
+      "avg_chunk_chars": 699.3,
+      "coverage_pct": 99.8
+     }
+    },
+    "by_k": {
+     "5": {
+      "overall": {
+       "recall": 0.7496,
+       "precision": 0.0579,
+       "iou": 0.0576,
+       "precision_omega": 0.256
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 0.9468,
+        "precision": 0.0943,
+        "iou": 0.0939,
+        "precision_omega": 0.2874
+       },
+       "finance": {
+        "recall": 0.642,
+        "precision": 0.039,
+        "iou": 0.0387,
+        "precision_omega": 0.2098
+       },
+       "pubmed": {
+        "recall": 0.6176,
+        "precision": 0.0677,
+        "iou": 0.0669,
+        "precision_omega": 0.3541
+       },
+       "state_of_the_union": {
+        "recall": 0.8903,
+        "precision": 0.0569,
+        "iou": 0.0567,
+        "precision_omega": 0.1805
+       },
+       "wikitexts": {
+        "recall": 0.7619,
+        "precision": 0.0505,
+        "iou": 0.0502,
+        "precision_omega": 0.2473
+       }
+      }
+     },
+     "10": {
+      "overall": {
+       "recall": 0.8306,
+       "precision": 0.0345,
+       "iou": 0.0344,
+       "precision_omega": 0.256
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 0.9741,
+        "precision": 0.0545,
+        "iou": 0.0544,
+        "precision_omega": 0.2874
+       },
+       "finance": {
+        "recall": 0.693,
+        "precision": 0.0205,
+        "iou": 0.0204,
+        "precision_omega": 0.2098
+       },
+       "pubmed": {
+        "recall": 0.6989,
+        "precision": 0.0371,
+        "iou": 0.037,
+        "precision_omega": 0.3541
+       },
+       "state_of_the_union": {
+        "recall": 0.9561,
+        "precision": 0.037,
+        "iou": 0.0368,
+        "precision_omega": 0.1805
+       },
+       "wikitexts": {
+        "recall": 0.8919,
+        "precision": 0.033,
+        "iou": 0.033,
+        "precision_omega": 0.2473
+       }
+      }
+     },
+     "15": {
+      "overall": {
+       "recall": 0.8825,
+       "precision": 0.0261,
+       "iou": 0.026,
+       "precision_omega": 0.256
+      },
+      "by_corpus": {
+       "chatlogs": {
+        "recall": 0.9754,
+        "precision": 0.0424,
+        "iou": 0.0423,
+        "precision_omega": 0.2874
+       },
+       "finance": {
+        "recall": 0.7957,
+        "precision": 0.0154,
+        "iou": 0.0154,
+        "precision_omega": 0.2098
+       },
+       "pubmed": {
+        "recall": 0.7549,
+        "precision": 0.0263,
+        "iou": 0.0263,
+        "precision_omega": 0.3541
+       },
+       "state_of_the_union": {
+        "recall": 0.9561,
+        "precision": 0.0292,
+        "iou": 0.029,
+        "precision_omega": 0.1805
+       },
+       "wikitexts": {
+        "recall": 0.9536,
+        "precision": 0.0252,
+        "iou": 0.0252,
+        "precision_omega": 0.2473
+       }
+      }
+     }
+    }
+   }
+  ]
+ }
+}

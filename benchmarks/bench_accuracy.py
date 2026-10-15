@@ -20,6 +20,7 @@ far larger than the answers scores well on recall but poorly on precision/IoU.
 
 Usage:
     python benchmarks/bench_accuracy.py                      # all impls, k=5
+    python benchmarks/bench_accuracy.py --k 5 10 15          # recall/precision k-sweep
     python benchmarks/bench_accuracy.py --impl chunkr        # only chunkr rows
     python benchmarks/bench_accuracy.py --scoped             # per-corpus retrieval
 """
@@ -292,8 +293,16 @@ def embed(model: Any, texts: list[str]) -> Any:
     return np.asarray(vectors, dtype=np.float32)
 
 
-def rank(model: Any, dataset: Dataset, impl: Impl, k: int, scoped: bool) -> dict[str, Any]:
+def rank(model: Any, dataset: Dataset, impl: Impl, ks: int | list[int], scoped: bool = False) -> dict[str, Any]:
+    """Score `impl` at one k (flat result) or several k values in one embedding pass.
+
+    An int returns that k's metrics at the top level so single-k callers are unaffected;
+    a list returns ``by_k`` keyed by k.
+    """
     import numpy as np
+
+    single = isinstance(ks, int)
+    k_list = [ks] if single else sorted(set(ks))
 
     chunk_text, chunk_corpus, chunk_span = [], [], []
     diagnostics: dict[str, dict[str, Any]] = {}
@@ -314,22 +323,33 @@ def rank(model: Any, dataset: Dataset, impl: Impl, k: int, scoped: bool) -> dict
     question_vecs = embed(model, [q["question"] for q in dataset.questions])
     scores = question_vecs @ chunk_vecs.T
 
-    per_question = []
-    by_corpus: dict[str, list[dict[str, float]]] = {}
+    # Rank the chunks once per question and slice the same order for every k.
+    all_ids = np.arange(len(chunk_text))
+    scoped_ids = {
+        cid: np.array([i for i, c in enumerate(chunk_corpus) if c == cid]) for cid in dataset.corpora
+    }
+    everything_by_corpus = {
+        cid: [s for i, s in enumerate(chunk_span) if chunk_corpus[i] == cid and s is not None]
+        for cid in dataset.corpora
+    }
+    ranked: list[Any] = []
     for row, question in enumerate(dataset.questions):
-        corpus_id = question["corpus_id"]
-        candidates = np.arange(len(chunk_text))
-        if scoped:
-            candidates = np.array([i for i, c in enumerate(chunk_corpus) if c == corpus_id])
-        top = candidates[np.argsort(-scores[row, candidates])[:k]]
+        candidates = scoped_ids[question["corpus_id"]] if scoped else all_ids
+        ranked.append(candidates[np.argsort(-scores[row, candidates])])
 
-        retrieved = [chunk_span[i] for i in top if chunk_corpus[i] == corpus_id and chunk_span[i] is not None]
-        everything = [s for i, s in enumerate(chunk_span) if chunk_corpus[i] == corpus_id and s is not None]
-        result = question_scores(question["references"], retrieved, everything)
-        result["question"] = question["question"]
-        result["corpus_id"] = corpus_id
-        per_question.append(result)
-        by_corpus.setdefault(corpus_id, []).append(result)
+    def scores_at(k: int) -> tuple[list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
+        per_question: list[dict[str, Any]] = []
+        by_corpus: dict[str, list[dict[str, Any]]] = {}
+        for row, question in enumerate(dataset.questions):
+            corpus_id = question["corpus_id"]
+            top = ranked[row][:k]
+            retrieved = [chunk_span[i] for i in top if chunk_corpus[i] == corpus_id and chunk_span[i] is not None]
+            result = question_scores(question["references"], retrieved, everything_by_corpus[corpus_id])
+            result["question"] = question["question"]
+            result["corpus_id"] = corpus_id
+            per_question.append(result)
+            by_corpus.setdefault(corpus_id, []).append(result)
+        return per_question, by_corpus
 
     def summarize(rows: list[dict[str, Any]]) -> dict[str, float]:
         return {
@@ -337,15 +357,26 @@ def rank(model: Any, dataset: Dataset, impl: Impl, k: int, scoped: bool) -> dict
             for metric in ("recall", "precision", "iou", "precision_omega")
         }
 
-    return {
-        "impl": impl.name,
-        "lib": impl.lib,
-        "note": impl.note,
-        "overall": summarize(per_question),
-        "by_corpus": {cid: summarize(rows) for cid, rows in sorted(by_corpus.items())},
-        "diagnostics": diagnostics,
-        "per_question": per_question,
-    }
+    by_k = {}
+    for k in k_list:
+        per_question, by_corpus = scores_at(k)
+        by_k[k] = {
+            "overall": summarize(per_question),
+            "by_corpus": {cid: summarize(rows) for cid, rows in sorted(by_corpus.items())},
+            "per_question": per_question,
+        }
+
+    out: dict[str, Any] = {"impl": impl.name, "lib": impl.lib, "note": impl.note, "diagnostics": diagnostics}
+    if single:
+        out.update(by_k[ks])
+    else:
+        out["by_k"] = {str(k): by_k[k] for k in k_list}
+    return out
+
+
+def metrics_at(result: dict[str, Any], k: int) -> dict[str, Any]:
+    """Metrics of a rank() result at k, for single-k (flat) and multi-k results alike."""
+    return result["by_k"][str(k)] if "by_k" in result else result
 
 
 # ------------------------------------------------------------------------- reporting
@@ -353,18 +384,20 @@ def rank(model: Any, dataset: Dataset, impl: Impl, k: int, scoped: bool) -> dict
 METRICS = ["recall", "precision", "iou", "precision_omega"]
 
 
-def print_group(group: str, results: list[dict[str, Any]]) -> None:
-    print(f"\n{group}")
-    print(f"  {'implementation':<40} {'recall':>7} {'prec':>7} {'IoU':>7} {'prec_Ω':>7} {'chunks':>7} {'chars':>7} {'unloc':>6}")
-    for r in sorted(results, key=lambda x: -x["overall"]["iou"]):
-        chunks = sum(d["n_chunks"] for d in r["diagnostics"].values())
-        chars = sum(d["avg_chunk_chars"] * d["n_chunks"] for d in r["diagnostics"].values()) / max(chunks, 1)
-        unlocated = sum(d["unlocated_chunks"] for d in r["diagnostics"].values())
-        o = r["overall"]
-        print(f"  {r['impl']:<40} {o['recall']:>7.3f} {o['precision']:>7.3f} {o['iou']:>7.3f} {o['precision_omega']:>7.3f} {chunks:>7} {chars:>7.0f} {unlocated:>6}")
+def print_group(group: str, results: list[dict[str, Any]], ks: list[int]) -> None:
+    for k in ks:
+        print(f"\n{group} — top-{k}")
+        print(f"  {'implementation':<40} {'recall':>7} {'prec':>7} {'IoU':>7} {'prec_Ω':>7} {'chunks':>7} {'chars':>7} {'unloc':>6}")
+        for r in sorted(results, key=lambda x: -metrics_at(x, k)["overall"]["iou"]):
+            chunks = sum(d["n_chunks"] for d in r["diagnostics"].values())
+            chars = sum(d["avg_chunk_chars"] * d["n_chunks"] for d in r["diagnostics"].values()) / max(chunks, 1)
+            unlocated = sum(d["unlocated_chunks"] for d in r["diagnostics"].values())
+            o = metrics_at(r, k)["overall"]
+            print(f"  {r['impl']:<40} {o['recall']:>7.3f} {o['precision']:>7.3f} {o['iou']:>7.3f} {o['precision_omega']:>7.3f} {chunks:>7} {chars:>7.0f} {unlocated:>6}")
 
 
 def render_markdown(groups: dict[str, list[dict[str, Any]]], meta: dict[str, Any]) -> str:
+    ks: list[int] = meta["ks"]
     lines = [
         "# Chunking accuracy (Chroma token-level retrieval metric)",
         "",
@@ -372,48 +405,66 @@ def render_markdown(groups: dict[str, list[dict[str, Any]]], meta: dict[str, Any
         f"- date: {meta['timestamp']}",
         f"- host: {meta['platform']}, Python {meta['python']}",
         f"- dataset: {meta['dataset']} ({meta['n_questions']} questions, {meta['n_corpora']} corpora, "
-        f"k={meta['k']}, retrieval={'per-corpus' if meta['scoped'] else 'global'})",
+        f"k={', '.join(map(str, ks))}, retrieval={'per-corpus' if meta['scoped'] else 'global'})",
         f"- embedding model: `{meta['embed_model']}`",
-        "- metrics: mean per question; `prec_Ω` is the perfect-recall precision ceiling (chunk purity)",
+        "- metrics: mean per question; `prec@k` counts every retrieved chunk, `prec_Ω` is the "
+        "perfect-recall precision ceiling (chunk purity), independent of k",
         "",
     ]
     for group, results in groups.items():
-        lines += [
-            f"## {group}",
-            "",
-            "| implementation | recall | precision | IoU | prec_Ω | chunks | avg chunk chars | unlocated | note |",
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
-        ]
-        for r in sorted(results, key=lambda x: -x["overall"]["iou"]):
-            o = r["overall"]
+        lines += [f"## {group}", ""]
+        lines.append(
+            "| implementation |" + "".join(f" recall@{k} | prec@{k} |" for k in ks)
+            + " prec_Ω | chunks | avg chunk chars | unlocated | note |"
+        )
+        lines.append("| --- |" + " ---: |" * (2 * len(ks)) + " ---: | ---: | ---: | ---: | --- |")
+        ranked = sorted(
+            results,
+            key=lambda x: (
+                -metrics_at(x, ks[0])["overall"]["recall"],
+                -metrics_at(x, ks[0])["overall"]["precision"],
+            ),
+        )
+        for r in ranked:
+            o = {k: metrics_at(r, k)["overall"] for k in ks}
             chunks = sum(d["n_chunks"] for d in r["diagnostics"].values())
             chars = sum(d["avg_chunk_chars"] * d["n_chunks"] for d in r["diagnostics"].values()) / max(chunks, 1)
             unlocated = sum(d["unlocated_chunks"] for d in r["diagnostics"].values())
+            cells = "".join(f" {o[k]['recall']:.3f} | {o[k]['precision']:.3f} |" for k in ks)
             lines.append(
-                f"| {r['impl']} | {o['recall']:.3f} | {o['precision']:.3f} | {o['iou']:.3f} | "
-                f"{o['precision_omega']:.3f} | {chunks} | {chars:.0f} | {unlocated} | {r['note']} |"
+                f"| {r['impl']} |{cells} {o[ks[0]]['precision_omega']:.3f} | {chunks} | {chars:.0f} | {unlocated} | {r['note']} |"
             )
         lines.append("")
 
-        corpora = sorted({cid for r in results for cid in r["by_corpus"]})
-        lines += [f"### {group} — IoU by corpus", "", "| implementation | " + " | ".join(corpora) + " |", "| --- | " + " | ".join("---:" for _ in corpora) + " |"]
-        for r in sorted(results, key=lambda x: -x["overall"]["iou"]):
-            cells = [f"{r['by_corpus'][c]['iou']:.3f}" if c in r["by_corpus"] else "—" for c in corpora]
-            lines.append(f"| {r['impl']} | " + " | ".join(cells) + " |")
-        lines.append("")
+        corpora = sorted({cid for r in results for cid in r["diagnostics"]})
+        for k in ks:
+            lines += [
+                f"### {group} — IoU@{k} by corpus",
+                "",
+                "| implementation | " + " | ".join(corpora) + " |",
+                "| --- | " + " | ".join("---:" for _ in corpora) + " |",
+            ]
+            for r in ranked:
+                cells = [
+                    f"{metrics_at(r, k)['by_corpus'][c]['iou']:.3f}" if c in metrics_at(r, k)["by_corpus"] else "—"
+                    for c in corpora
+                ]
+                lines.append(f"| {r['impl']} | " + " | ".join(cells) + " |")
+            lines.append("")
 
     lines += [
         "## Method",
         "",
         "Identical in spirit to Chroma's `chunking_evaluation` metrics, computed here without chromadb.",
-        "Chunks are embedded, the top-k are retrieved per question, and the gold answer spans falling",
-        "inside them are counted at the character level. `recall` rewards covering the answers,",
-        "`precision` penalises extra retrieved text (all k chunks count, so large `k` or large chunks",
-        "lower it), `IoU` is the Jaccard index of retrieved text vs. gold text, and `prec_Ω` isolates the",
-        "chunker's own boundaries (no retrieval involved, perfect-recall chunk purity). All ranges are",
-        "merged, so overlapping chunks are counted once. Chunks that cannot be located in the corpus",
-        "(splitters that rewrite text, e.g. header-only splitters that strip headers) are excluded and",
-        "reported in the `unlocated` column and the JSON diagnostics.",
+        "Chunks are embedded, the top-k are retrieved per question (globally across corpora unless",
+        "`--scoped`), and the gold answer spans inside those chunks are counted at the character level.",
+        "`recall@k` is the share of gold characters covered by the retrieved chunks, `prec@k` the share",
+        "of retrieved characters that are gold (all k chunks count, so larger k or larger chunks lower",
+        "it), `IoU@k` their Jaccard index, and `prec_Ω` isolates the chunker's own boundaries (no",
+        "retrieval involved, perfect-recall chunk purity). All ranges are merged, so overlapping chunks",
+        "are counted once. Chunks that cannot be located in the corpus (splitters that rewrite text,",
+        "e.g. header-only splitters that strip headers) are excluded and reported in the `unlocated`",
+        "column and the JSON diagnostics.",
         "",
     ]
     return "\n".join(lines)
@@ -422,20 +473,21 @@ def render_markdown(groups: dict[str, list[dict[str, Any]]], meta: dict[str, Any
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
-    parser.add_argument("--k", type=int, default=5, help="chunks retrieved per question (default 5, as in the report)")
+    parser.add_argument("--k", type=int, nargs="+", default=[5], help="chunks retrieved per question; several values give a k-sweep (default 5)")
     parser.add_argument("--embed-model", default=DEFAULT_MODEL)
     parser.add_argument("--impl", help="only run impls whose name contains this string")
     parser.add_argument("--corpus", help="only evaluate one corpus (e.g. finance)")
     parser.add_argument("--scoped", action="store_true", help="restrict retrieval to the question's corpus")
     parser.add_argument("--json", action="store_true", help="also dump per-question scores")
     args = parser.parse_args()
+    ks = sorted(set(args.k))
 
     from sentence_transformers import SentenceTransformer
 
     ensure_dataset(args.data_dir)
     dataset = load_dataset(args.data_dir, args.corpus)
     print(f"dataset: {len(dataset.questions)} questions, {len(dataset.corpora)} corpora, "
-          f"{sum(len(t) for t in dataset.corpora.values())} chars, {dataset.n_gold_chars} gold chars")
+          f"{sum(len(t) for t in dataset.corpora.values())} chars, {dataset.n_gold_chars} gold chars, k={ks}")
     print(f"embedding model: {args.embed_model} (first run downloads it)")
     model = SentenceTransformer(args.embed_model)
 
@@ -449,9 +501,9 @@ def main() -> int:
         results = []
         for impl in impls:
             print(f"  running {impl.name} ...", file=sys.stderr)
-            results.append(rank(model, dataset, impl, args.k, args.scoped))
+            results.append(rank(model, dataset, impl, ks, args.scoped))
         groups[group] = results
-        print_group(group, results)
+        print_group(group, results, ks)
 
     if not groups:
         print("no implementations matched", file=sys.stderr)
@@ -473,7 +525,8 @@ def main() -> int:
         "dataset_source": CHROMA_RAW,
         "n_questions": len(dataset.questions),
         "n_corpora": len(dataset.corpora),
-        "k": args.k,
+        "k": ks[0] if len(ks) == 1 else ks,
+        "ks": ks,
         "scoped": args.scoped,
         "embed_model": args.embed_model,
     }
@@ -485,7 +538,8 @@ def main() -> int:
     if not args.json:
         for results in groups.values():
             for r in results:
-                r.pop("per_question", None)
+                for block in ([r] if "by_k" not in r else r["by_k"].values()):
+                    block.pop("per_question", None)
     json_path = RESULTS_DIR / f"accuracy-{stamp}.json"
     json_path.write_text(json.dumps(payload, indent=1))
 

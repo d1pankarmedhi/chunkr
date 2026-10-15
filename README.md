@@ -194,18 +194,18 @@ This is the speed/quality tradeoff in one table. On the textbook every font is `
 
 The `pages` column is a page count, not a word count: the extension returns 2,033 `Document`s for this book because 33 of its 2,066 pages have no text at all — verified against pypdf and PyMuPDF, which extract nothing from any of them, and none of them contain images either. Every `Document` carries its real `page_number`, so page alignment with the source stays exact.
 
-**Retrieval quality** — Chroma's token-level benchmark (472 questions); `prec_Ω` is chunk purity at perfect recall.
+**Retrieval quality** — Chroma's token-level benchmark (472 questions, global retrieval); `prec_Ω` is chunk purity at perfect recall.
 
-| Library | Recall | Purity (prec_Ω) | Avg chunk chars |
-| :--- | ---: | ---: | ---: |
-| **chunkr `RecursiveChunker` (defaults)** | **0.792** | 0.255 | 854 |
-| LangChain | 0.762 | 0.251 | 745 |
-| text-splitter | 0.762 | 0.262 | 790 |
-| Chonkie | 0.752 | **0.292** | 701 |
-| semchunk | 0.736 | 0.260 | 644 |
-| LlamaIndex | 0.654 | 0.054 | 4,136 |
+| Library | Recall@5 | Recall@10 | Recall@15 | Purity (prec_Ω) | Avg chunk chars |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| **chunkr `RecursiveChunker` (defaults)** | **0.792** | **0.878** | **0.913** | 0.255 | 854 |
+| LangChain | 0.762 | 0.862 | 0.893 | 0.251 | 745 |
+| text-splitter | 0.762 | 0.846 | 0.892 | 0.262 | 790 |
+| Chonkie | 0.752 | 0.842 | 0.892 | **0.292** | 701 |
+| semchunk | 0.736 | 0.851 | 0.883 | 0.260 | 644 |
+| LlamaIndex | 0.654 | 0.752 | 0.805 | 0.054 | 4,136 |
 
-Purity tracks chunk length at least as much as boundary quality, which is why the libraries emitting smaller chunks score higher here. Interpolated to *the same* chunk length (500-900 chars) chunkr's sentence-aware defaults lead on both recall and purity at every budget. OCR accuracy per engine: [`benchmarks/README.md`](benchmarks/README.md#ocr-accuracy-ocr_accuracypy).
+chunkr leads recall at k=5/10/15, by 0.030 / 0.016 / 0.020 over the next best. Precision@k (share of the retrieved text that is gold) falls as k grows and tracks chunk length; the full recall/precision/IoU sweep is in [`benchmarks/README.md`](benchmarks/README.md). Purity tracks chunk length at least as much as boundary quality, which is why the libraries emitting smaller chunks score higher here. Interpolated to *the same* chunk length (500-900 chars) chunkr's sentence-aware defaults lead on both recall and purity at every budget. OCR accuracy per engine: [`benchmarks/README.md`](benchmarks/README.md#ocr-accuracy-ocr_accuracypy).
 
 ## FAQ
 
