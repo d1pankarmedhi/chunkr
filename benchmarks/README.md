@@ -123,8 +123,9 @@ PyMuPDF, and each followed by recursive chunking.
 `bench_accuracy.py` — retrieval accuracy (not speed) of the same libraries, on Chroma's
 [token-level chunking benchmark](https://research.trychroma.com/evaluating-chunking)
 (MIT): 5 corpora / 472 questions whose gold answer spans are known character ranges.
-Chunks are embedded, the top-5 per question are retrieved, and the gold characters inside
-them give `recall`, `precision`, `IoU` and `prec_Ω` (chunk purity with perfect recall).
+Chunks are embedded, the top-k per question are retrieved, and the gold characters inside
+them give `recall@k`, `precision@k`, `IoU@k` and `prec_Ω` (chunk purity with perfect recall);
+`--k 5 10 15` sweeps several k in one embedding pass.
 The dataset is downloaded and cached under `benchmarks/data/` on first run; no API keys
 are needed (local `all-MiniLM-L6-v2` embeddings).
 
@@ -145,6 +146,7 @@ VIRTUAL_ENV=$PWD/.venv .venv/bin/maturin develop --release   # builds chunkr fro
 .venv/bin/python benchmarks/bench_chunking.py --reps 15
 .venv/bin/python benchmarks/bench_pdf.py --big
 .venv/bin/python benchmarks/bench_accuracy.py                 # all impls, k=5
+.venv/bin/python benchmarks/bench_accuracy.py --k 5 10 15     # recall/precision k-sweep
 .venv/bin/python benchmarks/bench_accuracy.py --impl chunkr --scoped
 .venv/bin/python benchmarks/tune_accuracy.py --libs chunkr    # sweep one library's config space
 ```
@@ -294,41 +296,47 @@ it recovers 0.8% of the page words. That is the failure mode behind the
 10-page sample every engine scores 97-100% with no `?` characters, so the fast path stays
 a fine default on simple PDFs, where it is also 10x faster (see the table above).
 
-### Accuracy (Apple M4, Python 3.12.11, `all-MiniLM-L6-v2`, k=5, global retrieval)
+### Accuracy, k=5/10/15 (Apple M4, Python 3.12.11, `all-MiniLM-L6-v2`, global retrieval)
 
-Chroma's 5 corpora (1.44 M chars, 472 questions, 132 k gold chars). Higher is better on every
-column; `prec_Ω` is the chunker-intrinsic ceiling (no retrieval).
-Full matrix and per-corpus IoU: `benchmarks/results/accuracy-20261007-064824.md`.
+Chroma's 5 corpora (1.44 M chars, 472 questions, 132 k gold chars). `R@k` is the share of gold
+answer characters covered by the top-k retrieved chunks; `P@k` is the share of retrieved text
+that is gold, and falls as k grows because k chunks always carry more text than the ~280 gold
+characters a question has. `prec_Ω` is the chunker-intrinsic ceiling (no retrieval). Higher is
+better on every column. Full matrix and per-corpus IoU at all three k:
+`benchmarks/results/accuracy-20261015-184218.md` (global retrieval) and
+`accuracy-20261015-184412.md` (per-corpus retrieval).
 
 Recursive splitting. chunkr runs its own defaults (1000 chars / 120 overlap / sentence-aware
 separators); the other libraries are on 1000 chars / 200 overlap, the closest equivalent they
 offer:
 
-| implementation | recall | precision | IoU | prec_Ω | chunks | avg chunk chars |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| chunkr RecursiveChunker (defaults) | **0.792** | 0.057 | 0.057 | 0.255 | 1745 | 854 |
-| langchain RecursiveCharacterTextSplitter | 0.762 | 0.060 | 0.060 | 0.251 | 2184 | 745 |
-| text-splitter TextSplitter | 0.762 | 0.060 | 0.060 | 0.262 | 2038 | 790 |
-| chonkie RecursiveChunker | 0.752 | 0.062 | 0.061 | **0.292** | 2059 | 701 |
-| semchunk chunk(token_counter=len) | 0.736 | **0.070** | **0.069** | 0.260 | 2798 | 644 |
-| llama-index SentenceSplitter | 0.654 | 0.013 | 0.013 | 0.054 | 424 | 4136 |
+| implementation | R@5 | P@5 | R@10 | P@10 | R@15 | P@15 | prec_Ω | chunks | avg chunk chars |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| chunkr RecursiveChunker (defaults) | **0.792** | 0.057 | **0.878** | 0.034 | **0.913** | 0.026 | 0.255 | 1745 | 854 |
+| langchain RecursiveCharacterTextSplitter | 0.762 | 0.060 | 0.862 | 0.038 | 0.893 | 0.028 | 0.251 | 2184 | 745 |
+| text-splitter TextSplitter | 0.762 | 0.060 | 0.846 | 0.036 | 0.892 | 0.027 | 0.262 | 2038 | 790 |
+| chonkie RecursiveChunker | 0.752 | 0.062 | 0.842 | 0.037 | 0.892 | 0.028 | **0.292** | 2059 | 701 |
+| semchunk chunk(token_counter=len) | 0.736 | **0.070** | 0.851 | **0.045** | 0.883 | **0.033** | 0.260 | 2798 | 644 |
+| llama-index SentenceSplitter | 0.654 | 0.013 | 0.752 | 0.010 | 0.805 | 0.009 | 0.054 | 424 | 4136 |
 
-chunkr has the best recall; the remaining purity gap is chunk length (854 avg chars vs 701-790
-for the others), not boundary quality — see the size-matched table below, where it disappears.
+chunkr leads recall at every k (+0.030 over the next best at 5, +0.016 at 10, +0.020 at 15).
+The precision gap is chunk length, not boundary quality: chunkr emits 854 avg chars vs 644-790
+for the others, and precision exactly tracks that ordering. Per-corpus retrieval (no
+cross-corpus distractors) keeps chunkr first at every k, by +0.029 / +0.005 / +0.009.
+See the size-matched table below, where the purity gap disappears at equal chunk length.
 
 Markdown splitting, chunkr defaults vs 1000 chars / 150 overlap:
 
-| implementation | recall | precision | IoU | prec_Ω | chunks | avg chunk chars | unlocated |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| chunkr MarkdownChunker | **0.777** | 0.055 | 0.055 | 0.249 | 1792 | 853 | 0 |
-| text-splitter MarkdownSplitter | 0.750 | **0.058** | **0.058** | **0.256** | 2042 | 749 | 0 |
-| llama-index MarkdownNodeParser | 1.000 | 0.003 | 0.003 | 0.003 | 5 | 288865 | 0 |
-| langchain MarkdownHeaderTextSplitter | 0.000 | 0.000 | 0.000 | 0.000 | 5 | 289076 | 5 |
+| implementation | R@5 | P@5 | R@10 | P@10 | R@15 | P@15 | prec_Ω | chunks | avg chunk chars | unlocated |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| chunkr MarkdownChunker | **0.777** | 0.055 | **0.866** | 0.033 | **0.904** | 0.025 | 0.249 | 1792 | 853 | 0 |
+| text-splitter MarkdownSplitter | 0.750 | **0.058** | 0.831 | **0.035** | 0.882 | **0.026** | **0.256** | 2042 | 749 | 0 |
+| llama-index MarkdownNodeParser | 1.000 | 0.003 | 1.000 | 0.003 | 1.000 | 0.003 | 0.003 | 5 | 288865 | 0 |
+| langchain MarkdownHeaderTextSplitter | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | 5 | 289076 | 5 |
 
-Reading the table: `precision` and `IoU` move with chunk size, because 5 retrieved chunks of
-~800 chars always carry far more text than the ~280 gold characters a question has. `recall`
-says whether the answers are inside the retrieved chunks, `prec_Ω` says how concentrated the
-answers are inside the chunker's own chunks. The two markdown rows show the size effect at the
+Reading the tables: `recall@k` says whether the answers are inside the retrieved chunks,
+`P@k` and `IoU@k` move with chunk size, and `prec_Ω` says how concentrated the answers are
+inside the chunker's own chunks. The two header-only markdown rows show the size effect at the
 extreme (a single 289 k-char chunk per corpus covers everything and is pure noise); the
 langchain row is 0.000 because that splitter strips headers, so its chunks no longer exist
 verbatim in the corpus and are excluded (see the `unlocated` column).
