@@ -24,6 +24,21 @@ artifact.
 
 ### Added
 
+- **Zip archives expand member by member**: `.zip` is now a supported extension and each member is
+  dispatched through the normal extractors by its own extension, so a `.csv` inside an archive is
+  chunked as a table (headers repeated) and a `.md` as Markdown rather than everything being
+  flattened to text. Documents carry `archive_entry` (path inside the archive), `archive_entries`
+  and `archive_skipped` counts, and keep the member's own `file_extension`/`file_name` while
+  `source` shows the full chain (`bundle.zip!data/sales.csv`); `DirectoryLoader` routes members by
+  the format their extraction reported. Members that are not readable documents (images, binaries,
+  macOS resource forks) are skipped and counted instead of failing the archive.
+- **Zip-bomb limits, enforced before an entry is read** (`ArchiveLimits`, defaults: depth 2,
+  1000 entries, 512 MiB uncompressed, 100:1 per-entry ratio above a 1 MiB floor). A breach reports
+  the limit it hit (`archive: entry 'bomb.txt' expands 900x, over the 100x limit`) instead of
+  allocating it; nested archives past the depth limit and corrupt archives error with the offending
+  entry named. `expand_zip` and `ArchiveLimits` are public for callers that want tighter budgets.
+- Extensionless payloads that are zip archives now expand instead of erroring as unknown binaries,
+  since archives are a supported format rather than a guess.
 - **Worksheet quality: merged regions, titles, multi-level headers, real dates**. Spreadsheet
   extraction is now structural instead of naive:
   - Merged regions are filled, so a category spanning rows labels every row it covers and a header

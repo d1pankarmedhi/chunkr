@@ -245,9 +245,12 @@ impl DirectoryLoader {
                 chunk
                     .metadata
                     .insert("file_name".to_string(), Value::from(file_name.clone()));
+                // A document that knows its own extension is the more specific
+                // answer: an archive member is a csv inside a zip.
                 chunk
                     .metadata
-                    .insert("file_extension".to_string(), Value::from(ext.clone()));
+                    .entry("file_extension".to_string())
+                    .or_insert_with(|| Value::from(ext.clone()));
                 chunk
                     .metadata
                     .insert("file_size_bytes".to_string(), Value::from(file_size));
@@ -271,9 +274,35 @@ impl DirectoryLoader {
             return Ok(Vec::new());
         }
 
-        // Spreadsheets arrive as Markdown tables, so they chunk by row like CSV.
-        // Caption tracks chunk into time windows via [`SubtitleChunker`].
-        let chunker: Box<dyn Chunker> = match ext.as_str() {
+        // An archive holds members of several formats, so each one is chunked by
+        // the format its extraction reported rather than by the archive's extension.
+        if documents
+            .iter()
+            .any(|document| document.metadata.contains_key("archive_entry"))
+        {
+            let mut chunks = Vec::new();
+            for document in &documents {
+                let member_ext = document
+                    .metadata
+                    .get("file_extension")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default()
+                    .to_lowercase();
+                let chunker = self.chunker_for_extension(&member_ext);
+                chunks.extend(chunker.chunk_documents(std::slice::from_ref(document))?);
+            }
+            return Ok(enrich_chunks(chunks));
+        }
+
+        let chunker = self.chunker_for_extension(&ext);
+
+        Ok(enrich_chunks(chunker.chunk_documents(&documents)?))
+    }
+
+    /// The chunker that suits a file extension.
+    fn chunker_for_extension(&self, ext: &str) -> Box<dyn Chunker> {
+        match ext {
+
             "xlsx" | "xlsm" | "xlsb" | "xls" | "ods" | "csv" | "tsv" => Box::new(
                 TableChunker::new()
                     .with_chunk_size(self.chunk_size)
@@ -347,9 +376,7 @@ impl DirectoryLoader {
                     .with_chunk_size(self.chunk_size)
                     .with_overlap(self.overlap),
             ),
-        };
-
-        Ok(enrich_chunks(chunker.chunk_documents(&documents)?))
+                }
     }
 
     /// Recursively crawl directory, auto-route files to optimal chunkers, and return all chunks in parallel

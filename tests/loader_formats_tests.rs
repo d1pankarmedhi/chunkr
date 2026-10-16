@@ -515,10 +515,11 @@ fn test_unknown_binary_still_errors_instead_of_guessing() {
     let error = load_documents_from_bytes(&bytes, "bin", Some("blob.bin")).unwrap_err();
     assert!(error.to_string().contains("binary payload"), "{error}");
 
-    // A zip archive we cannot attribute is not guessed either.
+    // A zip archive is a supported format, not a guess: it expands.
     let plain_zip = archive(&[("notes.txt", "just a text file")]);
-    let error = load_documents_from_bytes(&plain_zip, "", Some("bundle")).unwrap_err();
-    assert!(error.to_string().contains("binary payload"), "{error}");
+    let documents = load_documents_from_bytes(&plain_zip, "", Some("bundle")).unwrap();
+    assert_eq!(documents[0].content, "just a text file");
+    assert_eq!(documents[0].metadata["archive_entry"], "notes.txt");
 }
 
 #[test]

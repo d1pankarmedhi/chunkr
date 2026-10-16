@@ -105,6 +105,8 @@ pub mod prelude {
     pub use crate::error::ChunkrError;
     pub use crate::loader::base::BaseLoader;
     #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::loader::archive::{expand_zip, ArchiveLimits};
+    #[cfg(not(target_arch = "wasm32"))]
     pub use crate::loader::directory::DirectoryLoader;
     #[cfg(not(target_arch = "wasm32"))]
     pub use crate::loader::email::EmailLoader;

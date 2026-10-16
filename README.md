@@ -101,6 +101,7 @@ the natural unit of each format:
 | Markup & notebooks | `html` `xml` `rtf` `ipynb` | document |
 | Captions | `srt` `vtt` `webvtt` | cue |
 | Text | `txt` `md` `log` `json` `jsonl` `ndjson`, any other extension | document |
+| Archives | `zip` | member (dispatched by its own format) |
 | Columnar (`pip install chunkr-tabular`) | `parquet` `feather` `arrow` `ipc` | batch of rows (as a Markdown table) |
 
 ```python
@@ -123,6 +124,22 @@ Extracted metadata rides along into every chunk (`sheet_name`, `slide_number`, `
 `DirectoryLoader` routes each file to the chunker its format deserves: spreadsheets and CSV to
 `TableChunker` (headers repeat on every chunk), Markdown to `MarkdownChunker`, code to
 `CodeChunker`, everything else to `RecursiveChunker`.
+
+A zip is expanded rather than treated as one blob: every member is dispatched by its own
+extension — a `.csv` inside it is chunked as a table with headers repeated, a `.md` as Markdown — and
+each document carries `archive_entry` (its path inside the archive) plus `archive_entries` /
+`archive_skipped` counts, so a chunk still cites the exact member it came from. Nested archives
+expand two levels deep by default. `ArchiveLimits` guards the reads before they happen: 1000 entries,
+512 MiB uncompressed, 100:1 per-entry compression ratio above a 1 MiB floor, depth 2 — a breach
+reports which limit was hit instead of quietly eating memory:
+
+```python
+chunkr.load_documents("bundle.zip")                   # members, dispatched by format
+chunkr.expand_zip?  # Rust: expand_zip(bytes, source, &ArchiveLimits::default(), 0)
+```
+
+Members that are not readable documents (images, binaries) are skipped and counted in
+`archive_skipped`; a corrupt archive or a breached limit is an error naming the entry.
 
 Payloads that do not name themselves are not guessed at: with an empty or unknown extension chunkr
 identifies PDF and RTF by prefix and zip containers (`docx`, `xlsx`, `pptx`, `odt`, `epub`) by their

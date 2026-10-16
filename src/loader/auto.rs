@@ -29,7 +29,7 @@ use crate::structures::document::Document;
 /// Formats with a dedicated extractor rather than a plain-text fallback.
 pub const STRUCTURED_EXTENSIONS: &[&str] = &[
     "pdf", "xlsx", "xlsm", "xlsb", "xls", "ods", "docx", "docm", "pptx", "odt", "epub", "eml",
-    "mbox", "rtf", "xml", "ipynb", "html", "htm", "xhtml", "srt", "vtt", "webvtt",
+    "mbox", "rtf", "xml", "ipynb", "html", "htm", "xhtml", "srt", "vtt", "webvtt", "zip",
 ];
 
 /// Extensions understood by [`load_documents`], structured formats first.
@@ -53,6 +53,16 @@ pub fn supported_extensions() -> Vec<String> {
 pub fn is_structured(extension: &str) -> bool {
     let extension = normalize(extension);
     STRUCTURED_EXTENSIONS.contains(&extension.as_str()) || has_table_source(&extension)
+}
+
+/// Lower-case extension of a path or archive member name, without the dot.
+pub(crate) fn extension_of(name: &str) -> String {
+    normalize(
+        Path::new(name)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or_default(),
+    )
 }
 
 /// Extract documents from a file, choosing the extractor from its extension.
@@ -116,7 +126,17 @@ pub fn load_documents_from_bytes(
     extension: &str,
     source: Option<&str>,
 ) -> Result<Vec<Document>, ChunkrError> {
-    let documents = extract_documents(bytes, &normalize(extension), source)
+    extract_payload(bytes, &normalize(extension), source, 0)
+}
+
+/// Extract a payload, tracking how many archives already contain it.
+pub(crate) fn extract_payload(
+    bytes: &[u8],
+    extension: &str,
+    source: Option<&str>,
+    depth: usize,
+) -> Result<Vec<Document>, ChunkrError> {
+    let documents = extract_documents(bytes, extension, source, depth)
         .map_err(|error| qualify_source(source, error))?;
 
     Ok(documents
@@ -130,8 +150,17 @@ fn extract_documents(
     bytes: &[u8],
     extension: &str,
     source: Option<&str>,
+    depth: usize,
 ) -> Result<Vec<Document>, ChunkrError> {
     let documents = match extension {
+        "zip" => {
+            return crate::loader::archive::expand_zip(
+                bytes,
+                source,
+                &crate::loader::archive::ArchiveLimits::default(),
+                depth,
+            )
+        }
         "pdf" => PDFLoader::new().load_pages_from_bytes(bytes)?,
         "xlsx" | "xlsm" | "xlsb" | "xls" | "ods" => {
             SpreadsheetLoader::new().load_documents(bytes, source)?
@@ -166,7 +195,7 @@ fn extract_documents(
             // Known text extensions are authoritative and never overridden.
             if !supported_extensions().iter().any(|known| known == extension) {
                 if let Some(sniffed) = sniff_extension(bytes) {
-                    return extract_documents(bytes, sniffed, source);
+                    return extract_documents(bytes, sniffed, source, depth);
                 }
             }
             let has_bom = encoding_rs::Encoding::for_bom(bytes).is_some();
@@ -235,8 +264,8 @@ fn sniff_extension(bytes: &[u8]) -> Option<&'static str> {
     if has("content.xml") && has("META-INF/manifest.xml") {
         return Some("odt");
     }
-    // A plain archive: leave it to the caller (archive expansion is opt-in).
-    None
+    // Any other valid zip archive.
+    Some("zip")
 }
 
 /// Reject a JSONL/NDJSON payload whose lines are not all JSON values.
