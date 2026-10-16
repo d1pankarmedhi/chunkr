@@ -11,6 +11,7 @@ use serde_json::Value;
 
 use crate::error::ChunkrError;
 use crate::loader::base::source_metadata;
+use crate::loader::table_source::render_markdown_table;
 use crate::loader::text::parse_error;
 use crate::structures::document::Document;
 
@@ -80,52 +81,19 @@ fn range_to_markdown(range: &Range<Data>) -> String {
         return String::new();
     };
 
-    let header: Vec<String> = header
-        .iter()
-        .enumerate()
-        .map(|(index, cell)| {
-            let value = cell_value(cell);
-            if value.is_empty() {
-                format!("column_{}", index + 1)
-            } else {
-                value
-            }
-        })
+    let header: Vec<String> = header.iter().map(cell_text).collect();
+    let body: Vec<Vec<String>> = rows
+        .map(|row| row.iter().map(cell_text).collect())
         .collect();
 
-    if header.is_empty() {
-        return String::new();
-    }
-
-    let mut out = String::new();
-    out.push_str("| ");
-    out.push_str(&header.join(" | "));
-    out.push_str(" |\n| ");
-    out.push_str(&vec!["---"; header.len()].join(" | "));
-    out.push_str(" |");
-
-    for row in rows {
-        let cells: Vec<String> = row.iter().map(cell_value).collect();
-        // Skip fully blank rows so trailing sheet space does not inflate chunks.
-        if cells.iter().all(String::is_empty) {
-            continue;
-        }
-        out.push_str("\n| ");
-        out.push_str(&cells.join(" | "));
-        out.push_str(" |");
-    }
-
-    out
+    render_markdown_table(&header, &body)
 }
 
-/// Cell value as Markdown-safe text.
-fn cell_value(cell: &Data) -> String {
+/// Cell value as plain text; escaping happens in [`render_markdown_table`].
+fn cell_text(cell: &Data) -> String {
     match cell {
         Data::Empty => String::new(),
-        other => other
-            .to_string()
-            .replace('|', "\\|")
-            .replace(['\r', '\n'], " "),
+        other => other.to_string(),
     }
 }
 

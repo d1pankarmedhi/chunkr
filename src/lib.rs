@@ -118,6 +118,11 @@ pub mod prelude {
     #[cfg(not(target_arch = "wasm32"))]
     pub use crate::loader::subtitle::SubtitleLoader;
     #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::loader::table_source::{
+        documents_from_tables, has_table_source, register_table_source, registered_extensions,
+        table_source_for, table_sources, unregister_table_source, TableData, TableSource,
+    };
+    #[cfg(not(target_arch = "wasm32"))]
     pub use crate::loader::{
         is_structured, load_documents, load_documents_from_bytes, supported_extensions,
         STRUCTURED_EXTENSIONS,

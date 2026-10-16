@@ -9,9 +9,10 @@ use crate::chunker::json::JsonChunker;
 use crate::chunker::markdown::MarkdownChunker;
 use crate::chunker::recursive::RecursiveChunker;
 use crate::chunker::subtitle::SubtitleChunker;
-use crate::chunker::table::TableChunker;
+use crate::chunker::table::{TableChunker, TableFormat};
 use crate::error::ChunkrError;
 use crate::loader::auto::load_documents;
+use crate::loader::table_source::has_table_source;
 use crate::loader::base::BaseLoader;
 use crate::loader::pdf::PDFLoader;
 use crate::structures::document::Document;
@@ -290,6 +291,12 @@ impl DirectoryLoader {
             "json" | "jsonl" | "ndjson" => {
                 Box::new(JsonChunker::new().with_max_chunk_size(self.chunk_size))
             }
+            // Extracted tables (registered sources) chunk by row like spreadsheets.
+            ext if has_table_source(ext) => Box::new(
+                TableChunker::new()
+                    .with_chunk_size(self.chunk_size)
+                    .with_format(TableFormat::Markdown),
+            ),
             "html" | "htm" => Box::new(
                 HtmlChunker::new()
                     .with_chunk_size(self.chunk_size)

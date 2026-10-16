@@ -11,6 +11,9 @@
 //! - [`SpreadsheetLoader`], [`OfficeLoader`], [`EpubLoader`], [`EmailLoader`],
 //!   [`SubtitleLoader`]: one loader per format family, callable directly when the
 //!   extension is known.
+//! - [`TableSource`]: registered by an extension package to add tabular formats
+//!   (Parquet, Arrow IPC, ...) — extraction lives in the extension,
+//!   [`documents_from_tables`] keeps the mapping in core.
 
 pub mod base;
 pub mod pdf;
@@ -31,6 +34,8 @@ pub mod office;
 pub mod spreadsheet;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod subtitle;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod table_source;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod text;
 #[cfg(not(target_arch = "wasm32"))]
@@ -53,3 +58,8 @@ pub use office::OfficeLoader;
 pub use spreadsheet::SpreadsheetLoader;
 #[cfg(not(target_arch = "wasm32"))]
 pub use subtitle::SubtitleLoader;
+#[cfg(not(target_arch = "wasm32"))]
+pub use table_source::{
+    documents_from_tables, has_table_source, register_table_source, registered_extensions,
+    table_source_for, table_sources, unregister_table_source, TableData, TableSource,
+};

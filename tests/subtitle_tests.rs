@@ -202,7 +202,7 @@ fn test_loader_returns_one_document_per_cue_with_spans() {
     let last = &documents[2];
     assert_eq!(last.metadata.get("cue_index").unwrap(), &serde_json::json!(2));
     assert_eq!(last.content, "Third & final cue.");
-    assert!(supported_extensions().contains(&"vtt"));
+    assert!(supported_extensions().iter().any(|e| e == "vtt"));
 }
 
 #[test]

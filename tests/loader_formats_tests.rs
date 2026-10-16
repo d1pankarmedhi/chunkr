@@ -424,7 +424,7 @@ fn test_supported_extensions_cover_new_formats() {
         "xml", "ipynb",
     ] {
         assert!(
-            extensions.contains(&expected),
+            extensions.iter().any(|e| e == expected),
             "missing extension: {expected}"
         );
     }

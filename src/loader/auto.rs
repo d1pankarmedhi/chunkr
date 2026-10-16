@@ -17,6 +17,9 @@ use crate::loader::office::OfficeLoader;
 use crate::loader::pdf::PDFLoader;
 use crate::loader::spreadsheet::SpreadsheetLoader;
 use crate::loader::subtitle::SubtitleLoader;
+use crate::loader::table_source::{
+    documents_from_tables, has_table_source, registered_extensions, table_source_for, TableSource,
+};
 use crate::loader::text::{
     clean_text, decode_text, looks_binary, notebook_to_text, rtf_to_text, xml_to_text,
 };
@@ -30,30 +33,75 @@ pub const STRUCTURED_EXTENSIONS: &[&str] = &[
 ];
 
 /// Extensions understood by [`load_documents`], structured formats first.
-pub fn supported_extensions() -> Vec<&'static str> {
-    let mut extensions = STRUCTURED_EXTENSIONS.to_vec();
-    extensions.extend_from_slice(&[
-        "txt", "md", "markdown", "csv", "tsv", "json", "jsonl", "ndjson", "yaml", "yml",
-    ]);
+///
+/// Includes every extension claimed by a registered [`TableSource`], so an
+/// installed extension package widens this list without touching core.
+pub fn supported_extensions() -> Vec<String> {
+    let mut extensions: Vec<String> = STRUCTURED_EXTENSIONS.iter().map(|e| e.to_string()).collect();
+    extensions.extend(
+        [
+            "txt", "md", "markdown", "csv", "tsv", "json", "jsonl", "ndjson", "yaml", "yml",
+        ]
+        .iter()
+        .map(|e| e.to_string()),
+    );
+    extensions.extend(registered_extensions());
     extensions
 }
 
 /// True when the extension has a dedicated extractor.
 pub fn is_structured(extension: &str) -> bool {
     let extension = normalize(extension);
-    STRUCTURED_EXTENSIONS.contains(&extension.as_str())
+    STRUCTURED_EXTENSIONS.contains(&extension.as_str()) || has_table_source(&extension)
 }
 
 /// Extract documents from a file, choosing the extractor from its extension.
 pub fn load_documents<P: AsRef<Path>>(path: P) -> Result<Vec<Document>, ChunkrError> {
     let path = path.as_ref();
     let source = path.to_string_lossy().to_string();
-    let extension = path
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .unwrap_or_default();
+    let extension = normalize(
+        path.extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or_default(),
+    );
+
+    // A registered source streams from the file instead of the payload being
+    // read into memory first.
+    if let Some(table_source) = table_source_for(&extension) {
+        return load_from_table_source(
+            table_source.as_ref(),
+            Some(path),
+            None,
+            &extension,
+            Some(&source),
+        )
+        .map_err(|error| qualify_source(Some(&source), error));
+    }
+
     let bytes = std::fs::read(path)?;
-    load_documents_from_bytes(&bytes, extension, Some(&source))
+    load_documents_from_bytes(&bytes, &extension, Some(&source))
+}
+
+/// Extract documents using a registered table source.
+///
+/// The source owns extraction (it may stream from `path`); the mapping to
+/// documents — Markdown rendering, escaping and span metadata — stays here, so
+/// extension output matches the built-in spreadsheet loader.
+fn load_from_table_source(
+    table_source: &dyn TableSource,
+    path: Option<&Path>,
+    bytes: Option<&[u8]>,
+    extension: &str,
+    source: Option<&str>,
+) -> Result<Vec<Document>, ChunkrError> {
+    // Callers qualify errors with the source: this path is reached from both
+    // `load_documents` and `load_documents_from_bytes`.
+    let tables = table_source.load(path, bytes, extension, source)?;
+
+    Ok(documents_from_tables(tables, extension, source)
+        .into_iter()
+        .filter(|document| !document.content.trim().is_empty())
+        .collect())
 }
 
 /// Text formats where a legacy single-byte or UTF-16 encoding is plausible
@@ -105,6 +153,15 @@ fn extract_documents(
             "ipynb",
         )],
         _ => {
+            if let Some(table_source) = table_source_for(extension) {
+                return load_from_table_source(
+                    table_source.as_ref(),
+                    None,
+                    Some(bytes),
+                    extension,
+                    source,
+                );
+            }
             let has_bom = encoding_rs::Encoding::for_bom(bytes).is_some();
             if !has_bom && looks_binary(bytes) {
                 return Err(ChunkrError::ParseError(format!(

@@ -205,7 +205,7 @@ fn test_malformed_jsonl_falls_back_to_text_chunking() {
 #[test]
 fn test_dispatch_and_directory_routing_cover_jsonl() {
     let extensions = supported_extensions();
-    assert!(extensions.contains(&"jsonl") && extensions.contains(&"ndjson"));
+    assert!(extensions.iter().any(|e| e == "jsonl") && extensions.iter().any(|e| e == "ndjson"));
 
     // The dispatcher loads JSONL as text (UTF-8 strict), like JSON today.
     let documents = load_documents_from_bytes(jsonl(3).as_bytes(), "jsonl", Some("db.jsonl")).unwrap();

@@ -43,11 +43,15 @@ const SPAN_SENSITIVE_KEYS: &[&str] = &[
     "path",
     "start_record",
     "end_record",
+    // Extracted tables: which table a chunk came from and its row offset.
+    "table_index",
+    "table_name",
+    "row_offset",
 ];
 
 /// Counted metadata, summed when a chunk merges several sources: a packed chunk
 /// covers every source's cues, so inheriting one source's count would understate it.
-const AGGREGATE_KEYS: &[&str] = &["cue_count"];
+const AGGREGATE_KEYS: &[&str] = &["cue_count", "row_count"];
 
 impl ChunkPacker {
     /// Create a new ChunkPacker with the specified maximum character budget

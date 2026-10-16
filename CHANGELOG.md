@@ -24,6 +24,23 @@ artifact.
 
 ### Added
 
+- **Table-source registry: optional tabular extractors (`chunkr-tabular`)**. Core has no columnar
+  dependency; an extension registers a `TableSource` that extracts rows as plain strings, while
+  `documents_from_tables` keeps the mapping in core — Markdown rendering (now shared with the
+  spreadsheet loader, so output is identical), cell escaping, metadata (`format: "table"`,
+  `table_format`, `table_name`, `table_index`, `total_tables`, `row_offset`, `row_count`,
+  `column_count`) and spans. Registered extensions join `supported_extensions()` / `is_structured()`
+  and `DirectoryLoader` routes them to row-based table chunking. Rust crates implement `TableSource`
+  directly; Python plugins register a callable via `chunkr.register_table_loader(name, extensions,
+  loader)` (plus `unregister_table_loader` / `table_loaders`), discovered from the
+  `chunkr.table_loaders` entry-point group (`CHUNKR_NO_TABLE_PLUGINS=1` opts out). A path is passed
+  when the caller has one, so an extractor can stream instead of buffering the file.
+- **`packages/chunkr-tabular`**: the first extension package — Parquet and Arrow IPC (`parquet`,
+  `feather`, `arrow`, `ipc`) read with pyarrow and handed over batch by batch, with `row_offset`
+  tracking rows across batches. `DirectoryLoader` releases the GIL while a directory loads, so
+  Python-backed extractors can run on worker threads instead of deadlocking.
+- `supported_extensions()` now returns `Vec<String>` (it can include registered extensions) and
+  `ChunkPacker` reconciles `table_index`/`table_name`/`row_offset` spans while summing `row_count`.
 - **JSONL/NDJSON support in `JsonChunker`**: line-delimited JSON — the format embedding corpora
   usually ship in — is no longer split mid-object by text chunking. Whole records are batched into
   chunks tagged with `path` (`$[0..250]`), `start_record`/`end_record` (0-based, inclusive, indexing
