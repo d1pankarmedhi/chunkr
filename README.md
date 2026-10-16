@@ -100,11 +100,13 @@ the natural unit of each format:
 | Books & mail | `epub` `eml` `mbox` | chapter / message |
 | Markup & notebooks | `html` `xml` `rtf` `ipynb` | document |
 | Captions | `srt` `vtt` `webvtt` | cue |
-| Text | `txt` `md` `log`, any other extension | document |
+| Text | `txt` `md` `log` `json` `jsonl` `ndjson`, any other extension | document |
 
 ```python
 subs   = chunkr.load_documents("talk.vtt")       # one Document per cue, with time spans
 windows = chunkr.SubtitleChunker(max_seconds=30).chunk_documents(subs)  # start_time_s/end_time_s
+
+records = chunkr.JsonChunker().chunk(open("corpus.jsonl").read())  # whole records, start_record/end_record
 
 docs = chunkr.load_documents("sales.xlsx")            # one Document per sheet
 pages = chunkr.load_documents_from_bytes(data, "docx", source="report.docx")
@@ -133,6 +135,12 @@ and (for WebVTT voice tags) `speaker`, so retrieval can cite an exact moment:
 for window in chunkr.SubtitleChunker(max_seconds=30).chunk_documents(chunkr.load_documents("talk.vtt")):
     print(window.metadata["start_time_s"], window.metadata["end_time_s"], window.content[:60])
 ```
+
+Line-delimited JSON is the *record* unit: `JsonChunker` batches whole records and tags each chunk
+with `path` (`$[0..250]`), `start_record` and `end_record`, so a chunk cites the exact record range it
+covers. Records are never split — a record larger than the budget is descended into by field instead,
+and the chunk keeps its record index. Malformed lines make the whole file fall back to plain text
+chunking rather than producing plausible-looking record spans.
 
 ## PDF parsing and OCR — `chunkr-rs[pdf]`
 

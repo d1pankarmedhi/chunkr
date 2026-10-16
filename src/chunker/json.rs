@@ -6,7 +6,13 @@ use crate::chunker::recursive::RecursiveChunker;
 use crate::error::ChunkrError;
 use crate::structures::document::Document;
 
-/// Structure-aware chunker for JSON payloads
+/// Structure-aware chunker for JSON payloads, including line-delimited
+/// JSONL/NDJSON.
+///
+/// Array elements and JSONL lines are the record unit: batches of whole records
+/// are emitted with `path`, `start_record` and `end_record`, where the record
+/// indices always refer to the outermost record sequence (top-level array
+/// element or JSONL line).
 #[derive(Debug, Clone)]
 pub struct JsonChunker {
     pub max_chunk_size: usize,
@@ -41,6 +47,15 @@ impl JsonChunker {
             serde_json::to_string_pretty(val).unwrap_or_default()
         } else {
             serde_json::to_string(val).unwrap_or_default()
+        }
+    }
+
+    /// Render a JSON path, naming the document root when the path is empty.
+    fn render_path(path: &str) -> &str {
+        if path.is_empty() {
+            "$"
+        } else {
+            path
         }
     }
 
@@ -87,7 +102,7 @@ impl JsonChunker {
             let mut metadata = HashMap::new();
             metadata.insert(
                 "path".to_string(),
-                Value::from(if path.is_empty() { "$" } else { path }),
+                Value::from(Self::render_path(path)),
             );
             metadata.insert("length".to_string(), Value::from(serialized.len()));
             metadata.insert("chunk_index".to_string(), Value::from(docs.len()));
@@ -141,13 +156,19 @@ impl JsonChunker {
                         Self::batch_total_chars(count, *body, self.pretty),
                         "tracked batch length diverged from serialized length"
                     );
-                    let batch_path = format!("{}[{}..{}]", path, start, end);
+                    let batch_path = format!("{}[{}..{}]", Self::render_path(path), start, end);
 
                     let mut metadata = HashMap::new();
                     metadata.insert("path".to_string(), Value::from(batch_path));
                     metadata.insert("length".to_string(), Value::from(batch_str.len()));
                     metadata.insert("chunk_index".to_string(), Value::from(docs.len()));
                     metadata.insert("is_json".to_string(), Value::from(true));
+                    // `end` is exclusive here; record spans are inclusive.
+                    metadata.insert("start_record".to_string(), Value::from(start));
+                    metadata.insert(
+                        "end_record".to_string(),
+                        Value::from(end.saturating_sub(1)),
+                    );
 
                     docs.push(Document {
                         content: batch_str,
@@ -160,8 +181,15 @@ impl JsonChunker {
                     let item_str = self.serialize_value(item);
                     if item_str.chars().count() > self.max_chunk_size {
                         flush_batch(&mut current_batch, &mut batch_body, start_idx, idx, docs);
-                        let item_path = format!("{}[{}]", path, idx);
+                        let item_path = format!("{}[{}]", Self::render_path(path), idx);
+                        let first_doc = docs.len();
                         self.chunk_json_value(item, &item_path, docs)?;
+                        // An element descended on its own still identifies its record.
+                        for doc in docs.iter_mut().skip(first_doc) {
+                            doc.metadata
+                                .insert("start_record".to_string(), Value::from(idx));
+                            doc.metadata.insert("end_record".to_string(), Value::from(idx));
+                        }
                         start_idx = idx + 1;
                     } else {
                         // Embedded length of this item inside a standalone batch.
@@ -192,7 +220,19 @@ impl JsonChunker {
             _ => {
                 // Scalar primitive larger than max_chunk_size
                 let sub_docs = self.fallback_chunker.chunk(&serialized)?;
-                docs.extend(sub_docs);
+                for sub_doc in sub_docs {
+                    let mut sub_doc = sub_doc;
+                    // Text splitting loses structure: keep the path it came from.
+                    sub_doc
+                        .metadata
+                        .entry("path".to_string())
+                        .or_insert_with(|| Value::from(Self::render_path(path)));
+                    sub_doc
+                        .metadata
+                        .entry("is_json".to_string())
+                        .or_insert_with(|| Value::from(true));
+                    docs.push(sub_doc);
+                }
             }
         }
 
@@ -203,6 +243,109 @@ impl JsonChunker {
 impl Default for JsonChunker {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl JsonChunker {
+    /// Line-delimited records, or `None` when the payload is not JSONL.
+    ///
+    /// Every non-blank line has to hold one JSON value, so prose, source code and
+    /// pretty-printed JSON never look line-delimited; blank lines are dropped.
+    fn split_json_lines(text: &str) -> Option<Vec<&str>> {
+        let mut records = Vec::new();
+        for line in text.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            serde_json::from_str::<Value>(line).ok()?;
+            records.push(line);
+        }
+        if records.is_empty() {
+            None
+        } else {
+            Some(records)
+        }
+    }
+
+    /// Emit `records[start..end]` as one chunk of raw JSONL lines.
+    fn push_line_batch(
+        &self,
+        records: &[&str],
+        start: usize,
+        end: usize,
+        docs: &mut Vec<Document>,
+    ) {
+        if start >= end {
+            return;
+        }
+        let content = records[start..end].join("\n");
+        let mut metadata = HashMap::new();
+        metadata.insert(
+            "path".to_string(),
+            Value::from(format!("$[{}..{}]", start, end)),
+        );
+        metadata.insert("length".to_string(), Value::from(content.len()));
+        metadata.insert("chunk_index".to_string(), Value::from(docs.len()));
+        metadata.insert("is_json".to_string(), Value::from(true));
+        metadata.insert("is_jsonl".to_string(), Value::from(true));
+        metadata.insert("start_record".to_string(), Value::from(start));
+        metadata.insert(
+            "end_record".to_string(),
+            Value::from(end.saturating_sub(1)),
+        );
+        docs.push(Document {
+            content,
+            metadata,
+        });
+    }
+
+    /// Batch whole JSONL records into chunks; a single oversized record is
+    /// descended into structurally so its fields are not split mid-value.
+    fn chunk_json_lines(&self, records: &[&str]) -> Result<Vec<Document>, ChunkrError> {
+        let mut docs = Vec::new();
+        let mut batch_start = 0;
+        let mut batch_chars = 0;
+        let mut batch_count = 0;
+
+        for (idx, record) in records.iter().enumerate() {
+            let record_chars = record.chars().count();
+
+            if record_chars > self.max_chunk_size {
+                self.push_line_batch(records, batch_start, idx, &mut docs);
+                batch_start = idx + 1;
+                batch_chars = 0;
+                batch_count = 0;
+
+                let value: Value = serde_json::from_str(record).map_err(|err| {
+                    ChunkrError::ParseError(format!("jsonl record {}: {err}", idx + 1))
+                })?;
+                let first_doc = docs.len();
+                self.chunk_json_value(&value, &format!("$[{}]", idx), &mut docs)?;
+                for doc in docs.iter_mut().skip(first_doc) {
+                    doc.metadata
+                        .insert("start_record".to_string(), Value::from(idx));
+                    doc.metadata.insert("end_record".to_string(), Value::from(idx));
+                    doc.metadata.insert("is_jsonl".to_string(), Value::from(true));
+                }
+                continue;
+            }
+
+            // Separators: `batch_count` newlines between `batch_count + 1` lines.
+            let projected = batch_chars + record_chars + batch_count;
+            if batch_count > 0 && projected > self.max_chunk_size {
+                self.push_line_batch(records, batch_start, idx, &mut docs);
+                batch_start = idx;
+                batch_chars = 0;
+                batch_count = 0;
+            }
+
+            batch_chars += record_chars;
+            batch_count += 1;
+        }
+
+        self.push_line_batch(records, batch_start, records.len(), &mut docs);
+        Ok(docs)
     }
 }
 
@@ -218,10 +361,12 @@ impl Chunker for JsonChunker {
                 self.chunk_json_value(&json_value, "", &mut docs)?;
                 Ok(docs)
             }
-            Err(_) => {
+            // Not one JSON document: JSONL/NDJSON is the other shape JSON arrives in.
+            Err(_) => match Self::split_json_lines(text) {
+                Some(records) => self.chunk_json_lines(&records),
                 // Fallback to recursive chunker if not valid JSON
-                self.fallback_chunker.chunk(text)
-            }
+                None => self.fallback_chunker.chunk(text),
+            },
         }
     }
 }

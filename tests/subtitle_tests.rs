@@ -292,4 +292,8 @@ fn test_packing_never_inherits_a_wrong_time_span() {
         "a merged chunk must not claim one source's span: {metadata:?}"
     );
     assert!(metadata.contains_key("merged_start_time_s"));
+    assert!(
+        metadata.get("cue_count") == Some(&serde_json::json!(3)),
+        "merged cue counts are summed: {metadata:?}"
+    );
 }

@@ -287,7 +287,9 @@ impl DirectoryLoader {
             "srt" | "vtt" | "webvtt" => {
                 Box::new(SubtitleChunker::new().with_max_characters(self.chunk_size))
             }
-            "json" => Box::new(JsonChunker::new().with_max_chunk_size(self.chunk_size)),
+            "json" | "jsonl" | "ndjson" => {
+                Box::new(JsonChunker::new().with_max_chunk_size(self.chunk_size))
+            }
             "html" | "htm" => Box::new(
                 HtmlChunker::new()
                     .with_chunk_size(self.chunk_size)

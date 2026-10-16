@@ -1,4 +1,8 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
+
 import chunkr
 
 class TestPythonBindings(unittest.TestCase):
@@ -294,6 +298,29 @@ class Worker:
         # Merged windows must not claim a source's span.
         packed = chunkr.ChunkPacker(10_000).pack(windows)
         self.assertNotIn("start_time_s", packed[0].metadata)
+
+    def test_jsonl_record_spans_and_dispatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "db.jsonl"
+            path.write_text("\n".join(json.dumps({"id": i, "t": "x" * 20}) for i in range(60)))
+
+            chunks = chunkr.JsonChunker(max_size=200).chunk(path.read_text())
+            self.assertGreater(len(chunks), 1)
+            self.assertEqual(chunks[0].metadata["start_record"], 0)
+            self.assertEqual(chunks[0].metadata["is_jsonl"], True)
+
+            seen = []
+            for chunk in chunks:
+                lines = chunk.content.split("\n")
+                expected = chunk.metadata["end_record"] - chunk.metadata["start_record"] + 1
+                self.assertEqual(len(lines), expected)
+                seen.extend(json.loads(line)["id"] for line in lines)
+            self.assertEqual(seen, list(range(60)), "records stay whole and in order")
+
+            self.assertIn("jsonl", chunkr.supported_extensions())
+            docs = chunkr.load_documents(str(path))
+            self.assertEqual(len(docs), 1)
+            self.assertEqual(docs[0].metadata["file_extension"], "jsonl")
 
 if __name__ == "__main__":
     unittest.main()

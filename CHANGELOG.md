@@ -24,6 +24,25 @@ artifact.
 
 ### Added
 
+- **JSONL/NDJSON support in `JsonChunker`**: line-delimited JSON — the format embedding corpora
+  usually ship in — is no longer split mid-object by text chunking. Whole records are batched into
+  chunks tagged with `path` (`$[0..250]`), `start_record`/`end_record` (0-based, inclusive, indexing
+  the outermost record sequence), `is_jsonl`, and a record larger than the budget is descended into
+  by field while keeping its record index. Blank lines are skipped (record indices stay dense) and
+  CRLF is normalized. Detection is strict: every non-blank line must be one JSON value, so prose,
+  source code with lone braces and pretty-printed JSON never look line-delimited — a payload that
+  only partly parses falls back to `RecursiveChunker` instead of inventing record spans.
+- Record spans on JSON arrays: batches of top-level array elements now carry `start_record`/
+  `end_record` too, elements descended individually keep their index, and oversize scalars split by
+  `RecursiveChunker` still report the `path` they came from. Root-level paths are rendered as
+  `$[...]` instead of `[...]`, matching the single-document `$` case.
+- `jsonl` and `ndjson` are dispatched by `load_documents`/`supported_extensions()` and routed by
+  `DirectoryLoader` to `JsonChunker`. Documents loaded from `json`, `jsonl` and `ndjson` now carry
+  `format: "json"` instead of `"text"`, so the family is filterable the same way as
+  `subtitle`/`spreadsheet`/`epub`.
+- `ChunkPacker` span reconciliation now also covers `path`, `start_record` and `end_record`, so
+  packed JSON chunks cannot inherit another source's record range. Counted metadata (`cue_count`) is
+  summed over merged sources instead of inherited, and the merged chunk keeps the summed value.
 - **Time-indexed chunking for caption tracks — `SubtitleChunker`**: SRT and WebVTT load one
   `Document` per cue carrying `start_time_s`/`end_time_s`/`duration_s`/`cue_index`/`total_cues` and,
   for WebVTT voice tags, `speaker`. `SubtitleChunker` merges consecutive cues into time windows and

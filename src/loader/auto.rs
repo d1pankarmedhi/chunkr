@@ -32,7 +32,9 @@ pub const STRUCTURED_EXTENSIONS: &[&str] = &[
 /// Extensions understood by [`load_documents`], structured formats first.
 pub fn supported_extensions() -> Vec<&'static str> {
     let mut extensions = STRUCTURED_EXTENSIONS.to_vec();
-    extensions.extend_from_slice(&["txt", "md", "markdown", "csv", "tsv", "json", "yaml", "yml"]);
+    extensions.extend_from_slice(&[
+        "txt", "md", "markdown", "csv", "tsv", "json", "jsonl", "ndjson", "yaml", "yml",
+    ]);
     extensions
 }
 
@@ -114,7 +116,13 @@ fn extract_documents(
             } else {
                 utf8_text(bytes, extension)?
             };
-            vec![document(content, source, "text")]
+            // JSON is a family of its own even though it decodes as text.
+            let family = if matches!(extension, "json" | "jsonl" | "ndjson") {
+                "json"
+            } else {
+                "text"
+            };
+            vec![document(content, source, family)]
         }
     };
 
