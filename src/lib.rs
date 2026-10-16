@@ -8,6 +8,8 @@
 //!
 //! - **Extreme Performance**: High throughput (up to 1,000+ MB/s) with minimal allocations,
 //!   efficient string slicing, and multi-core Rayon parallelism.
+//! - **Format Coverage**: one `load_documents()` dispatcher for PDF, spreadsheets, office
+//!   documents, EPUB, email, HTML/XML/RTF, notebooks and plain text.
 //! - **20+ Chunking Strategies**: Natural language, token BPE (OpenAI), Hugging Face tokenizers,
 //!   AST code syntax, Markdown, Tables, JSON, HTML, Late Chunking, and more.
 //! - **Post-Processing Pipeline**: Composable filtering, deduplication, bin-packing, and SHA-256 metadata enrichment.
@@ -103,7 +105,20 @@ pub mod prelude {
     pub use crate::loader::base::BaseLoader;
     #[cfg(not(target_arch = "wasm32"))]
     pub use crate::loader::directory::DirectoryLoader;
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::loader::email::EmailLoader;
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::loader::epub::EpubLoader;
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::loader::office::OfficeLoader;
     pub use crate::loader::pdf::PDFLoader;
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::loader::spreadsheet::SpreadsheetLoader;
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::loader::{
+        is_structured, load_documents, load_documents_from_bytes, supported_extensions,
+        STRUCTURED_EXTENSIONS,
+    };
     pub use crate::parser::{
         Backend, Granularity, ParserConfig, ParserOutput, PdfParser, SanitizeConfig, TableMode,
     };

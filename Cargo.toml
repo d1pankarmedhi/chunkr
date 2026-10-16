@@ -79,6 +79,14 @@ tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-t
 # renamed the CPU execution provider, so the pin keeps the ONNX backend
 # compiling. Drop it once oar-ocr requires rc.13 or newer.
 ort = { version = "=2.0.0-rc.12", default-features = false, optional = true }
+calamine = "0.36.1"
+quick-xml = "0.42.0"
+html2text = "0.17.3"
+encoding_rs = "0.8.42"
+mail-parser = "0.11.9"
+# OOXML/EPUB containers are stored or deflated; the default feature set pulls
+# in aes/bzip2/lzma/xz/zstd/zopfli, none of which a document needs.
+zip = { version = "9.0.3", default-features = false, features = ["deflate"] }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 getrandom = { version = "0.3", features = ["wasm_js"] }
@@ -87,3 +95,6 @@ getrandom = { version = "0.3", features = ["wasm_js"] }
 [[example]]
 name = "ocr_bench"
 required-features = ["pdf"]
+
+[dev-dependencies]
+zip = { version = "9.0.3", default-features = false, features = ["deflate"] }

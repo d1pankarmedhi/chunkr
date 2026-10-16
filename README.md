@@ -56,6 +56,7 @@ stream = chunkr.StreamChunker(chunk_size=1000, overlap=150).chunk_text(huge_text
 # PDFs, directories, batches, bridges
 pages  = chunkr.PDFLoader().load_pages("report.pdf")
 chunks = chunkr.RecursiveChunker(1000, 120).chunk_documents(pages)
+docs   = chunkr.load_documents("sales.xlsx") # any format: xlsx, docx, epub, eml, html, …
 corpus = chunkr.DirectoryLoader(extensions=["pdf", "md", "py"]).load_and_chunk("docs/")
 many   = chunkr.RecursiveChunker(1000, 120).par_chunk_documents(documents)   # Rayon
 chain  = chunkr.to_langchain(docs)          # also to_llamaindex, to_dict_list
@@ -84,6 +85,40 @@ clean = (chunkr.ChunkPipeline()
 | Production cleanup and token packing | `ChunkPipeline`, `ChunkPacker` |
 
 Also available: `SentenceChunker`, `ParagraphChunker`, `SemanticChunker`, `ContextualChunker`, `AgenticChunker`, `JsonChunker`, `HtmlChunker`, `CharacterChunker`, `WordChunker`. Full API: [docs](docs/index.html) · [examples](examples/).
+
+## Supported formats
+
+`load_documents()` — from Rust, Python and the CLI — dispatches on the file extension and returns
+the natural unit of each format:
+
+| Family | Extensions | One `Document` per |
+| :--- | :--- | :--- |
+| Documents | `pdf` | page |
+| Spreadsheets | `xlsx` `xlsm` `xlsb` `xls` `ods` `csv` `tsv` | worksheet (as a Markdown table) |
+| Office | `docx` `docm` `pptx` `odt` | document / slide |
+| Books & mail | `epub` `eml` `mbox` | chapter / message |
+| Markup & notebooks | `html` `xml` `rtf` `ipynb` | document |
+| Text | `txt` `md` `log`, any other extension | document |
+
+```python
+docs = chunkr.load_documents("sales.xlsx")            # one Document per sheet
+pages = chunkr.load_documents_from_bytes(data, "docx", source="report.docx")
+chunkr.supported_extensions()                          # every extension the build handles
+```
+
+```bash
+chunkr sales.xlsx --strategy recursive        # spreadsheets, office docs and EPUBs too
+```
+
+Extracted metadata rides along into every chunk (`sheet_name`, `slide_number`, `chapter_href`,
+`page_number`, `source`, `format`, …), so retrieval can filter and cite where a chunk came from.
+`DirectoryLoader` routes each file to the chunker its format deserves: spreadsheets and CSV to
+`TableChunker` (headers repeat on every chunk), Markdown to `MarkdownChunker`, code to
+`CodeChunker`, everything else to `RecursiveChunker`.
+
+Encoding rules are explicit: byte-order marks are always honoured, `.txt`/`.log`/`.csv`/`.tsv`
+also decode legacy single-byte encodings, and formats that are UTF-8 by convention (`md`, `json`,
+`xml`, source code) report undecodable bytes as errors instead of indexing mojibake.
 
 ## PDF parsing and OCR — `chunkr-rs[pdf]`
 
@@ -140,7 +175,7 @@ Works in browsers, Cloudflare Workers and Node; PDFs can be chunked in memory at
 cargo install chunkr                        # installs the `chunkr` binary
 chunkr notes.md --strategy recursive --chunk-size 1000 --overlap 120 --format jsonl
 chunkr docs/ --strategy dir --out-file chunks.jsonl
-chunkr report.pdf --format text             # PDFs read directly
+chunkr report.pdf --format text             # PDFs, spreadsheets, office docs and EPUBs
 ```
 
 ## Benchmarks
