@@ -2245,7 +2245,10 @@ pub fn chunkr(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(load_pdf, m)?)?;
     m.add_function(wrap_pyfunction!(load_pdf_pages, m)?)?;
     m.add_function(wrap_pyfunction!(crate::python::load_documents, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::python::load_documents_from_bytes, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        crate::python::load_documents_from_bytes,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(crate::python::supported_extensions, m)?)?;
     m.add_function(wrap_pyfunction!(pages_to_documents, m)?)?;
     m.add_function(wrap_pyfunction!(register_pdf_backend, m)?)?;
