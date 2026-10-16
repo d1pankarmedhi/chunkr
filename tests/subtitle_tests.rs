@@ -39,9 +39,15 @@ fn test_srt_cues_are_parsed_with_positions_and_entities() {
     assert_eq!(cues.len(), 3);
     assert_eq!(cues[0].start_ms, 1_000);
     assert_eq!(cues[0].end_ms, 3_500);
-    assert_eq!(cues[0].text, "Hello there.", "SRT position group must be dropped");
+    assert_eq!(
+        cues[0].text, "Hello there.",
+        "SRT position group must be dropped"
+    );
     assert_eq!(cues[1].text, "Second line.", "inline tags must be dropped");
-    assert_eq!(cues[2].text, "Third & final cue.", "entities must be decoded");
+    assert_eq!(
+        cues[2].text, "Third & final cue.",
+        "entities must be decoded"
+    );
 }
 
 #[test]
@@ -55,7 +61,10 @@ fn test_webvtt_skips_metadata_blocks_and_captures_speakers() {
     assert_eq!(cues[0].speaker.as_deref(), Some("Roger Bingham"));
     assert_eq!(cues[1].text, "Just arrived.");
     assert_eq!(cues[2].speaker.as_deref(), Some("Neil deGrasse Tyson"));
-    assert_eq!(cues[2].end_ms, 6_000, "cue settings must not break the end time");
+    assert_eq!(
+        cues[2].end_ms, 6_000,
+        "cue settings must not break the end time"
+    );
 }
 
 #[test]
@@ -103,7 +112,10 @@ fn test_window_budgets_and_speaker_metadata() {
         chunks[0].metadata.get("speaker").unwrap(),
         &serde_json::json!("Roger Bingham")
     );
-    assert_eq!(chunks[0].metadata.get("cue_count").unwrap(), &serde_json::json!(1));
+    assert_eq!(
+        chunks[0].metadata.get("cue_count").unwrap(),
+        &serde_json::json!(1)
+    );
     assert_eq!(seconds(&chunks[0], "start_time_s"), 0.0);
     assert_eq!(seconds(&chunks[0], "duration_s"), 2.0);
     assert_eq!(
@@ -117,7 +129,10 @@ fn test_window_budgets_and_speaker_metadata() {
         .chunk(VTT)
         .unwrap();
     assert_eq!(mixed.len(), 1);
-    assert_eq!(mixed[0].metadata.get("cue_count").unwrap(), &serde_json::json!(3));
+    assert_eq!(
+        mixed[0].metadata.get("cue_count").unwrap(),
+        &serde_json::json!(3)
+    );
     assert!(
         !mixed[0].metadata.contains_key("speaker"),
         "mixed windows carry no speaker: {:?}",
@@ -136,7 +151,8 @@ fn test_character_budget_closes_the_window() {
     assert!(chunks.len() > 1, "char budget must close windows");
     for chunk in &chunks {
         assert!(
-            chunk.content.len() <= 25 || chunk.metadata.get("cue_count") == Some(&serde_json::json!(1)),
+            chunk.content.len() <= 25
+                || chunk.metadata.get("cue_count") == Some(&serde_json::json!(1)),
             "only a single over-long cue may exceed the budget: {} chars",
             chunk.content.len()
         );
@@ -178,8 +194,7 @@ fn test_invalid_subtitle_input_errors() {
 
 #[test]
 fn test_loader_returns_one_document_per_cue_with_spans() {
-    let documents =
-        load_documents_from_bytes(SRT.as_bytes(), "srt", Some("talk.srt")).unwrap();
+    let documents = load_documents_from_bytes(SRT.as_bytes(), "srt", Some("talk.srt")).unwrap();
 
     assert_eq!(documents.len(), 3);
     let first = &documents[0];
@@ -193,14 +208,26 @@ fn test_loader_returns_one_document_per_cue_with_spans() {
         first.metadata.get("subtitle_format").unwrap(),
         &serde_json::json!("srt")
     );
-    assert_eq!(first.metadata.get("cue_index").unwrap(), &serde_json::json!(0));
-    assert_eq!(first.metadata.get("total_cues").unwrap(), &serde_json::json!(3));
-    assert_eq!(first.metadata.get("file_name").unwrap(), &serde_json::json!("talk.srt"));
+    assert_eq!(
+        first.metadata.get("cue_index").unwrap(),
+        &serde_json::json!(0)
+    );
+    assert_eq!(
+        first.metadata.get("total_cues").unwrap(),
+        &serde_json::json!(3)
+    );
+    assert_eq!(
+        first.metadata.get("file_name").unwrap(),
+        &serde_json::json!("talk.srt")
+    );
     assert_eq!(seconds(first, "start_time_s"), 1.0);
     assert_eq!(seconds(first, "end_time_s"), 3.5);
 
     let last = &documents[2];
-    assert_eq!(last.metadata.get("cue_index").unwrap(), &serde_json::json!(2));
+    assert_eq!(
+        last.metadata.get("cue_index").unwrap(),
+        &serde_json::json!(2)
+    );
     assert_eq!(last.content, "Third & final cue.");
     assert!(supported_extensions().iter().any(|e| e == "vtt"));
 }
@@ -217,7 +244,10 @@ fn test_cue_documents_merge_into_windows_with_identity_metadata() {
 
     assert_eq!(chunks.len(), 3, "one cue per window at 2.5s");
     for (index, chunk) in chunks.iter().enumerate() {
-        assert_eq!(chunk.metadata.get("chunk_index").unwrap(), &serde_json::json!(index));
+        assert_eq!(
+            chunk.metadata.get("chunk_index").unwrap(),
+            &serde_json::json!(index)
+        );
         assert_eq!(
             chunk.metadata.get("file_name").unwrap(),
             &serde_json::json!("talk.vtt"),
@@ -258,7 +288,11 @@ fn test_directory_loader_routes_subtitles_to_time_windows() {
     assert!(!chunks.is_empty());
     for chunk in &chunks {
         assert!(
-            chunk.metadata.get("start_time_s").and_then(|v| v.as_f64()).is_some(),
+            chunk
+                .metadata
+                .get("start_time_s")
+                .and_then(|v| v.as_f64())
+                .is_some(),
             "every routed subtitle chunk needs a start span: {:?}",
             chunk.metadata
         );

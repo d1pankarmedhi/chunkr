@@ -12,9 +12,9 @@ use crate::chunker::subtitle::SubtitleChunker;
 use crate::chunker::table::{TableChunker, TableFormat};
 use crate::error::ChunkrError;
 use crate::loader::auto::load_documents;
-use crate::loader::table_source::has_table_source;
 use crate::loader::base::BaseLoader;
 use crate::loader::pdf::PDFLoader;
+use crate::loader::table_source::has_table_source;
 use crate::structures::document::Document;
 
 /// High-performance multi-threaded directory loader with automatic chunker routing by file extension.
@@ -302,7 +302,6 @@ impl DirectoryLoader {
     /// The chunker that suits a file extension.
     fn chunker_for_extension(&self, ext: &str) -> Box<dyn Chunker> {
         match ext {
-
             "xlsx" | "xlsm" | "xlsb" | "xls" | "ods" | "csv" | "tsv" => Box::new(
                 TableChunker::new()
                     .with_chunk_size(self.chunk_size)
@@ -376,7 +375,7 @@ impl DirectoryLoader {
                     .with_chunk_size(self.chunk_size)
                     .with_overlap(self.overlap),
             ),
-                }
+        }
     }
 
     /// Recursively crawl directory, auto-route files to optimal chunkers, and return all chunks in parallel

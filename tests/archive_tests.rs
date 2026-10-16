@@ -45,12 +45,14 @@ fn test_members_are_extracted_with_provenance() {
     let bytes = zip_with(&[
         text("notes/readme.md", "# Title\n\nBody."),
         text("data/sales.csv", "region,units\nNorth,120\n"),
-        ("logo.png", vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 1, 2, 3]),
+        (
+            "logo.png",
+            vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a, 0, 1, 2, 3],
+        ),
         ("__MACOSX/._notes", b"resource fork".to_vec()),
     ]);
 
-    let documents =
-        load_documents_from_bytes(&bytes, "zip", Some("/tmp/bundle.zip")).unwrap();
+    let documents = load_documents_from_bytes(&bytes, "zip", Some("/tmp/bundle.zip")).unwrap();
 
     let entries: Vec<&str> = documents
         .iter()
@@ -110,7 +112,10 @@ fn test_directory_loader_routes_members_by_their_own_format() {
     let dir = unique_tmp_dir("routing");
     let bytes = zip_with(&[
         text("data/sales.csv", "region,units\nNorth,120\nSouth,98\n"),
-        text("notes.md", "# Heading\n\nSome prose that is worth chunking."),
+        text(
+            "notes.md",
+            "# Heading\n\nSome prose that is worth chunking.",
+        ),
     ]);
     std::fs::write(dir.join("bundle.zip"), &bytes).unwrap();
 
@@ -122,7 +127,9 @@ fn test_directory_loader_routes_members_by_their_own_format() {
 
     assert!(!chunks.is_empty());
     assert!(
-        chunks.iter().all(|chunk| chunk.metadata.contains_key("archive_entry")),
+        chunks
+            .iter()
+            .all(|chunk| chunk.metadata.contains_key("archive_entry")),
         "every chunk keeps its archive provenance"
     );
 
@@ -132,7 +139,11 @@ fn test_directory_loader_routes_members_by_their_own_format() {
         .iter()
         .find(|chunk| chunk.metadata["file_extension"] == json!("csv"))
         .expect("csv member chunked");
-    assert!(csv_chunk.content.contains("region"), "{}", csv_chunk.content);
+    assert!(
+        csv_chunk.content.contains("region"),
+        "{}",
+        csv_chunk.content
+    );
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -148,7 +159,10 @@ fn test_nested_archives_expand_to_the_depth_limit() {
         .find(|doc| doc.content.contains("two levels down"))
         .expect("nested member extracted");
     assert_eq!(deep.metadata["archive_entry"], json!("deep.txt"));
-    assert_eq!(deep.metadata["source"], json!("outer.zip!inner.zip!deep.txt"));
+    assert_eq!(
+        deep.metadata["source"],
+        json!("outer.zip!inner.zip!deep.txt")
+    );
 
     // A third level is refused rather than expanded without bound.
     let third = zip_with(&[("second.zip", zip_with(&[("third.zip", inner)]))]);
@@ -162,7 +176,12 @@ fn test_nested_archives_expand_to_the_depth_limit() {
 #[test]
 fn test_entry_count_limit_is_enforced() {
     let members: Vec<(&str, Vec<u8>)> = (0..8)
-        .map(|index| (Box::leak(format!("file_{index}.txt").into_boxed_str()) as &str, b"x".to_vec()))
+        .map(|index| {
+            (
+                Box::leak(format!("file_{index}.txt").into_boxed_str()) as &str,
+                b"x".to_vec(),
+            )
+        })
         .collect();
     let bytes = zip_with(&members);
 
@@ -214,8 +233,8 @@ fn test_compression_ratio_limit_is_enforced() {
 
 #[test]
 fn test_corrupt_archive_reports_the_problem() {
-    let error = load_documents_from_bytes(b"PK\x03\x04 not really", "zip", Some("broken.zip"))
-        .unwrap_err();
+    let error =
+        load_documents_from_bytes(b"PK\x03\x04 not really", "zip", Some("broken.zip")).unwrap_err();
     let message = error.to_string();
     assert!(message.contains("broken.zip"), "{message}");
     assert!(message.contains("archive:"), "{message}");

@@ -175,7 +175,9 @@ fn is_archive_noise(entry: &str) -> bool {
 
 /// True when the error says the payload is not a format this crate reads.
 fn is_unsupported_payload(error: &ChunkrError) -> bool {
-    error.to_string().contains("binary payload is not a supported format")
+    error
+        .to_string()
+        .contains("binary payload is not a supported format")
 }
 
 fn archive_error(message: String) -> ChunkrError {

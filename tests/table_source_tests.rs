@@ -94,7 +94,8 @@ fn unique_tmp_dir(tag: &str) -> PathBuf {
 #[test]
 fn test_registered_source_renders_markdown_with_spans() {
     register("fake_markdown", fake_tables(), false);
-    let documents = load_documents_from_bytes(b"ignored", "fake_markdown", Some("data.col")).unwrap();
+    let documents =
+        load_documents_from_bytes(b"ignored", "fake_markdown", Some("data.col")).unwrap();
 
     assert_eq!(documents.len(), 2);
     let first = &documents[0];
@@ -160,7 +161,10 @@ fn test_empty_tables_are_skipped() {
 
     register("fake_no_columns", vec![TableData::default()], false);
     let documents = load_documents_from_bytes(b"", "fake_no_columns", None).unwrap();
-    assert!(documents.is_empty(), "a table without columns renders nothing");
+    assert!(
+        documents.is_empty(),
+        "a table without columns renders nothing"
+    );
 }
 
 #[test]
@@ -169,7 +173,10 @@ fn test_registered_extension_is_known_and_dispatched_by_path() {
 
     assert!(supported_extensions().iter().any(|e| e == "fake_path"));
     assert!(is_structured("fake_path"));
-    assert!(is_structured("FAKE_PATH"), "extension lookup is case-insensitive");
+    assert!(
+        is_structured("FAKE_PATH"),
+        "extension lookup is case-insensitive"
+    );
     assert!(table_sources().iter().any(|name| name == "fake_path"));
 
     let dir = unique_tmp_dir("path");
@@ -189,11 +196,15 @@ fn test_registered_extension_is_known_and_dispatched_by_path() {
         .unwrap();
     assert!(!chunks.is_empty());
     assert!(
-        chunks.iter().all(|chunk| chunk.metadata["row_count"].is_number()),
+        chunks
+            .iter()
+            .all(|chunk| chunk.metadata["row_count"].is_number()),
         "routed chunks keep table metadata"
     );
     assert!(
-        chunks.iter().all(|chunk| chunk.metadata["table_format"] == json!("fake_path")),
+        chunks
+            .iter()
+            .all(|chunk| chunk.metadata["table_format"] == json!("fake_path")),
         "routed chunks keep the source format"
     );
 
@@ -205,14 +216,20 @@ fn test_errors_are_qualified_with_the_source_and_unregister_restores_text_fallba
     register("fake_failing", fake_tables(), true);
     let error = load_documents_from_bytes(b"", "fake_failing", Some("broken.col")).unwrap_err();
     let message = error.to_string();
-    assert!(message.contains("broken.col"), "source missing from: {message}");
+    assert!(
+        message.contains("broken.col"),
+        "source missing from: {message}"
+    );
     assert!(
         message.contains("fake extractor failed"),
         "cause missing from: {message}"
     );
 
     assert!(unregister_table_source("fake_failing"));
-    assert!(!unregister_table_source("fake_failing"), "second removal is a no-op");
+    assert!(
+        !unregister_table_source("fake_failing"),
+        "second removal is a no-op"
+    );
 
     // Without a source, an unknown extension keeps its old text behaviour.
     let documents = load_documents_from_bytes(b"plain text", "fake_failing", None).unwrap();

@@ -2272,10 +2272,9 @@ impl crate::loader::table_source::TableSource for PyTableSource {
         extension: &str,
         source: Option<&str>,
     ) -> Result<Vec<crate::loader::table_source::TableData>, ChunkrError> {
-        Python::with_gil(|py| self.call(py, path, bytes, extension, source))
-            .map_err(|error| {
-                ChunkrError::ParseError(format!("table loader '{}': {error}", self.name))
-            })
+        Python::with_gil(|py| self.call(py, path, bytes, extension, source)).map_err(|error| {
+            ChunkrError::ParseError(format!("table loader '{}': {error}", self.name))
+        })
     }
 }
 
@@ -2305,7 +2304,9 @@ impl PyTableSource {
 /// The expected shape is an iterable of mappings:
 /// `{"columns": [...], "rows": [[...]], "name": str?, "row_offset": int?}`
 /// where every cell is `str`, `int`, `float`, `bool` or `None`.
-fn tables_from_python(value: &Bound<'_, PyAny>) -> PyResult<Vec<crate::loader::table_source::TableData>> {
+fn tables_from_python(
+    value: &Bound<'_, PyAny>,
+) -> PyResult<Vec<crate::loader::table_source::TableData>> {
     use crate::loader::table_source::TableData;
 
     let mut tables = Vec::new();
@@ -2321,7 +2322,9 @@ fn tables_from_python(value: &Bound<'_, PyAny>) -> PyResult<Vec<crate::loader::t
             PyValueError::new_err(format!("table {table_index} is missing 'columns'"))
         })?;
         let columns: Vec<String> = columns_value.extract().map_err(|_| {
-            PyValueError::new_err(format!("table {table_index} 'columns' must be a list of str"))
+            PyValueError::new_err(format!(
+                "table {table_index} 'columns' must be a list of str"
+            ))
         })?;
         if columns.is_empty() {
             continue;
@@ -2340,12 +2343,7 @@ fn tables_from_python(value: &Bound<'_, PyAny>) -> PyResult<Vec<crate::loader::t
             })?;
             let mut row = Vec::with_capacity(columns.len());
             for (column_index, cell) in cells.enumerate() {
-                row.push(cell_text(
-                    &cell?,
-                    table_index,
-                    row_index,
-                    column_index,
-                )?);
+                row.push(cell_text(&cell?, table_index, row_index, column_index)?);
             }
             if row.len() != columns.len() {
                 return Err(PyValueError::new_err(format!(
@@ -2450,7 +2448,10 @@ pub fn table_loaders() -> Vec<String> {
 fn normalize_extensions(extensions: &[String]) -> PyResult<Vec<String>> {
     let mut normalized = Vec::new();
     for extension in extensions {
-        let extension = extension.trim().trim_start_matches('.').to_ascii_lowercase();
+        let extension = extension
+            .trim()
+            .trim_start_matches('.')
+            .to_ascii_lowercase();
         if extension.is_empty() {
             return Err(PyValueError::new_err(
                 "table loader extensions must be non-empty",
@@ -2509,7 +2510,10 @@ pub fn chunkr(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(load_pdf, m)?)?;
     m.add_function(wrap_pyfunction!(load_pdf_pages, m)?)?;
     m.add_function(wrap_pyfunction!(crate::python::load_documents, m)?)?;
-    m.add_function(wrap_pyfunction!(crate::python::load_documents_from_bytes, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        crate::python::load_documents_from_bytes,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(crate::python::supported_extensions, m)?)?;
     m.add_function(wrap_pyfunction!(register_table_loader, m)?)?;
     m.add_function(wrap_pyfunction!(unregister_table_loader, m)?)?;

@@ -67,7 +67,9 @@ fn read_registry() -> RwLockReadGuard<'static, Vec<(String, Arc<dyn TableSource>
 }
 
 fn write_registry() -> RwLockWriteGuard<'static, Vec<(String, Arc<dyn TableSource>)>> {
-    registry().write().unwrap_or_else(|error| error.into_inner())
+    registry()
+        .write()
+        .unwrap_or_else(|error| error.into_inner())
 }
 
 /// Register a table source under `name`; registering the same name replaces it.
@@ -150,10 +152,7 @@ pub fn documents_from_tables(
         metadata.insert("table_index".to_string(), Value::from(index));
         metadata.insert("total_tables".to_string(), Value::from(total_tables));
         metadata.insert("row_count".to_string(), Value::from(table.rows.len()));
-        metadata.insert(
-            "column_count".to_string(),
-            Value::from(table.columns.len()),
-        );
+        metadata.insert("column_count".to_string(), Value::from(table.columns.len()));
         if let Some(name) = table.name {
             metadata.insert("table_name".to_string(), Value::from(name));
         }
@@ -214,4 +213,3 @@ pub(crate) fn render_markdown_table(header: &[String], rows: &[Vec<String>]) -> 
 fn escape_cell(cell: &str) -> String {
     cell.replace('|', "\\|").replace(['\r', '\n'], " ")
 }
-

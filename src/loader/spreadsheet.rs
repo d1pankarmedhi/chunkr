@@ -79,10 +79,7 @@ impl SpreadsheetLoader {
             metadata.insert("sheet_index".to_string(), Value::from(sheet_index));
             metadata.insert("total_sheets".to_string(), Value::from(total_sheets));
             metadata.insert("row_count".to_string(), Value::from(table.body_rows()));
-            metadata.insert(
-                "column_count".to_string(),
-                Value::from(table.header.len()),
-            );
+            metadata.insert("column_count".to_string(), Value::from(table.header.len()));
             if let Some(title) = table.title {
                 metadata.insert("sheet_title".to_string(), Value::from(title));
             }
@@ -338,7 +335,9 @@ fn join_header_rows(grid: &[Vec<String>], header_row: u32, header_rows: u32) -> 
 /// Cell value as plain text; escaping happens in [`render_markdown_table`].
 fn cell_text(cell: &Data, formula: Option<&str>) -> String {
     match cell {
-        Data::Empty => formula.map(|formula| format!("={formula}")).unwrap_or_default(),
+        Data::Empty => formula
+            .map(|formula| format!("={formula}"))
+            .unwrap_or_default(),
         Data::DateTime(value) => excel_datetime_text(value),
         other => other.to_string(),
     }

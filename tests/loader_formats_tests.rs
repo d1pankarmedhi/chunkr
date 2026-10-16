@@ -525,7 +525,8 @@ fn test_unknown_binary_still_errors_instead_of_guessing() {
 #[test]
 fn test_malformed_jsonl_names_the_broken_line() {
     let payload = "{\"id\":1}\n{\"id\":2}\n{\"id\":\n{\"id\":4}\n";
-    let error = load_documents_from_bytes(payload.as_bytes(), "jsonl", Some("db.jsonl")).unwrap_err();
+    let error =
+        load_documents_from_bytes(payload.as_bytes(), "jsonl", Some("db.jsonl")).unwrap_err();
     let message = error.to_string();
     assert!(message.contains("db.jsonl"), "{message}");
     assert!(message.contains("line 3"), "{message}");
@@ -617,8 +618,8 @@ fn rich_xlsx_fixture() -> Vec<u8> {
 
 #[test]
 fn test_xlsx_title_row_becomes_metadata_and_leaves_the_header() {
-    let documents = load_documents_from_bytes(&rich_xlsx_fixture(), "xlsx", Some("forecast.xlsx"))
-        .unwrap();
+    let documents =
+        load_documents_from_bytes(&rich_xlsx_fixture(), "xlsx", Some("forecast.xlsx")).unwrap();
     let sheet = &documents[0];
 
     assert_eq!(
@@ -631,7 +632,10 @@ fn test_xlsx_title_row_becomes_metadata_and_leaves_the_header() {
         "the header row still becomes the header: {}",
         sheet.content
     );
-    assert_eq!(sheet.metadata.get("row_count").unwrap(), &serde_json::json!(2));
+    assert_eq!(
+        sheet.metadata.get("row_count").unwrap(),
+        &serde_json::json!(2)
+    );
 }
 
 #[test]
@@ -642,7 +646,10 @@ fn test_merged_rows_carry_their_label_and_formula_cells_are_shown() {
     // The A3:A4 merge labels the row it spans, and a value already in the
     // region is never overwritten.
     assert!(content.contains("| South | 98 | =B3*3 |"), "{content}");
-    assert!(content.contains("| Total | 45000 | 2023-03-15 |"), "{content}");
+    assert!(
+        content.contains("| Total | 45000 | 2023-03-15 |"),
+        "{content}"
+    );
 }
 
 #[test]

@@ -37,7 +37,10 @@ pub const STRUCTURED_EXTENSIONS: &[&str] = &[
 /// Includes every extension claimed by a registered [`TableSource`], so an
 /// installed extension package widens this list without touching core.
 pub fn supported_extensions() -> Vec<String> {
-    let mut extensions: Vec<String> = STRUCTURED_EXTENSIONS.iter().map(|e| e.to_string()).collect();
+    let mut extensions: Vec<String> = STRUCTURED_EXTENSIONS
+        .iter()
+        .map(|e| e.to_string())
+        .collect();
     extensions.extend(
         [
             "txt", "md", "markdown", "csv", "tsv", "json", "jsonl", "ndjson", "yaml", "yml",
@@ -169,7 +172,9 @@ fn extract_documents(
             OfficeLoader::new().load_documents(bytes, extension, source)?
         }
         "epub" => EpubLoader::new().load_documents(bytes, source)?,
-        "srt" | "vtt" | "webvtt" => SubtitleLoader::new().load_documents(bytes, extension, source)?,
+        "srt" | "vtt" | "webvtt" => {
+            SubtitleLoader::new().load_documents(bytes, extension, source)?
+        }
         "eml" | "mbox" | "mail" => EmailLoader::new().load_documents(bytes, extension, source)?,
         "html" | "htm" | "xhtml" => {
             vec![document(clean_text(&html_to_text(bytes)?), source, "html")]
@@ -193,7 +198,10 @@ fn extract_documents(
             }
             // Nothing to go on from the extension: let the payload name itself.
             // Known text extensions are authoritative and never overridden.
-            if !supported_extensions().iter().any(|known| known == extension) {
+            if !supported_extensions()
+                .iter()
+                .any(|known| known == extension)
+            {
                 if let Some(sniffed) = sniff_extension(bytes) {
                     return extract_documents(bytes, sniffed, source, depth);
                 }
@@ -246,7 +254,11 @@ fn sniff_extension(bytes: &[u8]) -> Option<&'static str> {
     }
 
     let archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).ok()?;
-    let names: Vec<String> = archive.file_names().filter_map(Result::ok).map(String::from).collect();
+    let names: Vec<String> = archive
+        .file_names()
+        .filter_map(Result::ok)
+        .map(String::from)
+        .collect();
     let has = |name: &str| names.iter().any(|entry| entry == name);
 
     if has("mimetype") || has("META-INF/container.xml") {
@@ -276,7 +288,10 @@ fn validate_json_lines(text: &str) -> Result<(), ChunkrError> {
             continue;
         }
         if let Err(error) = serde_json::from_str::<Value>(line) {
-            return Err(ChunkrError::ParseError(format!("line {}: {error}", index + 1)));
+            return Err(ChunkrError::ParseError(format!(
+                "line {}: {error}",
+                index + 1
+            )));
         }
     }
     Ok(())

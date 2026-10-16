@@ -100,10 +100,7 @@ impl JsonChunker {
 
         if serialized.chars().count() <= self.max_chunk_size {
             let mut metadata = HashMap::new();
-            metadata.insert(
-                "path".to_string(),
-                Value::from(Self::render_path(path)),
-            );
+            metadata.insert("path".to_string(), Value::from(Self::render_path(path)));
             metadata.insert("length".to_string(), Value::from(serialized.len()));
             metadata.insert("chunk_index".to_string(), Value::from(docs.len()));
             metadata.insert("is_json".to_string(), Value::from(true));
@@ -165,10 +162,7 @@ impl JsonChunker {
                     metadata.insert("is_json".to_string(), Value::from(true));
                     // `end` is exclusive here; record spans are inclusive.
                     metadata.insert("start_record".to_string(), Value::from(start));
-                    metadata.insert(
-                        "end_record".to_string(),
-                        Value::from(end.saturating_sub(1)),
-                    );
+                    metadata.insert("end_record".to_string(), Value::from(end.saturating_sub(1)));
 
                     docs.push(Document {
                         content: batch_str,
@@ -188,7 +182,8 @@ impl JsonChunker {
                         for doc in docs.iter_mut().skip(first_doc) {
                             doc.metadata
                                 .insert("start_record".to_string(), Value::from(idx));
-                            doc.metadata.insert("end_record".to_string(), Value::from(idx));
+                            doc.metadata
+                                .insert("end_record".to_string(), Value::from(idx));
                         }
                         start_idx = idx + 1;
                     } else {
@@ -290,14 +285,8 @@ impl JsonChunker {
         metadata.insert("is_json".to_string(), Value::from(true));
         metadata.insert("is_jsonl".to_string(), Value::from(true));
         metadata.insert("start_record".to_string(), Value::from(start));
-        metadata.insert(
-            "end_record".to_string(),
-            Value::from(end.saturating_sub(1)),
-        );
-        docs.push(Document {
-            content,
-            metadata,
-        });
+        metadata.insert("end_record".to_string(), Value::from(end.saturating_sub(1)));
+        docs.push(Document { content, metadata });
     }
 
     /// Batch whole JSONL records into chunks; a single oversized record is
@@ -325,8 +314,10 @@ impl JsonChunker {
                 for doc in docs.iter_mut().skip(first_doc) {
                     doc.metadata
                         .insert("start_record".to_string(), Value::from(idx));
-                    doc.metadata.insert("end_record".to_string(), Value::from(idx));
-                    doc.metadata.insert("is_jsonl".to_string(), Value::from(true));
+                    doc.metadata
+                        .insert("end_record".to_string(), Value::from(idx));
+                    doc.metadata
+                        .insert("is_jsonl".to_string(), Value::from(true));
                 }
                 continue;
             }

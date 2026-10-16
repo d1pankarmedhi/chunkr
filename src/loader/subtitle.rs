@@ -58,7 +58,10 @@ impl SubtitleLoader {
                 metadata.insert("subtitle_format".to_string(), Value::from(subtitle_format));
                 metadata.insert("cue_index".to_string(), Value::from(index));
                 metadata.insert("total_cues".to_string(), Value::from(total_cues));
-                metadata.insert("start_time_s".to_string(), Value::from(seconds(cue.start_ms)));
+                metadata.insert(
+                    "start_time_s".to_string(),
+                    Value::from(seconds(cue.start_ms)),
+                );
                 metadata.insert("end_time_s".to_string(), Value::from(seconds(cue.end_ms)));
                 metadata.insert(
                     "duration_s".to_string(),

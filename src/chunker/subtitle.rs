@@ -144,8 +144,16 @@ const INHERITED_KEYS: &[&str] = &[
 /// True when a document is one cue carrying its own span.
 fn is_cue_document(document: &Document) -> bool {
     document.metadata.get("format").and_then(Value::as_str) == Some("subtitle")
-        && document.metadata.get("start_time_s").and_then(Value::as_f64).is_some()
-        && document.metadata.get("end_time_s").and_then(Value::as_f64).is_some()
+        && document
+            .metadata
+            .get("start_time_s")
+            .and_then(Value::as_f64)
+            .is_some()
+        && document
+            .metadata
+            .get("end_time_s")
+            .and_then(Value::as_f64)
+            .is_some()
 }
 
 fn cue_from_document(document: &Document) -> Cue {
@@ -171,7 +179,10 @@ fn millis(document: &Document, key: &str) -> u64 {
 }
 
 /// Default per-document behaviour for payloads that are not cue documents.
-fn chunk_text_documents<C: Chunker>(chunker: &C, docs: &[Document]) -> Result<Vec<Document>, ChunkrError> {
+fn chunk_text_documents<C: Chunker>(
+    chunker: &C,
+    docs: &[Document],
+) -> Result<Vec<Document>, ChunkrError> {
     let mut all_chunks = Vec::new();
     for (doc_index, document) in docs.iter().enumerate() {
         if document.content.trim().is_empty() {
@@ -179,7 +190,10 @@ fn chunk_text_documents<C: Chunker>(chunker: &C, docs: &[Document]) -> Result<Ve
         }
         for (chunk_index, mut chunk) in chunker.chunk(&document.content)?.into_iter().enumerate() {
             for (key, value) in &document.metadata {
-                chunk.metadata.entry(key.clone()).or_insert_with(|| value.clone());
+                chunk
+                    .metadata
+                    .entry(key.clone())
+                    .or_insert_with(|| value.clone());
             }
             chunk
                 .metadata
@@ -321,7 +335,11 @@ fn parse_timestamp(value: &str) -> Option<u64> {
     let mut parts = normalized.split(':');
     let first = parts.next()?;
     let (hours, minutes, seconds) = match (parts.next(), parts.next(), parts.next()) {
-        (Some(minutes), Some(seconds), None) => (first.parse::<u64>().ok()?, minutes.parse::<u64>().ok()?, seconds),
+        (Some(minutes), Some(seconds), None) => (
+            first.parse::<u64>().ok()?,
+            minutes.parse::<u64>().ok()?,
+            seconds,
+        ),
         (Some(seconds), None, None) => (0, first.parse::<u64>().ok()?, seconds),
         _ => return None,
     };

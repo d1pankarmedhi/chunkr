@@ -7,14 +7,21 @@ use std::path::PathBuf;
 
 fn jsonl(records: usize) -> String {
     (0..records)
-        .map(|i| format!("{{\"id\":{i},\"name\":\"item-{i}\",\"active\":{}}}", i % 2 == 0))
+        .map(|i| {
+            format!(
+                "{{\"id\":{i},\"name\":\"item-{i}\",\"active\":{}}}",
+                i % 2 == 0
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
 
 fn record_span(chunk: &Document) -> (u64, u64) {
     (
-        chunk.metadata["start_record"].as_u64().expect("start_record"),
+        chunk.metadata["start_record"]
+            .as_u64()
+            .expect("start_record"),
         chunk.metadata["end_record"].as_u64().expect("end_record"),
     )
 }
@@ -37,7 +44,10 @@ fn unique_tmp_dir(tag: &str) -> PathBuf {
 #[test]
 fn test_jsonl_records_batch_with_exact_spans_and_whole_lines() {
     let text = jsonl(500);
-    let chunks = JsonChunker::new().with_max_chunk_size(400).chunk(&text).unwrap();
+    let chunks = JsonChunker::new()
+        .with_max_chunk_size(400)
+        .chunk(&text)
+        .unwrap();
 
     assert!(chunks.len() > 1, "500 records must batch");
 
@@ -59,7 +69,10 @@ fn test_jsonl_records_batch_with_exact_spans_and_whole_lines() {
             json!(format!("$[{}..{}]", start, end + 1))
         );
         assert_eq!(chunk.metadata["is_jsonl"], json!(true));
-        assert!(chunk.content.len() <= 400 || end == start, "budget respected");
+        assert!(
+            chunk.content.len() <= 400 || end == start,
+            "budget respected"
+        );
         expected_start = end + 1;
     }
 
@@ -70,7 +83,10 @@ fn test_jsonl_records_batch_with_exact_spans_and_whole_lines() {
 #[test]
 fn test_jsonl_blank_lines_are_skipped_and_indices_stay_dense() {
     let text = "{\"a\":1}\n\n{\"b\":2}\n   \n{\"c\":3}\n";
-    let chunks = JsonChunker::new().with_max_chunk_size(1000).chunk(text).unwrap();
+    let chunks = JsonChunker::new()
+        .with_max_chunk_size(1000)
+        .chunk(text)
+        .unwrap();
 
     assert_eq!(chunks.len(), 1);
     assert_eq!(record_span(&chunks[0]), (0, 2));
@@ -101,7 +117,10 @@ fn test_oversized_jsonl_record_is_descended_and_keeps_its_record_index() {
         json!({"id": 2})
     );
 
-    let chunks = JsonChunker::new().with_max_chunk_size(200).chunk(&text).unwrap();
+    let chunks = JsonChunker::new()
+        .with_max_chunk_size(200)
+        .chunk(&text)
+        .unwrap();
 
     let record_one: Vec<&Document> = chunks
         .iter()
@@ -135,7 +154,10 @@ fn test_top_level_array_elements_also_carry_record_spans() {
     )
     .unwrap();
 
-    let chunks = JsonChunker::new().with_max_chunk_size(200).chunk(&text).unwrap();
+    let chunks = JsonChunker::new()
+        .with_max_chunk_size(200)
+        .chunk(&text)
+        .unwrap();
 
     assert!(chunks.len() > 1);
     let mut expected_start = 0u64;
@@ -165,14 +187,19 @@ fn test_prose_and_pretty_json_never_look_like_jsonl() {
     let code = "fn main() {\n    {}\n    let v = [1, 2];\n    println!(\"hi\");\n}";
     let code_chunks = JsonChunker::new().chunk(code).unwrap();
     assert!(
-        code_chunks.iter().all(|c| !c.metadata.contains_key("is_jsonl")),
+        code_chunks
+            .iter()
+            .all(|c| !c.metadata.contains_key("is_jsonl")),
         "a lone `{{}}` line is not a JSONL corpus: {:?}",
         code_chunks.iter().map(|c| &c.metadata).collect::<Vec<_>>()
     );
 
     // Pretty-printed JSON stays on the structural path.
     let pretty = "{\n  \"a\": 1,\n  \"b\": [1, 2]\n}";
-    let pretty_chunks = JsonChunker::new().with_max_chunk_size(500).chunk(pretty).unwrap();
+    let pretty_chunks = JsonChunker::new()
+        .with_max_chunk_size(500)
+        .chunk(pretty)
+        .unwrap();
     assert_eq!(pretty_chunks.len(), 1);
     assert!(!pretty_chunks[0].metadata.contains_key("is_jsonl"));
     assert_eq!(pretty_chunks[0].metadata["path"], json!("$"));
@@ -208,7 +235,8 @@ fn test_dispatch_and_directory_routing_cover_jsonl() {
     assert!(extensions.iter().any(|e| e == "jsonl") && extensions.iter().any(|e| e == "ndjson"));
 
     // The dispatcher loads JSONL as text (UTF-8 strict), like JSON today.
-    let documents = load_documents_from_bytes(jsonl(3).as_bytes(), "jsonl", Some("db.jsonl")).unwrap();
+    let documents =
+        load_documents_from_bytes(jsonl(3).as_bytes(), "jsonl", Some("db.jsonl")).unwrap();
     assert_eq!(documents.len(), 1);
     assert_eq!(documents[0].metadata["file_extension"], json!("jsonl"));
     assert_eq!(documents[0].metadata["format"], json!("json"));
@@ -229,11 +257,15 @@ fn test_dispatch_and_directory_routing_cover_jsonl() {
         .collect();
     assert!(ndjson_chunks.len() > 1, "ndjson must batch by record");
     assert!(
-        ndjson_chunks.iter().all(|c| c.metadata.contains_key("start_record")),
+        ndjson_chunks
+            .iter()
+            .all(|c| c.metadata.contains_key("start_record")),
         "routed ndjson chunks keep record spans"
     );
     assert!(
-        ndjson_chunks.iter().all(|c| c.metadata["file_name"] == json!("records.ndjson")),
+        ndjson_chunks
+            .iter()
+            .all(|c| c.metadata["file_name"] == json!("records.ndjson")),
         "routed chunks keep provenance"
     );
 

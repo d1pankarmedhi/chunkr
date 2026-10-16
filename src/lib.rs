@@ -103,9 +103,9 @@ pub mod prelude {
     pub use crate::chunker::token::{TokenChunker, TokenEncoding};
     pub use crate::chunker::word::WordChunker;
     pub use crate::error::ChunkrError;
-    pub use crate::loader::base::BaseLoader;
     #[cfg(not(target_arch = "wasm32"))]
     pub use crate::loader::archive::{expand_zip, ArchiveLimits};
+    pub use crate::loader::base::BaseLoader;
     #[cfg(not(target_arch = "wasm32"))]
     pub use crate::loader::directory::DirectoryLoader;
     #[cfg(not(target_arch = "wasm32"))]

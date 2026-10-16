@@ -135,10 +135,9 @@ fn parse_package(opf: &str, opf_path: &str) -> Result<Package, ChunkrError> {
         match reader.read_event().map_err(parse_error)? {
             Event::Start(element) | Event::Empty(element) => match element.name().as_ref() {
                 "item" => {
-                    if let (Some(id), Some(href)) = (
-                        attribute(&element, "id")?,
-                        attribute(&element, "href")?,
-                    ) {
+                    if let (Some(id), Some(href)) =
+                        (attribute(&element, "id")?, attribute(&element, "href")?)
+                    {
                         package.manifest.push((id, resolve_href(opf_path, &href)));
                     }
                 }
