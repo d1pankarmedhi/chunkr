@@ -33,7 +33,25 @@ const SPAN_SENSITIVE_KEYS: &[&str] = &[
     "end_sentence",
     "start_paragraph",
     "end_paragraph",
+    // Time-indexed chunks (subtitles, transcripts): a packed chunk must never
+    // claim one source's span for merged content.
+    "start_time_s",
+    "end_time_s",
+    "duration_s",
+    "speaker",
+    // Structured chunks: JSON path and record ranges.
+    "path",
+    "start_record",
+    "end_record",
+    // Extracted tables: which table a chunk came from and its row offset.
+    "table_index",
+    "table_name",
+    "row_offset",
 ];
+
+/// Counted metadata, summed when a chunk merges several sources: a packed chunk
+/// covers every source's cues, so inheriting one source's count would understate it.
+const AGGREGATE_KEYS: &[&str] = &["cue_count", "row_count"];
 
 impl ChunkPacker {
     /// Create a new ChunkPacker with the specified maximum character budget
@@ -71,6 +89,7 @@ impl ChunkPacker {
                 let mut chunk_meta = meta.clone();
                 if sources.len() > 1 {
                     Self::reconcile_span_metadata(&mut chunk_meta, source_metas);
+                    Self::aggregate_count_metadata(&mut chunk_meta, source_metas);
                 }
                 chunk_meta.insert("merged_chunk_count".to_string(), Value::from(sources.len()));
                 chunk_meta.insert(
@@ -165,6 +184,24 @@ impl ChunkPacker {
                     .collect();
                 chunk_meta.insert(format!("merged_{key}"), Value::Array(per_source));
             }
+        }
+    }
+
+    /// Sum counted metadata over the merged sources (see [`AGGREGATE_KEYS`]).
+    fn aggregate_count_metadata(
+        chunk_meta: &mut HashMap<String, Value>,
+        source_metas: &[HashMap<String, Value>],
+    ) {
+        for key in AGGREGATE_KEYS {
+            if !source_metas.iter().any(|meta| meta.contains_key(*key)) {
+                continue;
+            }
+            let total: u64 = source_metas
+                .iter()
+                .filter_map(|meta| meta.get(*key))
+                .filter_map(Value::as_u64)
+                .sum();
+            chunk_meta.insert((*key).to_string(), Value::from(total));
         }
     }
 }

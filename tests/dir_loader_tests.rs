@@ -27,7 +27,8 @@ fn mixed_dir(tag: &str) -> (PathBuf, PathBuf) {
     let bad = dir.join("bad.md");
     std::fs::write(&good, "# Title\n\nSome readable content for chunking.\n")
         .expect("write good file");
-    std::fs::write(&bad, [0xffu8, 0xfe, 0x00, 0x28]).expect("write bad file");
+    // No BOM and not decodable as UTF-8: garbage, not a legacy document.
+    std::fs::write(&bad, [0x23u8, 0xff, 0xfe, 0x28]).expect("write bad file");
     (dir, bad)
 }
 

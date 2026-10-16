@@ -1,6 +1,5 @@
 use rayon::prelude::*;
 use serde_json::Value;
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::chunker::base::Chunker;
@@ -9,10 +8,13 @@ use crate::chunker::html::HtmlChunker;
 use crate::chunker::json::JsonChunker;
 use crate::chunker::markdown::MarkdownChunker;
 use crate::chunker::recursive::RecursiveChunker;
-use crate::chunker::table::TableChunker;
+use crate::chunker::subtitle::SubtitleChunker;
+use crate::chunker::table::{TableChunker, TableFormat};
 use crate::error::ChunkrError;
+use crate::loader::auto::load_documents;
 use crate::loader::base::BaseLoader;
 use crate::loader::pdf::PDFLoader;
+use crate::loader::table_source::has_table_source;
 use crate::structures::document::Document;
 
 /// High-performance multi-threaded directory loader with automatic chunker routing by file extension.
@@ -163,47 +165,25 @@ impl DirectoryLoader {
         Ok(files)
     }
 
-    /// Load a single file into a raw Document
-    fn load_single_file(&self, path: &Path) -> Result<Document, ChunkrError> {
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-
-        if ext == "pdf" {
-            return self.pdf_loader.load_document(path);
+    /// Load a single file into raw Documents at the format's natural granularity
+    /// (PDF page, worksheet, slide, chapter, or the whole file).
+    fn load_single_file(&self, path: &Path) -> Result<Vec<Document>, ChunkrError> {
+        if is_pdf(path) {
+            return self.pdf_loader.load_pages_from_file(path);
         }
-
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| ChunkrError::IoError(format!("{}: {}", path.display(), e)))?;
-        let metadata_fs = std::fs::metadata(path).ok();
-        let file_size = metadata_fs.map(|m| m.len()).unwrap_or(0);
-
-        let mut metadata = HashMap::new();
-        metadata.insert(
-            "file_path".to_string(),
-            Value::from(path.to_string_lossy().to_string()),
-        );
-        if let Some(file_name) = path.file_name().and_then(|f| f.to_str()) {
-            metadata.insert("file_name".to_string(), Value::from(file_name));
-        }
-        metadata.insert("file_extension".to_string(), Value::from(ext));
-        metadata.insert("file_size_bytes".to_string(), Value::from(file_size));
-
-        Ok(Document::new(content, metadata))
+        load_documents(path)
     }
 
     /// Load all files in the directory as unchunked Document instances in parallel
     pub fn load_files<P: AsRef<Path>>(&self, dir: P) -> Result<Vec<Document>, ChunkrError> {
         let file_paths = self.collect_files(dir)?;
 
-        let docs: Result<Vec<Document>, ChunkrError> = file_paths
+        let docs: Result<Vec<Vec<Document>>, ChunkrError> = file_paths
             .par_iter()
             .map(|path| self.load_single_file(path))
             .collect();
 
-        docs
+        Ok(docs?.into_iter().flatten().collect())
     }
 
     /// Lenient variant of [`Self::load_files`]: collects per-file successes
@@ -221,7 +201,7 @@ impl DirectoryLoader {
             }
         };
 
-        let results: Vec<(PathBuf, Result<Document, ChunkrError>)> = file_paths
+        let results: Vec<(PathBuf, Result<Vec<Document>, ChunkrError>)> = file_paths
             .par_iter()
             .map(|path| {
                 let result = self.load_single_file(path);
@@ -233,7 +213,7 @@ impl DirectoryLoader {
         let mut errors = Vec::new();
         for (path, result) in results {
             match result {
-                Ok(doc) => docs.push(doc),
+                Ok(mut loaded) => docs.append(&mut loaded),
                 Err(e) => errors.push((path, e)),
             }
         }
@@ -265,9 +245,12 @@ impl DirectoryLoader {
                 chunk
                     .metadata
                     .insert("file_name".to_string(), Value::from(file_name.clone()));
+                // A document that knows its own extension is the more specific
+                // answer: an archive member is a csv inside a zip.
                 chunk
                     .metadata
-                    .insert("file_extension".to_string(), Value::from(ext.clone()));
+                    .entry("file_extension".to_string())
+                    .or_insert_with(|| Value::from(ext.clone()));
                 chunk
                     .metadata
                     .insert("file_size_bytes".to_string(), Value::from(file_size));
@@ -275,85 +258,124 @@ impl DirectoryLoader {
             chunks
         };
 
-        if ext == "pdf" {
-            let pages = self.pdf_loader.load_pages_from_file(path)?;
+        if is_pdf(path) {
+            let documents = self.pdf_loader.load_pages_from_file(path)?;
+            if documents.is_empty() {
+                return Ok(Vec::new());
+            }
             let chunker = RecursiveChunker::new()
                 .with_chunk_size(self.chunk_size)
                 .with_overlap(self.overlap);
-            let chunks = chunker.chunk_documents(&pages)?;
-            return Ok(enrich_chunks(chunks));
+            return Ok(enrich_chunks(chunker.chunk_documents(&documents)?));
         }
 
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| ChunkrError::IoError(format!("{}: {}", path.display(), e)))?;
-        if content.trim().is_empty() {
+        let documents = load_documents(path)?;
+        if documents.is_empty() {
             return Ok(Vec::new());
         }
 
-        let chunks = match ext.as_str() {
-            "md" | "markdown" => {
-                let chunker = MarkdownChunker::new()
-                    .with_chunk_size(self.chunk_size)
-                    .with_overlap(self.overlap);
-                chunker.chunk(&content)?
+        // An archive holds members of several formats, so each one is chunked by
+        // the format its extraction reported rather than by the archive's extension.
+        if documents
+            .iter()
+            .any(|document| document.metadata.contains_key("archive_entry"))
+        {
+            let mut chunks = Vec::new();
+            for document in &documents {
+                let member_ext = document
+                    .metadata
+                    .get("file_extension")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default()
+                    .to_lowercase();
+                let chunker = self.chunker_for_extension(&member_ext);
+                chunks.extend(chunker.chunk_documents(std::slice::from_ref(document))?);
             }
-            "csv" | "tsv" => {
-                let chunker = TableChunker::new()
-                    .with_chunk_size(self.chunk_size)
-                    .with_overlap_rows(1);
-                chunker.chunk(&content)?
-            }
-            "json" => {
-                let chunker = JsonChunker::new().with_max_chunk_size(self.chunk_size);
-                chunker.chunk(&content)?
-            }
-            "html" | "htm" => {
-                let chunker = HtmlChunker::new()
-                    .with_chunk_size(self.chunk_size)
-                    .with_overlap(self.overlap);
-                chunker.chunk(&content)?
-            }
-            "rs" => CodeChunker::new(CodeLanguage::Rust)
-                .with_chunk_size(self.chunk_size)
-                .with_overlap(self.overlap)
-                .chunk(&content)?,
-            "py" => CodeChunker::new(CodeLanguage::Python)
-                .with_chunk_size(self.chunk_size)
-                .with_overlap(self.overlap)
-                .chunk(&content)?,
-            "js" => CodeChunker::new(CodeLanguage::JavaScript)
-                .with_chunk_size(self.chunk_size)
-                .with_overlap(self.overlap)
-                .chunk(&content)?,
-            "ts" => CodeChunker::new(CodeLanguage::TypeScript)
-                .with_chunk_size(self.chunk_size)
-                .with_overlap(self.overlap)
-                .chunk(&content)?,
-            "go" => CodeChunker::new(CodeLanguage::Go)
-                .with_chunk_size(self.chunk_size)
-                .with_overlap(self.overlap)
-                .chunk(&content)?,
-            "cpp" | "cc" | "cxx" | "c" | "h" | "hpp" => CodeChunker::new(CodeLanguage::Cpp)
-                .with_chunk_size(self.chunk_size)
-                .with_overlap(self.overlap)
-                .chunk(&content)?,
-            "java" => CodeChunker::new(CodeLanguage::Java)
-                .with_chunk_size(self.chunk_size)
-                .with_overlap(self.overlap)
-                .chunk(&content)?,
-            "sql" => CodeChunker::new(CodeLanguage::Sql)
-                .with_chunk_size(self.chunk_size)
-                .with_overlap(self.overlap)
-                .chunk(&content)?,
-            _ => {
-                let chunker = RecursiveChunker::new()
-                    .with_chunk_size(self.chunk_size)
-                    .with_overlap(self.overlap);
-                chunker.chunk(&content)?
-            }
-        };
+            return Ok(enrich_chunks(chunks));
+        }
 
-        Ok(enrich_chunks(chunks))
+        let chunker = self.chunker_for_extension(&ext);
+
+        Ok(enrich_chunks(chunker.chunk_documents(&documents)?))
+    }
+
+    /// The chunker that suits a file extension.
+    fn chunker_for_extension(&self, ext: &str) -> Box<dyn Chunker> {
+        match ext {
+            "xlsx" | "xlsm" | "xlsb" | "xls" | "ods" | "csv" | "tsv" => Box::new(
+                TableChunker::new()
+                    .with_chunk_size(self.chunk_size)
+                    .with_overlap_rows(1),
+            ),
+            "md" | "markdown" => Box::new(
+                MarkdownChunker::new()
+                    .with_chunk_size(self.chunk_size)
+                    .with_overlap(self.overlap),
+            ),
+            // Caption tracks chunk by time window, not by character count.
+            "srt" | "vtt" | "webvtt" => {
+                Box::new(SubtitleChunker::new().with_max_characters(self.chunk_size))
+            }
+            "json" | "jsonl" | "ndjson" => {
+                Box::new(JsonChunker::new().with_max_chunk_size(self.chunk_size))
+            }
+            // Extracted tables (registered sources) chunk by row like spreadsheets.
+            ext if has_table_source(ext) => Box::new(
+                TableChunker::new()
+                    .with_chunk_size(self.chunk_size)
+                    .with_format(TableFormat::Markdown),
+            ),
+            "html" | "htm" => Box::new(
+                HtmlChunker::new()
+                    .with_chunk_size(self.chunk_size)
+                    .with_overlap(self.overlap),
+            ),
+            "rs" => Box::new(
+                CodeChunker::new(CodeLanguage::Rust)
+                    .with_chunk_size(self.chunk_size)
+                    .with_overlap(self.overlap),
+            ),
+            "py" => Box::new(
+                CodeChunker::new(CodeLanguage::Python)
+                    .with_chunk_size(self.chunk_size)
+                    .with_overlap(self.overlap),
+            ),
+            "js" => Box::new(
+                CodeChunker::new(CodeLanguage::JavaScript)
+                    .with_chunk_size(self.chunk_size)
+                    .with_overlap(self.overlap),
+            ),
+            "ts" => Box::new(
+                CodeChunker::new(CodeLanguage::TypeScript)
+                    .with_chunk_size(self.chunk_size)
+                    .with_overlap(self.overlap),
+            ),
+            "go" => Box::new(
+                CodeChunker::new(CodeLanguage::Go)
+                    .with_chunk_size(self.chunk_size)
+                    .with_overlap(self.overlap),
+            ),
+            "cpp" | "cc" | "cxx" | "c" | "h" | "hpp" => Box::new(
+                CodeChunker::new(CodeLanguage::Cpp)
+                    .with_chunk_size(self.chunk_size)
+                    .with_overlap(self.overlap),
+            ),
+            "java" => Box::new(
+                CodeChunker::new(CodeLanguage::Java)
+                    .with_chunk_size(self.chunk_size)
+                    .with_overlap(self.overlap),
+            ),
+            "sql" => Box::new(
+                CodeChunker::new(CodeLanguage::Sql)
+                    .with_chunk_size(self.chunk_size)
+                    .with_overlap(self.overlap),
+            ),
+            _ => Box::new(
+                RecursiveChunker::new()
+                    .with_chunk_size(self.chunk_size)
+                    .with_overlap(self.overlap),
+            ),
+        }
     }
 
     /// Recursively crawl directory, auto-route files to optimal chunkers, and return all chunks in parallel
@@ -407,6 +429,12 @@ impl Default for DirectoryLoader {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// PDFs stay on [`PDFLoader`] so a configured parser backend is honoured.
+fn is_pdf(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
 }
 
 impl BaseLoader<Result<Vec<Document>, ChunkrError>> for DirectoryLoader {

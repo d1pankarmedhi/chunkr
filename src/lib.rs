@@ -8,6 +8,8 @@
 //!
 //! - **Extreme Performance**: High throughput (up to 1,000+ MB/s) with minimal allocations,
 //!   efficient string slicing, and multi-core Rayon parallelism.
+//! - **Format Coverage**: one `load_documents()` dispatcher for PDF, spreadsheets, office
+//!   documents, EPUB, email, HTML/XML/RTF, notebooks and plain text.
 //! - **20+ Chunking Strategies**: Natural language, token BPE (OpenAI), Hugging Face tokenizers,
 //!   AST code syntax, Markdown, Tables, JSON, HTML, Late Chunking, and more.
 //! - **Post-Processing Pipeline**: Composable filtering, deduplication, bin-packing, and SHA-256 metadata enrichment.
@@ -96,14 +98,37 @@ pub mod prelude {
     };
     pub use crate::chunker::sentence::{ParagraphChunker, SentenceChunker};
     pub use crate::chunker::stream::StreamChunker;
+    pub use crate::chunker::subtitle::{parse_cues, Cue, SubtitleChunker};
     pub use crate::chunker::table::{TableChunker, TableFormat};
     pub use crate::chunker::token::{TokenChunker, TokenEncoding};
     pub use crate::chunker::word::WordChunker;
     pub use crate::error::ChunkrError;
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::loader::archive::{expand_zip, ArchiveLimits};
     pub use crate::loader::base::BaseLoader;
     #[cfg(not(target_arch = "wasm32"))]
     pub use crate::loader::directory::DirectoryLoader;
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::loader::email::EmailLoader;
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::loader::epub::EpubLoader;
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::loader::office::OfficeLoader;
     pub use crate::loader::pdf::PDFLoader;
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::loader::spreadsheet::SpreadsheetLoader;
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::loader::subtitle::SubtitleLoader;
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::loader::table_source::{
+        documents_from_tables, has_table_source, register_table_source, registered_extensions,
+        table_source_for, table_sources, unregister_table_source, TableData, TableSource,
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    pub use crate::loader::{
+        is_structured, load_documents, load_documents_from_bytes, supported_extensions,
+        STRUCTURED_EXTENSIONS,
+    };
     pub use crate::parser::{
         Backend, Granularity, ParserConfig, ParserOutput, PdfParser, SanitizeConfig, TableMode,
     };
