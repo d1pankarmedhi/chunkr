@@ -24,6 +24,23 @@ artifact.
 
 ### Added
 
+- **Worksheet quality: merged regions, titles, multi-level headers, real dates**. Spreadsheet
+  extraction is now structural instead of naive:
+  - Merged regions are filled, so a category spanning rows labels every row it covers and a header
+    merged across columns labels each of them. A value already in the region is never overwritten
+    (xlsx and xls report merges; xlsb and ods do not expose them).
+  - A title row above the header (`Report 2024` in a cell of its own, or merged across the table)
+    becomes `sheet_title` metadata and leaves the header detection alone.
+  - A header merged over several rows becomes a multi-level header — `2024 / Q1` — with
+    `header_rows` recorded, instead of shifting the first data row into the header.
+  - Date and duration cells render as text (`2023-03-15`, `36:00:00`) instead of Excel serial
+    numbers; a cell whose cached value is missing falls back to its formula (`=B3*3`) so workbooks
+    saved without cached values still say something. The formula pass is skipped on dense sheets.
+  - Trailing formatting-only columns are dropped, and `row_count` now counts data rows (the header
+    is reported through `header_rows`/`column_count`).
+  - Number *display* formats (percentages, currency, thousands separators) still come out as stored
+    values: calamine classifies only dates and durations from `styles.xml`, so `0.15` cannot be
+    told apart from `15%` without parsing the style table ourselves.
 - **Magic-byte sniffing for payloads that do not name themselves**: an empty, wrong or unknown
   extension is no longer the end of the road. PDF (`%PDF-`) and RTF (`{\\rtf`) are recognised by
   prefix, and zip containers are attributed by their entries — `word/document.xml` → docx,
