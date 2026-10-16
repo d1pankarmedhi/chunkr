@@ -24,6 +24,18 @@ artifact.
 
 ### Added
 
+- **Magic-byte sniffing for payloads that do not name themselves**: an empty, wrong or unknown
+  extension is no longer the end of the road. PDF (`%PDF-`) and RTF (`{\\rtf`) are recognised by
+  prefix, and zip containers are attributed by their entries — `word/document.xml` → docx,
+  `xl/workbook.xml` → xlsx, `ppt/` slides → pptx, `mimetype`/`META-INF/container.xml` → epub,
+  `content.xml` + `META-INF/manifest.xml` → odt. Dependency-free (no mime database), and never a
+  guess: a known text extension is authoritative, and an unattributable archive still reports
+  `binary payload is not a supported format`.
+- **Malformed JSONL is reported, not silently text-chunked**: `.jsonl`/`.ndjson` lines are validated
+  while loading, so a truncated or corrupt corpus fails with `line <n>` and the source path instead
+  of quietly losing record spans. `.json` keeps its tolerant path (comment-carrying and JSON5-ish
+  documents still load), matching the difference between a machine-generated line format and a
+  hand-edited document.
 - **Table-source registry: optional tabular extractors (`chunkr-tabular`)**. Core has no columnar
   dependency; an extension registers a `TableSource` that extracts rows as plain strings, while
   `documents_from_tables` keeps the mapping in core — Markdown rendering (now shared with the

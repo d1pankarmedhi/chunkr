@@ -124,6 +124,10 @@ Extracted metadata rides along into every chunk (`sheet_name`, `slide_number`, `
 `TableChunker` (headers repeat on every chunk), Markdown to `MarkdownChunker`, code to
 `CodeChunker`, everything else to `RecursiveChunker`.
 
+Payloads that do not name themselves are not guessed at: with an empty or unknown extension chunkr
+identifies PDF and RTF by prefix and zip containers (`docx`, `xlsx`, `pptx`, `odt`, `epub`) by their
+entries, then falls back to text — while a known extension always wins over the content.
+
 Encoding rules are explicit: byte-order marks are always honoured, `.txt`/`.log`/`.csv`/`.tsv`
 also decode legacy single-byte encodings, and formats that are UTF-8 by convention (`md`, `json`,
 `xml`, source code) report undecodable bytes as errors instead of indexing mojibake.

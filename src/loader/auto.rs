@@ -162,6 +162,13 @@ fn extract_documents(
                     source,
                 );
             }
+            // Nothing to go on from the extension: let the payload name itself.
+            // Known text extensions are authoritative and never overridden.
+            if !supported_extensions().iter().any(|known| known == extension) {
+                if let Some(sniffed) = sniff_extension(bytes) {
+                    return extract_documents(bytes, sniffed, source);
+                }
+            }
             let has_bom = encoding_rs::Encoding::for_bom(bytes).is_some();
             if !has_bom && looks_binary(bytes) {
                 return Err(ChunkrError::ParseError(format!(
@@ -179,11 +186,71 @@ fn extract_documents(
             } else {
                 "text"
             };
+            // JSONL is machine-written one-record-per-line data: a broken line is
+            // corruption, so it is reported rather than silently text-chunked.
+            if matches!(extension, "jsonl" | "ndjson") {
+                validate_json_lines(&content)?;
+            }
             vec![document(content, source, family)]
         }
     };
 
     Ok(documents)
+}
+
+/// Identify a payload whose extension is missing or unrecognised.
+///
+/// Deliberately dependency-free: the formats this crate supports are either
+/// magic-prefixed (PDF, RTF) or zip containers whose entries name them
+/// (docx/xlsx/pptx/odt/epub). Anything else stays unknown and falls through to
+/// the text or binary handling — never guessed.
+fn sniff_extension(bytes: &[u8]) -> Option<&'static str> {
+    let prefix = |magic: &[u8]| bytes.starts_with(magic);
+    if prefix(b"%PDF-") {
+        return Some("pdf");
+    }
+    if prefix(b"{\\rtf") {
+        return Some("rtf");
+    }
+    if !prefix(b"PK\x03\x04") && !prefix(b"PK\x05\x06") {
+        return None;
+    }
+
+    let archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).ok()?;
+    let names: Vec<String> = archive.file_names().filter_map(Result::ok).map(String::from).collect();
+    let has = |name: &str| names.iter().any(|entry| entry == name);
+
+    if has("mimetype") || has("META-INF/container.xml") {
+        return Some("epub");
+    }
+    if has("word/document.xml") {
+        return Some("docx");
+    }
+    if has("xl/workbook.xml") {
+        return Some("xlsx");
+    }
+    if has("ppt/presentation.xml") || names.iter().any(|entry| entry.starts_with("ppt/slides/")) {
+        return Some("pptx");
+    }
+    if has("content.xml") && has("META-INF/manifest.xml") {
+        return Some("odt");
+    }
+    // A plain archive: leave it to the caller (archive expansion is opt-in).
+    None
+}
+
+/// Reject a JSONL/NDJSON payload whose lines are not all JSON values.
+fn validate_json_lines(text: &str) -> Result<(), ChunkrError> {
+    for (index, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Err(error) = serde_json::from_str::<Value>(line) {
+            return Err(ChunkrError::ParseError(format!("line {}: {error}", index + 1)));
+        }
+    }
+    Ok(())
 }
 
 /// Decode a payload whose format is UTF-8 by convention.

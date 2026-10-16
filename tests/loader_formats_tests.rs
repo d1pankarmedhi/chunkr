@@ -464,3 +464,77 @@ fn test_directory_loader_mixes_text_binary_and_skips_bad_files_leniently() {
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn test_extensionless_payloads_name_themselves() {
+    // Zip containers are identified by their entries, magic-prefixed files by
+    // their prefix — whatever the file is called, or not called.
+    let docx = docx_fixture();
+    let xlsx = xlsx_fixture();
+    let pptx = pptx_fixture();
+    let epub = epub_fixture();
+    let rtf = br"{\rtf1\ansi hello}";
+
+    for (label, bytes, expected_format) in [
+        ("docx", docx.as_slice(), "docx"),
+        ("xlsx", xlsx.as_slice(), "spreadsheet"),
+        ("epub", epub.as_slice(), "epub"),
+        ("rtf", rtf.as_slice(), "rtf"),
+    ] {
+        for extension in ["", "bin"] {
+            let documents = load_documents_from_bytes(bytes, extension, Some(label))
+                .unwrap_or_else(|error| panic!("{label} as .{extension}: {error}"));
+            assert_eq!(
+                documents[0].metadata["format"], expected_format,
+                "{label} sniffed as .{extension}"
+            );
+        }
+    }
+
+    let documents = load_documents_from_bytes(&pptx, "bin", None).unwrap();
+    assert_eq!(documents.len(), 3, "pptx sniffs to one document per slide");
+    assert_eq!(documents[0].metadata["format"], "pptx");
+}
+
+#[test]
+fn test_text_extensions_are_never_overridden_by_content() {
+    // A known extension is authoritative: percentage-prefixed text stays text.
+    let documents = load_documents_from_bytes(b"%PDF-1.4 not really a pdf", "txt", None).unwrap();
+    assert_eq!(documents[0].content, "%PDF-1.4 not really a pdf");
+    assert_eq!(documents[0].metadata["format"], "text");
+}
+
+#[test]
+fn test_unknown_binary_still_errors_instead_of_guessing() {
+    let bytes = [0x00u8, 0x01, 0x02, 0x03, 0xff, 0xfe];
+    let error = load_documents_from_bytes(&bytes, "bin", Some("blob.bin")).unwrap_err();
+    assert!(error.to_string().contains("binary payload"), "{error}");
+
+    // A zip archive we cannot attribute is not guessed either.
+    let plain_zip = archive(&[("notes.txt", "just a text file")]);
+    let error = load_documents_from_bytes(&plain_zip, "", Some("bundle")).unwrap_err();
+    assert!(error.to_string().contains("binary payload"), "{error}");
+}
+
+#[test]
+fn test_malformed_jsonl_names_the_broken_line() {
+    let payload = "{\"id\":1}\n{\"id\":2}\n{\"id\":\n{\"id\":4}\n";
+    let error = load_documents_from_bytes(payload.as_bytes(), "jsonl", Some("db.jsonl")).unwrap_err();
+    let message = error.to_string();
+    assert!(message.contains("db.jsonl"), "{message}");
+    assert!(message.contains("line 3"), "{message}");
+
+    // Blank lines are fine, and valid JSONL still loads.
+    let documents =
+        load_documents_from_bytes(b"{\"id\":1}\n\n{\"id\":2}\n", "ndjson", None).unwrap();
+    assert_eq!(documents.len(), 1);
+    assert_eq!(documents[0].metadata["format"], "json");
+}
+
+#[test]
+fn test_json_payloads_keep_the_tolerant_path() {
+    // JSON documents may carry comments or other extensions of the syntax; only
+    // JSONL, whose lines are machine-generated, is validated.
+    let documents = load_documents_from_bytes(b"// config\n{\"a\":1}", "json", None).unwrap();
+    assert_eq!(documents[0].metadata["format"], "json");
+}
