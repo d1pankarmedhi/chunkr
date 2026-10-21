@@ -8,11 +8,13 @@ use crate::chunker::html::HtmlChunker;
 use crate::chunker::json::JsonChunker;
 use crate::chunker::markdown::MarkdownChunker;
 use crate::chunker::recursive::RecursiveChunker;
-use crate::chunker::table::TableChunker;
+use crate::chunker::subtitle::SubtitleChunker;
+use crate::chunker::table::{TableChunker, TableFormat};
 use crate::error::ChunkrError;
 use crate::loader::auto::load_documents;
 use crate::loader::base::BaseLoader;
 use crate::loader::pdf::PDFLoader;
+use crate::loader::table_source::has_table_source;
 use crate::structures::document::Document;
 
 /// High-performance multi-threaded directory loader with automatic chunker routing by file extension.
@@ -243,9 +245,12 @@ impl DirectoryLoader {
                 chunk
                     .metadata
                     .insert("file_name".to_string(), Value::from(file_name.clone()));
+                // A document that knows its own extension is the more specific
+                // answer: an archive member is a csv inside a zip.
                 chunk
                     .metadata
-                    .insert("file_extension".to_string(), Value::from(ext.clone()));
+                    .entry("file_extension".to_string())
+                    .or_insert_with(|| Value::from(ext.clone()));
                 chunk
                     .metadata
                     .insert("file_size_bytes".to_string(), Value::from(file_size));
@@ -269,8 +274,34 @@ impl DirectoryLoader {
             return Ok(Vec::new());
         }
 
-        // Spreadsheets arrive as Markdown tables, so they chunk by row like CSV.
-        let chunker: Box<dyn Chunker> = match ext.as_str() {
+        // An archive holds members of several formats, so each one is chunked by
+        // the format its extraction reported rather than by the archive's extension.
+        if documents
+            .iter()
+            .any(|document| document.metadata.contains_key("archive_entry"))
+        {
+            let mut chunks = Vec::new();
+            for document in &documents {
+                let member_ext = document
+                    .metadata
+                    .get("file_extension")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default()
+                    .to_lowercase();
+                let chunker = self.chunker_for_extension(&member_ext);
+                chunks.extend(chunker.chunk_documents(std::slice::from_ref(document))?);
+            }
+            return Ok(enrich_chunks(chunks));
+        }
+
+        let chunker = self.chunker_for_extension(&ext);
+
+        Ok(enrich_chunks(chunker.chunk_documents(&documents)?))
+    }
+
+    /// The chunker that suits a file extension.
+    fn chunker_for_extension(&self, ext: &str) -> Box<dyn Chunker> {
+        match ext {
             "xlsx" | "xlsm" | "xlsb" | "xls" | "ods" | "csv" | "tsv" => Box::new(
                 TableChunker::new()
                     .with_chunk_size(self.chunk_size)
@@ -281,7 +312,19 @@ impl DirectoryLoader {
                     .with_chunk_size(self.chunk_size)
                     .with_overlap(self.overlap),
             ),
-            "json" => Box::new(JsonChunker::new().with_max_chunk_size(self.chunk_size)),
+            // Caption tracks chunk by time window, not by character count.
+            "srt" | "vtt" | "webvtt" => {
+                Box::new(SubtitleChunker::new().with_max_characters(self.chunk_size))
+            }
+            "json" | "jsonl" | "ndjson" => {
+                Box::new(JsonChunker::new().with_max_chunk_size(self.chunk_size))
+            }
+            // Extracted tables (registered sources) chunk by row like spreadsheets.
+            ext if has_table_source(ext) => Box::new(
+                TableChunker::new()
+                    .with_chunk_size(self.chunk_size)
+                    .with_format(TableFormat::Markdown),
+            ),
             "html" | "htm" => Box::new(
                 HtmlChunker::new()
                     .with_chunk_size(self.chunk_size)
@@ -332,9 +375,7 @@ impl DirectoryLoader {
                     .with_chunk_size(self.chunk_size)
                     .with_overlap(self.overlap),
             ),
-        };
-
-        Ok(enrich_chunks(chunker.chunk_documents(&documents)?))
+        }
     }
 
     /// Recursively crawl directory, auto-route files to optimal chunkers, and return all chunks in parallel

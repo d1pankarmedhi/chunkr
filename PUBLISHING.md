@@ -8,6 +8,7 @@ This repo ships **three artifacts from one codebase**:
 | Python wheels `chunkr-rs` | [PyPI](https://pypi.org/project/chunkr-rs/) | `pip install chunkr-rs` | `import chunkr` |
 | Wasm package `chunkr-wasm` | [npm](https://www.npmjs.com/package/chunkr-wasm) | `npm install chunkr-wasm` | `import { RecursiveChunker } from "chunkr-wasm"` |
 | Python package `chunkr-pdf` (the `chunkr-rs[pdf]` extension) | [PyPI](https://pypi.org/project/chunkr-pdf/) | `pip install chunkr-pdf` | `import chunkr_pdf` |
+| Python package `chunkr-tabular` (Parquet/Arrow for the dispatcher) | [PyPI](https://pypi.org/project/chunkr-tabular/) | `pip install chunkr-tabular` | `import chunkr_tabular` |
 
 Two workflows automate everything (see [.github/workflows/](.github/workflows/)):
 

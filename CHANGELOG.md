@@ -24,15 +24,105 @@ artifact.
 
 ### Added
 
+- **Zip archives expand member by member**: `.zip` is now a supported extension and each member is
+  dispatched through the normal extractors by its own extension, so a `.csv` inside an archive is
+  chunked as a table (headers repeated) and a `.md` as Markdown rather than everything being
+  flattened to text. Documents carry `archive_entry` (path inside the archive), `archive_entries`
+  and `archive_skipped` counts, and keep the member's own `file_extension`/`file_name` while
+  `source` shows the full chain (`bundle.zip!data/sales.csv`); `DirectoryLoader` routes members by
+  the format their extraction reported. Members that are not readable documents (images, binaries,
+  macOS resource forks) are skipped and counted instead of failing the archive.
+- **Zip-bomb limits, enforced before an entry is read** (`ArchiveLimits`, defaults: depth 2,
+  1000 entries, 512 MiB uncompressed, 100:1 per-entry ratio above a 1 MiB floor). A breach reports
+  the limit it hit (`archive: entry 'bomb.txt' expands 900x, over the 100x limit`) instead of
+  allocating it; nested archives past the depth limit and corrupt archives error with the offending
+  entry named. `expand_zip` and `ArchiveLimits` are public for callers that want tighter budgets.
+- Extensionless payloads that are zip archives now expand instead of erroring as unknown binaries,
+  since archives are a supported format rather than a guess.
+- **Worksheet quality: merged regions, titles, multi-level headers, real dates**. Spreadsheet
+  extraction is now structural instead of naive:
+  - Merged regions are filled, so a category spanning rows labels every row it covers and a header
+    merged across columns labels each of them. A value already in the region is never overwritten
+    (xlsx and xls report merges; xlsb and ods do not expose them).
+  - A title row above the header (`Report 2024` in a cell of its own, or merged across the table)
+    becomes `sheet_title` metadata and leaves the header detection alone.
+  - A header merged over several rows becomes a multi-level header — `2024 / Q1` — with
+    `header_rows` recorded, instead of shifting the first data row into the header.
+  - Date and duration cells render as text (`2023-03-15`, `36:00:00`) instead of Excel serial
+    numbers; a cell whose cached value is missing falls back to its formula (`=B3*3`) so workbooks
+    saved without cached values still say something. The formula pass is skipped on dense sheets.
+  - Trailing formatting-only columns are dropped, and `row_count` now counts data rows (the header
+    is reported through `header_rows`/`column_count`).
+  - Number *display* formats (percentages, currency, thousands separators) still come out as stored
+    values: calamine classifies only dates and durations from `styles.xml`, so `0.15` cannot be
+    told apart from `15%` without parsing the style table ourselves.
+- **Magic-byte sniffing for payloads that do not name themselves**: an empty, wrong or unknown
+  extension is no longer the end of the road. PDF (`%PDF-`) and RTF (`{\\rtf`) are recognised by
+  prefix, and zip containers are attributed by their entries — `word/document.xml` → docx,
+  `xl/workbook.xml` → xlsx, `ppt/` slides → pptx, `mimetype`/`META-INF/container.xml` → epub,
+  `content.xml` + `META-INF/manifest.xml` → odt. Dependency-free (no mime database), and never a
+  guess: a known text extension is authoritative, and an unattributable archive still reports
+  `binary payload is not a supported format`.
+- **Malformed JSONL is reported, not silently text-chunked**: `.jsonl`/`.ndjson` lines are validated
+  while loading, so a truncated or corrupt corpus fails with `line <n>` and the source path instead
+  of quietly losing record spans. `.json` keeps its tolerant path (comment-carrying and JSON5-ish
+  documents still load), matching the difference between a machine-generated line format and a
+  hand-edited document.
+- **Table-source registry: optional tabular extractors (`chunkr-tabular`)**. Core has no columnar
+  dependency; an extension registers a `TableSource` that extracts rows as plain strings, while
+  `documents_from_tables` keeps the mapping in core — Markdown rendering (now shared with the
+  spreadsheet loader, so output is identical), cell escaping, metadata (`format: "table"`,
+  `table_format`, `table_name`, `table_index`, `total_tables`, `row_offset`, `row_count`,
+  `column_count`) and spans. Registered extensions join `supported_extensions()` / `is_structured()`
+  and `DirectoryLoader` routes them to row-based table chunking. Rust crates implement `TableSource`
+  directly; Python plugins register a callable via `chunkr.register_table_loader(name, extensions,
+  loader)` (plus `unregister_table_loader` / `table_loaders`), discovered from the
+  `chunkr.table_loaders` entry-point group (`CHUNKR_NO_TABLE_PLUGINS=1` opts out). A path is passed
+  when the caller has one, so an extractor can stream instead of buffering the file.
+- **`packages/chunkr-tabular`**: the first extension package — Parquet and Arrow IPC (`parquet`,
+  `feather`, `arrow`, `ipc`) read with pyarrow and handed over batch by batch, with `row_offset`
+  tracking rows across batches. `DirectoryLoader` releases the GIL while a directory loads, so
+  Python-backed extractors can run on worker threads instead of deadlocking.
+- `supported_extensions()` now returns `Vec<String>` (it can include registered extensions) and
+  `ChunkPacker` reconciles `table_index`/`table_name`/`row_offset` spans while summing `row_count`.
+- **JSONL/NDJSON support in `JsonChunker`**: line-delimited JSON — the format embedding corpora
+  usually ship in — is no longer split mid-object by text chunking. Whole records are batched into
+  chunks tagged with `path` (`$[0..250]`), `start_record`/`end_record` (0-based, inclusive, indexing
+  the outermost record sequence), `is_jsonl`, and a record larger than the budget is descended into
+  by field while keeping its record index. Blank lines are skipped (record indices stay dense) and
+  CRLF is normalized. Detection is strict: every non-blank line must be one JSON value, so prose,
+  source code with lone braces and pretty-printed JSON never look line-delimited — a payload that
+  only partly parses falls back to `RecursiveChunker` instead of inventing record spans.
+- Record spans on JSON arrays: batches of top-level array elements now carry `start_record`/
+  `end_record` too, elements descended individually keep their index, and oversize scalars split by
+  `RecursiveChunker` still report the `path` they came from. Root-level paths are rendered as
+  `$[...]` instead of `[...]`, matching the single-document `$` case.
+- `jsonl` and `ndjson` are dispatched by `load_documents`/`supported_extensions()` and routed by
+  `DirectoryLoader` to `JsonChunker`. Documents loaded from `json`, `jsonl` and `ndjson` now carry
+  `format: "json"` instead of `"text"`, so the family is filterable the same way as
+  `subtitle`/`spreadsheet`/`epub`.
+- `ChunkPacker` span reconciliation now also covers `path`, `start_record` and `end_record`, so
+  packed JSON chunks cannot inherit another source's record range. Counted metadata (`cue_count`) is
+  summed over merged sources instead of inherited, and the merged chunk keeps the summed value.
+- **Time-indexed chunking for caption tracks — `SubtitleChunker`**: SRT and WebVTT load one
+  `Document` per cue carrying `start_time_s`/`end_time_s`/`duration_s`/`cue_index`/`total_cues` and,
+  for WebVTT voice tags, `speaker`. `SubtitleChunker` merges consecutive cues into time windows and
+  emits `start_time_s`, `end_time_s`, `duration_s`, `cue_count` and a `speaker` when the window has
+  one, so retrieval can cite the exact moment in the media file. Cues are atomic — a cue is never
+  split, even when it alone exceeds a budget — and `DirectoryLoader` routes `.srt`/`.vtt`/`.webvtt`
+  to it. `Cue`/`parse_cues` are public for callers that want the parse without the windowing.
+- `ChunkPacker`'s span reconciliation now covers `start_time_s`, `end_time_s`, `duration_s` and
+  `speaker`: packing chunks with different spans drops the singular key and records
+  `merged_<key>` instead of letting a merged chunk claim one source's span.
 - **One extraction dispatcher for every supported format**: `load_documents`,
   `load_documents_from_bytes` and `supported_extensions` are exported from the Rust prelude, the
   Python module (`chunkr.load_documents`, `chunkr.load_documents_from_bytes`,
   `chunkr.supported_extensions`) and the CLI. Extracted formats cover PDF (`pdf`),
   spreadsheets (`xlsx`, `xlsm`, `xlsb`, `xls`, `ods`), office documents (`docx`, `docm`, `pptx`,
   `odt`), books and mail (`epub`, `eml`, `mbox`), markup and notebooks (`html`, `xml`, `rtf`,
-  `ipynb`) plus every text format, returning one `Document` per page, worksheet, slide, chapter or
-  message with `sheet_name`, `slide_number`, `chapter_href`, `page_number`, `source` and
-  `format` metadata attached.
+  `ipynb`), captions (`srt`, `vtt`, `webvtt`) plus every text format, returning one `Document` per
+  page, worksheet, slide, chapter, message or cue with `sheet_name`, `slide_number`,
+  `chapter_href`, `page_number`, `start_time_s`, `source` and `format` metadata attached.
 - `DirectoryLoader` (`load_files`, `load_and_chunk`, and their `_lenient` variants) and the CLI now
   extract through that dispatcher instead of `read_to_string`, so structured formats are usable in
   batch ingestion rather than failing with `stream did not contain valid UTF-8`. Spreadsheets route

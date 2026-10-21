@@ -7,7 +7,7 @@
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use pyo3::types::{PyBool, PyDict, PyFloat, PyInt, PyList, PyString};
+use pyo3::types::{PyBool, PyBytes, PyDict, PyFloat, PyInt, PyList, PyString};
 
 use crate::prelude::*;
 
@@ -388,6 +388,46 @@ impl PySentenceChunker {
             chunker = chunker.with_max_characters(max_chars);
         }
         Self { inner: chunker }
+    }
+
+    pub fn chunk(&self, text: &str) -> PyResult<Vec<PyDocument>> {
+        self.inner
+            .chunk(text)
+            .map(wrap_docs)
+            .map_err(|e| PyValueError::new_err(e.to_string()))
+    }
+
+    pub fn chunk_documents(&self, docs: Vec<PyRef<'_, PyDocument>>) -> PyResult<Vec<PyDocument>> {
+        chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_documents(
+        &self,
+        docs: Vec<PyRef<'_, PyDocument>>,
+    ) -> PyResult<Vec<PyDocument>> {
+        par_chunk_docs_helper(&self.inner, docs)
+    }
+
+    pub fn par_chunk_texts(&self, texts: Vec<String>) -> PyResult<Vec<Vec<PyDocument>>> {
+        par_chunk_texts_helper(&self.inner, texts)
+    }
+}
+
+#[pyclass(name = "SubtitleChunker")]
+pub struct PySubtitleChunker {
+    inner: SubtitleChunker,
+}
+
+#[pymethods]
+impl PySubtitleChunker {
+    #[new]
+    #[pyo3(signature = (max_seconds=30.0, max_characters=1000))]
+    pub fn new(max_seconds: f64, max_characters: usize) -> Self {
+        Self {
+            inner: SubtitleChunker::new()
+                .with_max_seconds(max_seconds)
+                .with_max_characters(max_characters),
+        }
     }
 
     pub fn chunk(&self, text: &str) -> PyResult<Vec<PyDocument>> {
@@ -1813,25 +1853,32 @@ impl PyDirectoryLoader {
         Self { inner: loader }
     }
 
+    // Directory loading runs in parallel and may call registered table loaders
+    // (Python callables), so the GIL is released for the duration: otherwise a
+    // worker would wait for a GIL held by the thread waiting for that worker.
     #[pyo3(signature = (path))]
-    pub fn load(&self, path: &str) -> PyResult<Vec<PyDocument>> {
-        self.inner
-            .load_files(path)
+    pub fn load(&self, py: Python<'_>, path: &str) -> PyResult<Vec<PyDocument>> {
+        let documents = py.allow_threads(|| self.inner.load_files(path));
+        documents
             .map(wrap_docs)
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     #[pyo3(signature = (path))]
-    pub fn load_and_chunk(&self, path: &str) -> PyResult<Vec<PyDocument>> {
-        self.inner
-            .load_and_chunk(path)
+    pub fn load_and_chunk(&self, py: Python<'_>, path: &str) -> PyResult<Vec<PyDocument>> {
+        let chunks = py.allow_threads(|| self.inner.load_and_chunk(path));
+        chunks
             .map(wrap_docs)
             .map_err(|e| PyValueError::new_err(e.to_string()))
     }
 
     #[pyo3(signature = (path))]
-    pub fn load_files_lenient(&self, path: &str) -> (Vec<PyDocument>, Vec<(String, String)>) {
-        let (docs, errors) = self.inner.load_files_lenient(path);
+    pub fn load_files_lenient(
+        &self,
+        py: Python<'_>,
+        path: &str,
+    ) -> (Vec<PyDocument>, Vec<(String, String)>) {
+        let (docs, errors) = py.allow_threads(|| self.inner.load_files_lenient(path));
         let docs = wrap_docs(docs);
         let errors = errors
             .into_iter()
@@ -1841,8 +1888,12 @@ impl PyDirectoryLoader {
     }
 
     #[pyo3(signature = (path))]
-    pub fn load_and_chunk_lenient(&self, path: &str) -> (Vec<PyDocument>, Vec<(String, String)>) {
-        let (docs, errors) = self.inner.load_and_chunk_lenient(path);
+    pub fn load_and_chunk_lenient(
+        &self,
+        py: Python<'_>,
+        path: &str,
+    ) -> (Vec<PyDocument>, Vec<(String, String)>) {
+        let (docs, errors) = py.allow_threads(|| self.inner.load_and_chunk_lenient(path));
         let docs = wrap_docs(docs);
         let errors = errors
             .into_iter()
@@ -2202,13 +2253,226 @@ pub fn load_documents_from_bytes(
         .map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
+/// A Python callable bridged into the core table-source registry.
+struct PyTableSource {
+    name: String,
+    extensions: Vec<String>,
+    loader: Py<PyAny>,
+}
+
+impl crate::loader::table_source::TableSource for PyTableSource {
+    fn extensions(&self) -> Vec<String> {
+        self.extensions.clone()
+    }
+
+    fn load(
+        &self,
+        path: Option<&std::path::Path>,
+        bytes: Option<&[u8]>,
+        extension: &str,
+        source: Option<&str>,
+    ) -> Result<Vec<crate::loader::table_source::TableData>, ChunkrError> {
+        Python::with_gil(|py| self.call(py, path, bytes, extension, source)).map_err(|error| {
+            ChunkrError::ParseError(format!("table loader '{}': {error}", self.name))
+        })
+    }
+}
+
+impl PyTableSource {
+    fn call(
+        &self,
+        py: Python<'_>,
+        path: Option<&std::path::Path>,
+        bytes: Option<&[u8]>,
+        extension: &str,
+        source: Option<&str>,
+    ) -> PyResult<Vec<crate::loader::table_source::TableData>> {
+        // A path is preferred so the loader can stream; bytes are the fallback
+        // for `load_documents_from_bytes`.
+        let payload: Bound<'_, PyAny> = match (path, bytes) {
+            (Some(path), _) => PyString::new_bound(py, &path.to_string_lossy()).into_any(),
+            (None, Some(bytes)) => PyBytes::new_bound(py, bytes).into_any(),
+            (None, None) => PyBytes::new_bound(py, &[]).into_any(),
+        };
+        let raw = self.loader.call1(py, (payload, extension, source))?;
+        tables_from_python(raw.bind(py))
+    }
+}
+
+/// Convert the value a Python table loader returned into [`TableData`]s.
+///
+/// The expected shape is an iterable of mappings:
+/// `{"columns": [...], "rows": [[...]], "name": str?, "row_offset": int?}`
+/// where every cell is `str`, `int`, `float`, `bool` or `None`.
+fn tables_from_python(
+    value: &Bound<'_, PyAny>,
+) -> PyResult<Vec<crate::loader::table_source::TableData>> {
+    use crate::loader::table_source::TableData;
+
+    let mut tables = Vec::new();
+    for (table_index, item) in value.iter()?.enumerate() {
+        let item = item?;
+        let mapping = item.downcast::<PyDict>().map_err(|_| {
+            PyValueError::new_err(format!(
+                "table {table_index} must be a dict with 'columns' and 'rows'"
+            ))
+        })?;
+
+        let columns_value = mapping.get_item("columns")?.ok_or_else(|| {
+            PyValueError::new_err(format!("table {table_index} is missing 'columns'"))
+        })?;
+        let columns: Vec<String> = columns_value.extract().map_err(|_| {
+            PyValueError::new_err(format!(
+                "table {table_index} 'columns' must be a list of str"
+            ))
+        })?;
+        if columns.is_empty() {
+            continue;
+        }
+
+        let rows_value = mapping.get_item("rows")?.ok_or_else(|| {
+            PyValueError::new_err(format!("table {table_index} is missing 'rows'"))
+        })?;
+        let mut rows = Vec::new();
+        for (row_index, row_value) in rows_value.iter()?.enumerate() {
+            let row_value = row_value?;
+            let cells = row_value.iter().map_err(|_| {
+                PyValueError::new_err(format!(
+                    "table {table_index} row {row_index} must be a list of cells"
+                ))
+            })?;
+            let mut row = Vec::with_capacity(columns.len());
+            for (column_index, cell) in cells.enumerate() {
+                row.push(cell_text(&cell?, table_index, row_index, column_index)?);
+            }
+            if row.len() != columns.len() {
+                return Err(PyValueError::new_err(format!(
+                    "table {table_index} row {row_index} has {} cells, expected {}",
+                    row.len(),
+                    columns.len()
+                )));
+            }
+            rows.push(row);
+        }
+
+        let name = match mapping.get_item("name")? {
+            Some(name) if !name.is_none() => Some(name.extract::<String>()?),
+            _ => None,
+        };
+        let row_offset = match mapping.get_item("row_offset")? {
+            Some(offset) if !offset.is_none() => Some(offset.extract::<u64>()?),
+            _ => None,
+        };
+
+        tables.push(TableData {
+            name,
+            columns,
+            rows,
+            row_offset,
+        });
+    }
+
+    Ok(tables)
+}
+
+/// One cell as text: the core owns cell formatting so every tabular format
+/// renders identically.
+fn cell_text(
+    value: &Bound<'_, PyAny>,
+    table_index: usize,
+    row_index: usize,
+    column_index: usize,
+) -> PyResult<String> {
+    if value.is_none() {
+        return Ok(String::new());
+    }
+    if let Ok(text) = value.extract::<String>() {
+        return Ok(text);
+    }
+    if let Ok(flag) = value.extract::<bool>() {
+        return Ok(flag.to_string());
+    }
+    if let Ok(integer) = value.extract::<i64>() {
+        return Ok(integer.to_string());
+    }
+    if let Ok(float) = value.extract::<f64>() {
+        return Ok(float.to_string());
+    }
+    Err(PyValueError::new_err(format!(
+        "table {table_index} row {row_index} column {column_index}: cell must be str, int, float, bool or None, got {}",
+        value.get_type().name()?
+    )))
+}
+
+/// Register a table loader under `name`.
+///
+/// The loader is called as `loader(path_or_bytes, extension, source)` and
+/// returns an iterable of `{"columns", "rows", "name"?, "row_offset"?}`
+/// mappings. It replaces any source already claiming the same extensions.
+#[pyfunction]
+#[pyo3(signature = (name, extensions, loader))]
+pub fn register_table_loader(
+    name: &str,
+    extensions: Vec<String>,
+    loader: Py<PyAny>,
+) -> PyResult<()> {
+    let extensions = normalize_extensions(&extensions)?;
+    let callable = Python::with_gil(|py| loader.bind(py).is_callable());
+    if !callable {
+        return Err(PyValueError::new_err("table loader must be callable"));
+    }
+    crate::loader::table_source::register_table_source(
+        name,
+        Box::new(PyTableSource {
+            name: name.to_string(),
+            extensions,
+            loader,
+        }),
+    );
+    Ok(())
+}
+
+/// Remove a registered table loader. Returns True when one was removed.
+#[pyfunction]
+pub fn unregister_table_loader(name: &str) -> bool {
+    crate::loader::table_source::unregister_table_source(name)
+}
+
+/// Names of every registered table loader.
+#[pyfunction]
+pub fn table_loaders() -> Vec<String> {
+    crate::loader::table_source::table_sources()
+}
+
+/// Lower-case, dot-free, unique extensions; rejects empty input.
+fn normalize_extensions(extensions: &[String]) -> PyResult<Vec<String>> {
+    let mut normalized = Vec::new();
+    for extension in extensions {
+        let extension = extension
+            .trim()
+            .trim_start_matches('.')
+            .to_ascii_lowercase();
+        if extension.is_empty() {
+            return Err(PyValueError::new_err(
+                "table loader extensions must be non-empty",
+            ));
+        }
+        if !normalized.contains(&extension) {
+            normalized.push(extension);
+        }
+    }
+    if normalized.is_empty() {
+        return Err(PyValueError::new_err(
+            "table loader needs at least one extension",
+        ));
+    }
+    Ok(normalized)
+}
+
 /// File extensions handled by [`load_documents`], structured formats first.
 #[pyfunction]
 pub fn supported_extensions() -> Vec<String> {
     crate::loader::auto::supported_extensions()
-        .into_iter()
-        .map(str::to_string)
-        .collect()
 }
 
 /// The `chunkr._core` Python native extension module.
@@ -2220,6 +2484,7 @@ pub fn chunkr(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTokenChunker>()?;
     m.add_class::<PyHFTokenChunker>()?;
     m.add_class::<PySentenceChunker>()?;
+    m.add_class::<PySubtitleChunker>()?;
     m.add_class::<PyParagraphChunker>()?;
     m.add_class::<PySemanticChunker>()?;
     m.add_class::<PyPropositionChunker>()?;
@@ -2250,6 +2515,9 @@ pub fn chunkr(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
     m.add_function(wrap_pyfunction!(crate::python::supported_extensions, m)?)?;
+    m.add_function(wrap_pyfunction!(register_table_loader, m)?)?;
+    m.add_function(wrap_pyfunction!(unregister_table_loader, m)?)?;
+    m.add_function(wrap_pyfunction!(table_loaders, m)?)?;
     m.add_function(wrap_pyfunction!(pages_to_documents, m)?)?;
     m.add_function(wrap_pyfunction!(register_pdf_backend, m)?)?;
     m.add_function(wrap_pyfunction!(unregister_pdf_backend, m)?)?;

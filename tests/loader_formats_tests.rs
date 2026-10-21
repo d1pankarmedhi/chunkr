@@ -189,7 +189,12 @@ fn test_xlsx_sheets_become_documents_with_metadata() {
     );
     assert_eq!(
         sheet.metadata.get("row_count").unwrap(),
-        &serde_json::json!(3)
+        &serde_json::json!(2),
+        "row_count counts data rows, the header is separate"
+    );
+    assert_eq!(
+        sheet.metadata.get("column_count").unwrap(),
+        &serde_json::json!(2)
     );
     assert!(sheet.content.contains("| Region | Units |"));
     assert!(sheet.content.contains("| North | 120 |"));
@@ -424,7 +429,7 @@ fn test_supported_extensions_cover_new_formats() {
         "xml", "ipynb",
     ] {
         assert!(
-            extensions.contains(&expected),
+            extensions.iter().any(|e| e == expected),
             "missing extension: {expected}"
         );
     }
@@ -463,4 +468,302 @@ fn test_directory_loader_mixes_text_binary_and_skips_bad_files_leniently() {
         .any(|doc| doc.content.contains("Beta text.")));
 
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn test_extensionless_payloads_name_themselves() {
+    // Zip containers are identified by their entries, magic-prefixed files by
+    // their prefix — whatever the file is called, or not called.
+    let docx = docx_fixture();
+    let xlsx = xlsx_fixture();
+    let pptx = pptx_fixture();
+    let epub = epub_fixture();
+    let rtf = br"{\rtf1\ansi hello}";
+
+    for (label, bytes, expected_format) in [
+        ("docx", docx.as_slice(), "docx"),
+        ("xlsx", xlsx.as_slice(), "spreadsheet"),
+        ("epub", epub.as_slice(), "epub"),
+        ("rtf", rtf.as_slice(), "rtf"),
+    ] {
+        for extension in ["", "bin"] {
+            let documents = load_documents_from_bytes(bytes, extension, Some(label))
+                .unwrap_or_else(|error| panic!("{label} as .{extension}: {error}"));
+            assert_eq!(
+                documents[0].metadata["format"], expected_format,
+                "{label} sniffed as .{extension}"
+            );
+        }
+    }
+
+    let documents = load_documents_from_bytes(&pptx, "bin", None).unwrap();
+    assert_eq!(documents.len(), 3, "pptx sniffs to one document per slide");
+    assert_eq!(documents[0].metadata["format"], "pptx");
+}
+
+#[test]
+fn test_text_extensions_are_never_overridden_by_content() {
+    // A known extension is authoritative: percentage-prefixed text stays text.
+    let documents = load_documents_from_bytes(b"%PDF-1.4 not really a pdf", "txt", None).unwrap();
+    assert_eq!(documents[0].content, "%PDF-1.4 not really a pdf");
+    assert_eq!(documents[0].metadata["format"], "text");
+}
+
+#[test]
+fn test_unknown_binary_still_errors_instead_of_guessing() {
+    let bytes = [0x00u8, 0x01, 0x02, 0x03, 0xff, 0xfe];
+    let error = load_documents_from_bytes(&bytes, "bin", Some("blob.bin")).unwrap_err();
+    assert!(error.to_string().contains("binary payload"), "{error}");
+
+    // A zip archive is a supported format, not a guess: it expands.
+    let plain_zip = archive(&[("notes.txt", "just a text file")]);
+    let documents = load_documents_from_bytes(&plain_zip, "", Some("bundle")).unwrap();
+    assert_eq!(documents[0].content, "just a text file");
+    assert_eq!(documents[0].metadata["archive_entry"], "notes.txt");
+}
+
+#[test]
+fn test_malformed_jsonl_names_the_broken_line() {
+    let payload = "{\"id\":1}\n{\"id\":2}\n{\"id\":\n{\"id\":4}\n";
+    let error =
+        load_documents_from_bytes(payload.as_bytes(), "jsonl", Some("db.jsonl")).unwrap_err();
+    let message = error.to_string();
+    assert!(message.contains("db.jsonl"), "{message}");
+    assert!(message.contains("line 3"), "{message}");
+
+    // Blank lines are fine, and valid JSONL still loads.
+    let documents =
+        load_documents_from_bytes(b"{\"id\":1}\n\n{\"id\":2}\n", "ndjson", None).unwrap();
+    assert_eq!(documents.len(), 1);
+    assert_eq!(documents[0].metadata["format"], "json");
+}
+
+#[test]
+fn test_json_payloads_keep_the_tolerant_path() {
+    // JSON documents may carry comments or other extensions of the syntax; only
+    // JSONL, whose lines are machine-generated, is validated.
+    let documents = load_documents_from_bytes(b"// config\n{\"a\":1}", "json", None).unwrap();
+    assert_eq!(documents[0].metadata["format"], "json");
+}
+
+/// A worksheet with a title row, merged headers, a vertical merge, dates,
+/// a missing cached value and a formula.
+fn rich_xlsx_fixture() -> Vec<u8> {
+    archive(&[
+        (
+            "[Content_Types].xml",
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>
+</Types>"#,
+        ),
+        (
+            "_rels/.rels",
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>"#,
+        ),
+        (
+            "xl/workbook.xml",
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheets><sheet name="Forecast" sheetId="1" r:id="rId1"/></sheets>
+</workbook>"#,
+        ),
+        (
+            "xl/_rels/workbook.xml.rels",
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>
+</Relationships>"#,
+        ),
+        (
+            "xl/sharedStrings.xml",
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="6" uniqueCount="6">
+<si><t>Q1 revenue by region</t></si><si><t>North</t></si><si><t>South</t></si><si><t>Units</t></si><si><t>Revenue</t></si><si><t>Total</t></si></sst>"#,
+        ),
+        (
+            "xl/styles.xml",
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy\-mm\-dd"/></numFmts>
+<cellXfs count="2">
+<xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
+<xf numFmtId="164" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/>
+</cellXfs>
+</styleSheet>"#,
+        ),
+        (
+            "xl/worksheets/sheet1.xml",
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<sheetData>
+<row r="1"><c r="A1" t="s"><v>0</v></c></row>
+<row r="2"><c r="A2" t="s" s="1"><v>1</v></c><c r="B2" t="s"><v>3</v></c><c r="C2" t="s"><v>4</v></c></row>
+<row r="3"><c r="A3" t="s"><v>2</v></c><c r="B3"><v>98</v></c><c r="C3"><f>B3*3</f></c></row>
+<row r="4"><c r="A4" t="s"><v>5</v></c><c r="B4"><v>45000</v></c><c r="C4" s="1"><v>45000</v></c></row>
+</sheetData>
+<mergeCells count="2"><mergeCell ref="A1:C1"/><mergeCell ref="A3:A4"/></mergeCells>
+</worksheet>"#,
+        ),
+    ])
+}
+
+#[test]
+fn test_xlsx_title_row_becomes_metadata_and_leaves_the_header() {
+    let documents =
+        load_documents_from_bytes(&rich_xlsx_fixture(), "xlsx", Some("forecast.xlsx")).unwrap();
+    let sheet = &documents[0];
+
+    assert_eq!(
+        sheet.metadata.get("sheet_title").unwrap(),
+        &serde_json::json!("Q1 revenue by region"),
+        "a merged title above the header is metadata, not the header"
+    );
+    assert!(
+        sheet.content.starts_with("| North | Units | Revenue |"),
+        "the header row still becomes the header: {}",
+        sheet.content
+    );
+    assert_eq!(
+        sheet.metadata.get("row_count").unwrap(),
+        &serde_json::json!(2)
+    );
+}
+
+#[test]
+fn test_merged_rows_carry_their_label_and_formula_cells_are_shown() {
+    let documents = load_documents_from_bytes(&rich_xlsx_fixture(), "xlsx", None).unwrap();
+    let content = &documents[0].content;
+
+    // The A3:A4 merge labels the row it spans, and a value already in the
+    // region is never overwritten.
+    assert!(content.contains("| South | 98 | =B3*3 |"), "{content}");
+    assert!(
+        content.contains("| Total | 45000 | 2023-03-15 |"),
+        "{content}"
+    );
+}
+
+#[test]
+fn test_dates_render_as_text_not_serial_numbers() {
+    let documents = load_documents_from_bytes(&rich_xlsx_fixture(), "xlsx", None).unwrap();
+    let content = &documents[0].content;
+
+    assert!(
+        content.contains("2023-03-15 |"),
+        "a date-formatted cell must not render as 45000: {content}"
+    );
+    assert!(
+        !content.contains("2023-03-15 00:00"),
+        "a date without a time stays a date: {content}"
+    );
+    assert!(
+        content.contains("| Total | 45000 |"),
+        "an unformatted number keeps its serial meaning: {content}"
+    );
+}
+
+#[test]
+fn test_multi_level_headers_join_from_vertical_merges() {
+    let bytes = archive(&[
+        (
+            "[Content_Types].xml",
+            r#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/></Types>"#,
+        ),
+        (
+            "_rels/.rels",
+            r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#,
+        ),
+        (
+            "xl/workbook.xml",
+            r#"<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Two" sheetId="1" r:id="rId1"/></sheets></workbook>"#,
+        ),
+        (
+            "xl/_rels/workbook.xml.rels",
+            r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/></Relationships>"#,
+        ),
+        (
+            "xl/sharedStrings.xml",
+            r#"<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="4" uniqueCount="4"><si><t>Region</t></si><si><t>2024</t></si><si><t>Q1</t></si><si><t>Q2</t></si><si><t>North</t></si></sst>"#,
+        ),
+        (
+            "xl/worksheets/sheet1.xml",
+            r#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>
+<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c></row>
+<row r="2"><c r="B2" t="s"><v>2</v></c><c r="C2" t="s"><v>3</v></c></row>
+<row r="3"><c r="A3" t="s"><v>4</v></c><c r="B3"><v>10</v></c><c r="C3"><v>20</v></c></row>
+</sheetData><mergeCells count="2"><mergeCell ref="A1:A2"/><mergeCell ref="B1:C1"/></mergeCells></worksheet>"#,
+        ),
+    ]);
+
+    let documents = load_documents_from_bytes(&bytes, "xlsx", None).unwrap();
+    let content = &documents[0].content;
+
+    assert!(
+        content.starts_with("| Region | 2024 / Q1 | 2024 / Q2 |"),
+        "merged header levels join per column: {content}"
+    );
+    assert!(content.contains("| North | 10 | 20 |"), "{content}");
+    assert_eq!(
+        documents[0].metadata.get("header_rows").unwrap(),
+        &serde_json::json!(2),
+        "multi-level headers are recorded"
+    );
+    assert!(
+        !documents[0].metadata.contains_key("sheet_title"),
+        "a merged header is not a title"
+    );
+}
+
+#[test]
+fn test_single_column_sheets_keep_their_first_row_as_header() {
+    let bytes = archive(&[
+        (
+            "[Content_Types].xml",
+            r#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/></Types>"#,
+        ),
+        (
+            "_rels/.rels",
+            r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>"#,
+        ),
+        (
+            "xl/workbook.xml",
+            r#"<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Names" sheetId="1" r:id="rId1"/></sheets></workbook>"#,
+        ),
+        (
+            "xl/_rels/workbook.xml.rels",
+            r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/></Relationships>"#,
+        ),
+        (
+            "xl/sharedStrings.xml",
+            r#"<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="3" uniqueCount="3"><si><t>Name</t></si><si><t>Ada</t></si><si><t>Grace</t></si></sst>"#,
+        ),
+        (
+            "xl/worksheets/sheet1.xml",
+            r#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>
+<row r="1"><c r="A1" t="s"><v>0</v></c></row>
+<row r="2"><c r="A2" t="s"><v>1</v></c></row>
+<row r="3"><c r="A3" t="s"><v>2</v></c></row>
+</sheetData></worksheet>"#,
+        ),
+    ]);
+
+    let documents = load_documents_from_bytes(&bytes, "xlsx", None).unwrap();
+    assert!(
+        documents[0].content.starts_with("| Name |"),
+        "a one-column sheet keeps its header: {}",
+        documents[0].content
+    );
+    assert!(
+        !documents[0].metadata.contains_key("sheet_title"),
+        "one distinct value per row is not a title"
+    );
 }

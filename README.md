@@ -82,6 +82,7 @@ clean = (chunkr.ChunkPipeline()
 | Claims, contracts | `PropositionChunker` |
 | Query-time dynamic sizing | `QueryAwareChunker` |
 | Multi-GB files, stdin | `StreamChunker` |
+| Captions, meetings | `SubtitleChunker` (never splits a cue, tags `start_time_s`/`end_time_s`) |
 | Production cleanup and token packing | `ChunkPipeline`, `ChunkPacker` |
 
 Also available: `SentenceChunker`, `ParagraphChunker`, `SemanticChunker`, `ContextualChunker`, `AgenticChunker`, `JsonChunker`, `HtmlChunker`, `CharacterChunker`, `WordChunker`. Full API: [docs](docs/index.html) · [examples](examples/).
@@ -98,9 +99,17 @@ the natural unit of each format:
 | Office | `docx` `docm` `pptx` `odt` | document / slide |
 | Books & mail | `epub` `eml` `mbox` | chapter / message |
 | Markup & notebooks | `html` `xml` `rtf` `ipynb` | document |
-| Text | `txt` `md` `log`, any other extension | document |
+| Captions | `srt` `vtt` `webvtt` | cue |
+| Text | `txt` `md` `log` `json` `jsonl` `ndjson`, any other extension | document |
+| Archives | `zip` | member (dispatched by its own format) |
+| Columnar (`pip install chunkr-tabular`) | `parquet` `feather` `arrow` `ipc` | batch of rows (as a Markdown table) |
 
 ```python
+subs   = chunkr.load_documents("talk.vtt")       # one Document per cue, with time spans
+windows = chunkr.SubtitleChunker(max_seconds=30).chunk_documents(subs)  # start_time_s/end_time_s
+
+records = chunkr.JsonChunker().chunk(open("corpus.jsonl").read())  # whole records, start_record/end_record
+
 docs = chunkr.load_documents("sales.xlsx")            # one Document per sheet
 pages = chunkr.load_documents_from_bytes(data, "docx", source="report.docx")
 chunkr.supported_extensions()                          # every extension the build handles
@@ -116,9 +125,69 @@ Extracted metadata rides along into every chunk (`sheet_name`, `slide_number`, `
 `TableChunker` (headers repeat on every chunk), Markdown to `MarkdownChunker`, code to
 `CodeChunker`, everything else to `RecursiveChunker`.
 
+A zip is expanded rather than treated as one blob: every member is dispatched by its own
+extension — a `.csv` inside it is chunked as a table with headers repeated, a `.md` as Markdown — and
+each document carries `archive_entry` (its path inside the archive) plus `archive_entries` /
+`archive_skipped` counts, so a chunk still cites the exact member it came from. Nested archives
+expand two levels deep by default. `ArchiveLimits` guards the reads before they happen: 1000 entries,
+512 MiB uncompressed, 100:1 per-entry compression ratio above a 1 MiB floor, depth 2 — a breach
+reports which limit was hit instead of quietly eating memory:
+
+```python
+chunkr.load_documents("bundle.zip")                   # members, dispatched by format
+chunkr.expand_zip?  # Rust: expand_zip(bytes, source, &ArchiveLimits::default(), 0)
+```
+
+Members that are not readable documents (images, binaries) are skipped and counted in
+`archive_skipped`; a corrupt archive or a breached limit is an error naming the entry.
+
+Payloads that do not name themselves are not guessed at: with an empty or unknown extension chunkr
+identifies PDF and RTF by prefix and zip containers (`docx`, `xlsx`, `pptx`, `odt`, `epub`) by their
+entries, then falls back to text — while a known extension always wins over the content.
+
 Encoding rules are explicit: byte-order marks are always honoured, `.txt`/`.log`/`.csv`/`.tsv`
 also decode legacy single-byte encodings, and formats that are UTF-8 by convention (`md`, `json`,
 `xml`, source code) report undecodable bytes as errors instead of indexing mojibake.
+
+Caption tracks are the first *time-indexed* format: `SubtitleChunker` merges cues into windows that
+never split a cue, and every window carries `start_time_s`, `end_time_s`, `duration_s`, `cue_count`
+and (for WebVTT voice tags) `speaker`, so retrieval can cite an exact moment:
+
+```python
+for window in chunkr.SubtitleChunker(max_seconds=30).chunk_documents(chunkr.load_documents("talk.vtt")):
+    print(window.metadata["start_time_s"], window.metadata["end_time_s"], window.content[:60])
+```
+
+Line-delimited JSON is the *record* unit: `JsonChunker` batches whole records and tags each chunk
+with `path` (`$[0..250]`), `start_record` and `end_record`, so a chunk cites the exact record range it
+covers. Records are never split — a record larger than the budget is descended into by field instead,
+and the chunk keeps its record index. Malformed lines make the whole file fall back to plain text
+chunking rather than producing plausible-looking record spans.
+
+Columnar files are the *table* unit, added by an extension package rather than by core: install
+[`chunkr-tabular`](packages/chunkr-tabular) and Parquet/Arrow files dispatch like any other format,
+with `row_offset`/`row_count` recording which rows a chunk covers.
+
+```bash
+pip install chunkr-tabular
+```
+
+```python
+import chunkr, chunkr_tabular          # registers the loaders on import
+chunkr.load_documents("events.parquet") # one Document per batch, Markdown table + row spans
+```
+
+Extensions register extractors, not chunkers: chunkr renders their tables, escapes cells, attaches
+metadata and keeps `DirectoryLoader` routing, so an extension's format behaves exactly like a
+built-in one. `chunkr.register_table_loader(name, extensions, loader)` is the same hook in plain
+Python — no compilation needed to add a columnar or custom tabular format:
+
+```python
+def load(source, extension, source_name=None):
+    yield {"columns": ["city", "pop"], "rows": [["Paris", "2.1M"]], "name": "rows_0_0", "row_offset": 0}
+
+chunkr.register_table_loader("mine", ["mytab"], load)
+```
 
 ## PDF parsing and OCR — `chunkr-rs[pdf]`
 
@@ -251,7 +320,8 @@ chunkr leads recall at every k (+0.030 / +0.016 / +0.020 over the next best) and
 
 ## Contributing
 
-Issues and PRs welcome — see [`PUBLISHING.md`](PUBLISHING.md) for the release process and run `cargo test`, `pytest tests`, `pytest packages/chunkr-pdf/tests` before opening one.
+Issues and PRs welcome — see [`PUBLISHING.md`](PUBLISHING.md) for the release process and run `cargo test`, `pytest tests`, `pytest packages/chunkr-pdf/tests` and
+`pytest packages/chunkr-tabular/tests` before opening one.
 
 ## License
 

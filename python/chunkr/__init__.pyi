@@ -89,6 +89,18 @@ class SentenceChunker:
     def par_chunk_documents(self, docs: List[Document]) -> List[Document]: ...
     def par_chunk_texts(self, texts: List[str]) -> List[List[Document]]: ...
 
+class SubtitleChunker:
+    """Chunks SRT/WebVTT tracks into time windows that never split a cue; every chunk carries start_time_s/end_time_s."""
+    def __init__(
+        self,
+        max_seconds: float = 30.0,
+        max_characters: int = 1000,
+    ) -> None: ...
+    def chunk(self, text: str) -> List[Document]: ...
+    def chunk_documents(self, docs: List[Document]) -> List[Document]: ...
+    def par_chunk_documents(self, docs: List[Document]) -> List[Document]: ...
+    def par_chunk_texts(self, texts: List[str]) -> List[List[Document]]: ...
+
 class ParagraphChunker:
     """Splits text across paragraph boundaries."""
     def __init__(
@@ -419,6 +431,32 @@ def load_documents_from_bytes(
     data: bytes, extension: str, source: Optional[str] = None
 ) -> List[Document]: ...
 def supported_extensions() -> List[str]: ...
+
+def register_table_loader(
+    name: str,
+    extensions: List[str],
+    loader: Any,
+) -> None:
+    """Register a tabular extractor for ``extensions`` under ``name``.
+
+    The loader is called as ``loader(path_or_bytes, extension, source)`` and
+    returns an iterable of ``{"columns": [...], "rows": [[...]], "name": str,
+    "row_offset": int}`` mappings (only ``columns`` and ``rows`` are required;
+    cells are ``str``, ``int``, ``float``, ``bool`` or ``None``). Chunkr renders
+    the table as Markdown and attaches the metadata itself, so an extension's
+    tables are indistinguishable from built-in spreadsheets. Loaders run for
+    :func:`load_documents` and ``DirectoryLoader``; ``pip install chunkr-tabular``
+    registers Parquet/Arrow this way.
+    """
+    ...
+
+def unregister_table_loader(name: str) -> bool:
+    """Remove a registered table loader; True when one was removed."""
+    ...
+
+def table_loaders() -> List[str]:
+    """Names of every registered table loader."""
+    ...
 
 class DirectoryLoader:
     """Multi-threaded directory loader with automatic chunker routing by file extension."""
