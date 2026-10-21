@@ -767,3 +767,120 @@ fn test_single_column_sheets_keep_their_first_row_as_header() {
         "one distinct value per row is not a title"
     );
 }
+
+/// Workbook with display formats and a used area that does not start at A1.
+fn formatted_xlsx_fixture() -> Vec<u8> {
+    archive(&[
+        (
+            "[Content_Types].xml",
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>
+</Types>"#,
+        ),
+        (
+            "_rels/.rels",
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>"#,
+        ),
+        (
+            "xl/workbook.xml",
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+<sheets><sheet name="Budget" sheetId="1" r:id="rId1"/></sheets>
+</workbook>"#,
+        ),
+        (
+            "xl/_rels/workbook.xml.rels",
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>
+</Relationships>"#,
+        ),
+        (
+            "xl/sharedStrings.xml",
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="7" uniqueCount="7">
+<si><t>Item</t></si><si><t>Rate</t></si><si><t>Revenue</t></si><si><t>Margin</t></si><si><t>Cost</t></si><si><t>Widget</t></si><si><t>Gadget</t></si></sst>"#,
+        ),
+        (
+            "xl/styles.xml",
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<numFmts count="2"><numFmt numFmtId="164" formatCode="&quot;$&quot;#,##0.00"/><numFmt numFmtId="165" formatCode="0.0%"/></numFmts>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="5">
+<xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
+<xf numFmtId="9" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/>
+<xf numFmtId="165" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/>
+<xf numFmtId="164" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/>
+<xf numFmtId="4" fontId="0" fillId="0" borderId="0" applyNumberFormat="1"/>
+</cellXfs>
+</styleSheet>"#,
+        ),
+        (
+            "xl/worksheets/sheet1.xml",
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+<dimension ref="C3:F5"/>
+<sheetData>
+<row r="3"><c r="C3" t="s"><v>0</v></c><c r="D3" t="s"><v>1</v></c><c r="E3" t="s"><v>2</v></c><c r="F3" t="s"><v>3</v></c></row>
+<row r="4"><c r="C4" t="s"><v>5</v></c><c r="D4" s="2"><v>0.075</v></c><c r="E4" s="3"><v>1234.5</v></c><c r="F4" s="2"><v>0.41</v></c></row>
+<row r="5"><c r="D5" s="1"><v>0.15</v></c><c r="E5" s="4"><v>1234.5</v></c><c r="F5" s="2"><v>0.385</v></c></row>
+</sheetData>
+<mergeCells count="1"><mergeCell ref="C4:C5"/></mergeCells>
+</worksheet>"#,
+        ),
+    ])
+}
+
+#[test]
+fn test_xlsx_numbers_use_their_display_format() {
+    let documents =
+        load_documents_from_bytes(&formatted_xlsx_fixture(), "xlsx", Some("budget.xlsx")).unwrap();
+    let content = &documents[0].content;
+
+    // Builtin `0%` and custom `0.0%` scale by 100.
+    assert!(content.contains("| 15% |"), "{content}");
+    assert!(content.contains("| 7.5% |"), "{content}");
+    assert!(content.contains("| 41.0% |"), "{content}");
+    // Custom currency keeps its quoted symbol; builtin 4 groups thousands.
+    assert!(content.contains("| $1,234.50 |"), "{content}");
+    assert!(content.contains("| 1,234.50 |"), "{content}");
+}
+
+#[test]
+fn test_xlsx_used_area_starting_away_froma1_still_lines_up() {
+    let documents = load_documents_from_bytes(&formatted_xlsx_fixture(), "xlsx", None).unwrap();
+    let sheet = &documents[0];
+
+    assert!(
+        sheet
+            .content
+            .starts_with("| Item | Rate | Revenue | Margin |"),
+        "the header comes from row 3, not from an empty A1: {}",
+        sheet.content
+    );
+    assert!(
+        sheet
+            .content
+            .contains("| Widget | 7.5% | $1,234.50 | 41.0% |"),
+        "{}",
+        sheet.content
+    );
+    // The C4:C5 merge labels the row it spans (C5 is empty in the file).
+    assert!(
+        sheet
+            .content
+            .contains("| Widget | 15% | 1,234.50 | 38.5% |"),
+        "{}",
+        sheet.content
+    );
+}

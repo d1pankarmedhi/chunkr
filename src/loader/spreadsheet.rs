@@ -7,8 +7,8 @@
 //! filled so a category spanning rows labels each of them, a title row above the
 //! header becomes `sheet_title`, vertically merged headers become multi-level
 //! headers (`2024 / Q1`), dates and durations are rendered as text instead of
-//! Excel serial numbers, and a cell whose cached value is missing falls back to
-//! its formula.
+//! Excel serial numbers, percentages and currency use their display format, and
+//! a cell whose cached value is missing falls back to its formula.
 
 use std::io::Cursor;
 use std::path::Path;
@@ -21,6 +21,7 @@ use serde_json::Value;
 
 use crate::error::ChunkrError;
 use crate::loader::base::source_metadata;
+use crate::loader::spreadsheet_format::SheetFormats;
 use crate::loader::table_source::render_markdown_table;
 use crate::loader::text::parse_error;
 use crate::structures::document::Document;
@@ -59,6 +60,8 @@ impl SpreadsheetLoader {
         let sheet_names = workbook.sheet_names();
         let total_sheets = sheet_names.len();
         let mut documents = Vec::with_capacity(total_sheets);
+        // Number formats live in the xlsx parts calamine does not surface.
+        let styled = matches!(workbook, Sheets::Xlsx(_));
 
         for (sheet_index, sheet_name) in sheet_names.iter().enumerate() {
             let range = workbook
@@ -66,8 +69,11 @@ impl SpreadsheetLoader {
                 .map_err(|e| parse_error(format!("spreadsheet sheet '{sheet_name}': {e}")))?;
             let merges = merged_regions(&mut workbook, sheet_name);
             let formulas = formulas_for(&mut workbook, sheet_name, &range);
+            let formats = styled
+                .then(|| SheetFormats::read(bytes, sheet_name))
+                .flatten();
 
-            let table = SheetTable::build(&range, &merges, formulas.as_ref());
+            let table = SheetTable::build(&range, &merges, formulas.as_ref(), formats.as_ref());
             let content = table.to_markdown();
             if content.is_empty() {
                 continue;
@@ -139,9 +145,17 @@ struct SheetTable {
 }
 
 impl SheetTable {
-    fn build(range: &Range<Data>, merges: &[Dimensions], formulas: Option<&Range<String>>) -> Self {
-        let mut grid = value_grid(range, formulas);
-        fill_merged_regions(&mut grid, merges);
+    fn build(
+        range: &Range<Data>,
+        merges: &[Dimensions],
+        formulas: Option<&Range<String>>,
+        formats: Option<&SheetFormats>,
+    ) -> Self {
+        // A range need not start at A1, so grid coordinates are relative to
+        // where the sheet's used area begins while merges and styles are not.
+        let offset = range.start().unwrap_or((0, 0));
+        let mut grid = value_grid(range, formulas, formats);
+        fill_merged_regions(&mut grid, merges, offset);
         let grid = trim_empty_columns(grid);
 
         let mut start = first_content_row(&grid);
@@ -163,7 +177,7 @@ impl SheetTable {
             };
         };
 
-        let header_rows = header_height(&grid, header_row, merges);
+        let header_rows = header_height(&grid, header_row, merges, offset);
         let body_start = (header_row + header_rows).min(grid.len() as u32);
         let header = join_header_rows(&grid, header_row, header_rows);
 
@@ -189,18 +203,32 @@ impl SheetTable {
 }
 
 /// Cell values as text, one row per used row, formulas filling empty cells.
-fn value_grid(range: &Range<Data>, formulas: Option<&Range<String>>) -> Vec<Vec<String>> {
+///
+/// A sheet's used area need not start at A1, and the formula range has an offset
+/// of its own, so every lookup goes through absolute positions.
+fn value_grid(
+    range: &Range<Data>,
+    formulas: Option<&Range<String>>,
+    formats: Option<&SheetFormats>,
+) -> Vec<Vec<String>> {
     let (height, width) = range.get_size();
+    let offset = range.start().unwrap_or((0, 0));
     let mut grid = Vec::with_capacity(height);
 
     for row in 0..height as u32 {
         let mut cells = Vec::with_capacity(width);
         for column in 0..width as u32 {
-            let cell = range.get_value((row, column)).unwrap_or(&Data::Empty);
+            let position = (offset.0 + row, offset.1 + column);
+            let cell = range.get_value(position).unwrap_or(&Data::Empty);
             let formula = formulas
-                .and_then(|formulas| formulas.get_value((row, column)))
+                .and_then(|formulas| formulas.get_value(position))
                 .map(String::as_str);
-            cells.push(cell_text(cell, formula));
+            cells.push(match cell {
+                Data::Float(value) => formats
+                    .and_then(|formats| formats.render(position.0, position.1, *value))
+                    .unwrap_or_else(|| cell_text(cell, formula)),
+                _ => cell_text(cell, formula),
+            });
         }
         grid.push(cells);
     }
@@ -209,10 +237,14 @@ fn value_grid(range: &Range<Data>, formulas: Option<&Range<String>>) -> Vec<Vec<
 }
 
 /// Copy the value of a merged region into every cell it covers.
-fn fill_merged_regions(grid: &mut [Vec<String>], merges: &[Dimensions]) {
+fn fill_merged_regions(grid: &mut [Vec<String>], merges: &[Dimensions], offset: (u32, u32)) {
     for region in merges {
-        let (start_row, start_column) = region.start;
-        let (end_row, end_column) = region.end;
+        let Some((start_row, start_column)) = relative(region.start, offset) else {
+            continue;
+        };
+        let Some((end_row, end_column)) = relative(region.end, offset) else {
+            continue;
+        };
         let Some(value) = grid
             .get(start_row as usize)
             .and_then(|row| row.get(start_column as usize))
@@ -233,6 +265,14 @@ fn fill_merged_regions(grid: &mut [Vec<String>], merges: &[Dimensions]) {
             }
         }
     }
+}
+
+/// Absolute cell position to grid position, when the cell is inside the range.
+fn relative(position: (u32, u32), offset: (u32, u32)) -> Option<(u32, u32)> {
+    Some((
+        position.0.checked_sub(offset.0)?,
+        position.1.checked_sub(offset.1)?,
+    ))
 }
 
 /// Drop trailing columns with no content anywhere, which are usually formatting.
@@ -296,10 +336,15 @@ fn single_value(row: &[String]) -> Option<String> {
 
 /// How many rows the header occupies: one, plus any rows a merge started in the
 /// header spans into.
-fn header_height(grid: &[Vec<String>], header_row: u32, merges: &[Dimensions]) -> u32 {
+fn header_height(
+    grid: &[Vec<String>],
+    header_row: u32,
+    merges: &[Dimensions],
+    offset: (u32, u32),
+) -> u32 {
     let spanned = merges
         .iter()
-        .filter(|region| region.start.0 == header_row)
+        .filter(|region| relative(region.start, offset).map(|(row, _)| row) == Some(header_row))
         .map(|region| region.end.0 - region.start.0 + 1)
         .max()
         .unwrap_or(1)

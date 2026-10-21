@@ -247,6 +247,16 @@ chunkr docs/ --strategy dir --out-file chunks.jsonl
 chunkr report.pdf --format text             # PDFs, spreadsheets, office docs and EPUBs
 ```
 
+Every chunk keeps the unit it came from, and text output names it:
+
+```
+=== report.xlsx · sheet Budget 1/2 ===
+--- [CHUNK 0] ---
+| Item | Rate | Revenue |
+| --- | --- | --- |
+| Widget | 15% | $1,234.50 |
+```
+
 ## Benchmarks
 
 Every number is reproducible with [`benchmarks/`](benchmarks/README.md) (raw samples in `benchmarks/results/`). Apple M4 (10 threads), Python 3.12, byte-identical corpora, matched chunk sizes, chunker construction excluded from timing; chunking figures are medians of 15 runs, PDF figures medians of 5 runs.

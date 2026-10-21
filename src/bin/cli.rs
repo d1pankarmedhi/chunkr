@@ -106,93 +106,43 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(path) => streamer.chunk_file(path)?.collect::<Result<Vec<_>, _>>()?,
         }
     } else {
-        // Read text from file or STDIN. Structured formats (xlsx, docx, epub,
-        // eml, …) are extracted through the shared format dispatcher.
-        let raw_text = match cli.input.as_deref() {
+        match cli.input.as_deref() {
+            // STDIN is one unnamed unit of text.
             Some("-") | None => {
                 let mut buffer = String::new();
                 io::stdin().read_to_string(&mut buffer)?;
-                buffer
-            }
-            Some(path) => {
-                if path.to_lowercase().ends_with(".pdf") {
-                    let loader = PDFLoader::new();
-                    loader.load_from_file(path)?
-                } else {
-                    load_documents(path)?
-                        .into_iter()
-                        .map(|document| document.content)
-                        .collect::<Vec<_>>()
-                        .join("\n\n")
+                if buffer.trim().is_empty() {
+                    eprintln!("Warning: Empty input provided.");
+                    return Ok(());
                 }
+                chunk_text(&cli, &buffer)?
             }
-        };
-
-        if raw_text.trim().is_empty() {
-            eprintln!("Warning: Empty input provided.");
-            return Ok(());
-        }
-
-        // Apply strategy
-        match cli.strategy {
-            Strategy::Recursive => {
-                let chunker = RecursiveChunker::new()
-                    .with_chunk_size(cli.chunk_size)
-                    .with_overlap(cli.overlap);
-                chunker.chunk(&raw_text)?
+            // A file is chunked per extracted unit (page, sheet, slide, chapter,
+            // email, archive member, …), so every chunk keeps that unit's
+            // metadata instead of the units collapsing into one text blob.
+            Some(path) => {
+                let documents = load_documents(path)?;
+                if documents
+                    .iter()
+                    .all(|document| document.content.trim().is_empty())
+                {
+                    eprintln!("Warning: Empty input provided.");
+                    return Ok(());
+                }
+                let mut chunks = Vec::new();
+                for document in documents {
+                    for mut chunk in chunk_text(&cli, &document.content)? {
+                        for (key, value) in &document.metadata {
+                            chunk
+                                .metadata
+                                .entry(key.clone())
+                                .or_insert_with(|| value.clone());
+                        }
+                        chunks.push(chunk);
+                    }
+                }
+                chunks
             }
-            Strategy::Token => {
-                let chunker = TokenChunker::with_encoding(
-                    cli.chunk_size,
-                    cli.overlap,
-                    TokenEncoding::Cl100kBase,
-                )?;
-                chunker.chunk(&raw_text)?
-            }
-            Strategy::Sentence => {
-                // SentenceChunker defaults to sentences_per_chunk=3 and rejects
-                // overlap >= count, so clamp strictly below 3 (was .min(3),
-                // which made even default flags fail with InvalidOverlap).
-                let chunker = SentenceChunker::new()
-                    .with_max_characters(cli.chunk_size)
-                    .with_sentence_overlap(cli.overlap.min(2));
-                chunker.chunk(&raw_text)?
-            }
-            Strategy::Paragraph => {
-                let ppc = (cli.chunk_size / 200).max(1);
-                // Overlap must stay strictly below the paragraph count.
-                let chunker = ParagraphChunker::new()
-                    .with_paragraphs_per_chunk(ppc)
-                    .with_paragraph_overlap(cli.overlap.min(ppc.saturating_sub(1)));
-                chunker.chunk(&raw_text)?
-            }
-            Strategy::Markdown => {
-                let chunker = MarkdownChunker::new()
-                    .with_chunk_size(cli.chunk_size)
-                    .with_overlap(cli.overlap);
-                chunker.chunk(&raw_text)?
-            }
-            Strategy::Table => {
-                let chunker = TableChunker::new()
-                    .with_chunk_size(cli.chunk_size)
-                    .with_overlap_rows(cli.overlap.min(5));
-                chunker.chunk(&raw_text)?
-            }
-            Strategy::Json => {
-                let chunker = JsonChunker::new().with_max_chunk_size(cli.chunk_size);
-                chunker.chunk(&raw_text)?
-            }
-            Strategy::Html => {
-                let chunker = HtmlChunker::new()
-                    .with_chunk_size(cli.chunk_size)
-                    .with_overlap(cli.overlap);
-                chunker.chunk(&raw_text)?
-            }
-            Strategy::Late => {
-                let chunker = LateChunker::new();
-                chunker.chunk(&raw_text)?
-            }
-            Strategy::Stream | Strategy::Dir => unreachable!(),
         }
     };
 
@@ -234,7 +184,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         OutputFormat::Json => serde_json::to_string_pretty(&chunks)?,
         OutputFormat::Text => {
             let mut out = String::new();
+            // The unit a chunk came from (page, sheet, cue span, archive member)
+            // is printed whenever it changes, so text output keeps the provenance
+            // the JSON metadata already carries.
+            let mut current_unit: Option<String> = None;
             for (i, chunk) in chunks.into_iter().enumerate() {
+                let unit = unit_label(&chunk.metadata);
+                if unit.is_some() && unit != current_unit {
+                    if let Some(label) = &unit {
+                        out.push_str(&format!("=== {label} ===\n"));
+                    }
+                }
+                current_unit = unit;
                 out.push_str(&format!("--- [CHUNK {}] ---\n{}\n\n", i, chunk.content));
             }
             out
@@ -251,4 +212,130 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+/// Chunk one unit of text with the selected strategy.
+fn chunk_text(cli: &Cli, text: &str) -> Result<Vec<Document>, Box<dyn std::error::Error>> {
+    let chunks = match cli.strategy {
+        Strategy::Recursive => {
+            let chunker = RecursiveChunker::new()
+                .with_chunk_size(cli.chunk_size)
+                .with_overlap(cli.overlap);
+            chunker.chunk(text)?
+        }
+        Strategy::Token => {
+            let chunker = TokenChunker::with_encoding(
+                cli.chunk_size,
+                cli.overlap,
+                TokenEncoding::Cl100kBase,
+            )?;
+            chunker.chunk(text)?
+        }
+        Strategy::Sentence => {
+            // SentenceChunker defaults to sentences_per_chunk=3 and rejects
+            // overlap >= count, so clamp strictly below 3 (was .min(3),
+            // which made even default flags fail with InvalidOverlap).
+            let chunker = SentenceChunker::new()
+                .with_max_characters(cli.chunk_size)
+                .with_sentence_overlap(cli.overlap.min(2));
+            chunker.chunk(text)?
+        }
+        Strategy::Paragraph => {
+            let ppc = (cli.chunk_size / 200).max(1);
+            // Overlap must stay strictly below the paragraph count.
+            let chunker = ParagraphChunker::new()
+                .with_paragraphs_per_chunk(ppc)
+                .with_paragraph_overlap(cli.overlap.min(ppc.saturating_sub(1)));
+            chunker.chunk(text)?
+        }
+        Strategy::Markdown => {
+            let chunker = MarkdownChunker::new()
+                .with_chunk_size(cli.chunk_size)
+                .with_overlap(cli.overlap);
+            chunker.chunk(text)?
+        }
+        Strategy::Table => {
+            let chunker = TableChunker::new()
+                .with_chunk_size(cli.chunk_size)
+                .with_overlap_rows(cli.overlap.min(5));
+            chunker.chunk(text)?
+        }
+        Strategy::Json => {
+            let chunker = JsonChunker::new().with_max_chunk_size(cli.chunk_size);
+            chunker.chunk(text)?
+        }
+        Strategy::Html => {
+            let chunker = HtmlChunker::new()
+                .with_chunk_size(cli.chunk_size)
+                .with_overlap(cli.overlap);
+            chunker.chunk(text)?
+        }
+        Strategy::Late => {
+            let chunker = LateChunker::new();
+            chunker.chunk(text)?
+        }
+        Strategy::Stream | Strategy::Dir => unreachable!(),
+    };
+    Ok(chunks)
+}
+
+/// Short label for the unit a chunk came from, from its flat metadata.
+///
+/// Named `<file> · <unit>`; an archive member's `source` already carries the
+/// chain (`bundle.zip!data.csv`), so it is the label on its own.
+fn unit_label(metadata: &std::collections::HashMap<String, serde_json::Value>) -> Option<String> {
+    let text = |key: &str| metadata.get(key).and_then(|value| value.as_str());
+    let number = |key: &str| metadata.get(key).and_then(|value| value.as_i64());
+
+    let name = text("file_name")
+        .or_else(|| text("source"))
+        .or_else(|| text("file_path"));
+
+    let unit = if metadata.contains_key("archive_entry") {
+        // `source` is the full chain: archive plus member, which is more
+        // specific than the container's file name.
+        return text("source").or(name).map(str::to_string);
+    } else if let Some(sheet) = text("sheet_name") {
+        Some(match (number("sheet_index"), number("total_sheets")) {
+            // Stored 0-based; the label is for humans.
+            (Some(index), Some(total)) => format!("sheet {} {}/{}", sheet, index + 1, total),
+            (Some(index), None) => format!("sheet {} {}", sheet, index + 1),
+            _ => format!("sheet {sheet}"),
+        })
+    } else if let Some(page) = number("page_number") {
+        Some(match number("total_pages") {
+            Some(total) => format!("page {page}/{total}"),
+            None => format!("page {page}"),
+        })
+    } else if let Some(slide) = number("slide_number") {
+        Some(match number("total_slides") {
+            Some(total) => format!("slide {slide}/{total}"),
+            None => format!("slide {slide}"),
+        })
+    } else if let Some(chapter) = text("chapter_title").or_else(|| text("chapter_href")) {
+        Some(chapter.to_string())
+    } else if let Some(start) = metadata
+        .get("start_time_s")
+        .and_then(|value| value.as_f64())
+    {
+        Some(
+            match metadata.get("end_time_s").and_then(|value| value.as_f64()) {
+                Some(end) => format!("{start:.1}s-{end:.1}s"),
+                None => format!("{start:.1}s"),
+            },
+        )
+    } else {
+        number("start_record").map(|start| {
+            number("end_record").map_or_else(
+                || format!("record {start}"),
+                |end| format!("records {start}-{end}"),
+            )
+        })
+    };
+
+    match (name, unit) {
+        (Some(name), Some(unit)) => Some(format!("{name} · {unit}")),
+        (Some(name), None) => Some(name.to_string()),
+        (None, unit) => unit,
+    }
 }
