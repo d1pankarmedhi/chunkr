@@ -48,14 +48,39 @@ pub fn supported_extensions() -> Vec<String> {
         .iter()
         .map(|e| e.to_string()),
     );
+    extensions.extend(
+        audio_extensions()
+            .iter()
+            .map(|extension| extension.to_string()),
+    );
     extensions.extend(registered_extensions());
     extensions
+}
+
+/// Extensions this build can decode as audio (empty without the `audio` feature).
+pub fn audio_extensions() -> &'static [&'static str] {
+    #[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
+    {
+        crate::audio::AUDIO_EXTENSIONS
+    }
+    #[cfg(not(all(feature = "audio", not(target_arch = "wasm32"))))]
+    {
+        &[]
+    }
+}
+
+/// True when the extension is an audio container this build decodes.
+pub fn is_audio(extension: &str) -> bool {
+    let extension = normalize(extension);
+    audio_extensions().contains(&extension.as_str())
 }
 
 /// True when the extension has a dedicated extractor.
 pub fn is_structured(extension: &str) -> bool {
     let extension = normalize(extension);
-    STRUCTURED_EXTENSIONS.contains(&extension.as_str()) || has_table_source(&extension)
+    STRUCTURED_EXTENSIONS.contains(&extension.as_str())
+        || has_table_source(&extension)
+        || is_audio(&extension)
 }
 
 /// Lower-case extension of a path or archive member name, without the dot.
@@ -155,6 +180,13 @@ fn extract_documents(
     source: Option<&str>,
     depth: usize,
 ) -> Result<Vec<Document>, ChunkrError> {
+    // Audio decodes and transcribes rather than extracting text; the arm lives
+    // behind the feature that provides the decoder.
+    #[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
+    if is_audio(extension) {
+        return crate::audio::load_documents(bytes, extension, source, None);
+    }
+
     let documents = match extension {
         "zip" => {
             return crate::loader::archive::expand_zip(

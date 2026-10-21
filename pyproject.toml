@@ -74,9 +74,14 @@ pdf = ["chunkr-pdf>=0.1"]
 # Convenience aliases: the same extensions, plus one OCR engine, in one command.
 pdf-rapid = ["chunkr-pdf[ocr-rapid]>=0.1"]
 pdf-paddle = ["chunkr-pdf[ocr-paddle]>=0.1"]
+# Speech-to-text for audio files (Whisper). The decoder is in the wheel; this
+# extra adds the transcriber that turns it into text.
+audio = ["chunkr-audio>=0.1"]
 
 [tool.maturin]
-features = ["pyo3/extension-module", "python"]
+# `audio` ships in the wheel: the Rust side decodes and timestamps, the
+# transcriber itself is a plugin (`chunkr-audio`) or a user callback.
+features = ["pyo3/extension-module", "python", "audio"]
 module-name = "chunkr._core"
 python-source = "python"
 include = ["python/chunkr/py.typed", "python/chunkr/__init__.pyi"]

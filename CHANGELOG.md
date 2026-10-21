@@ -24,6 +24,30 @@ artifact.
 
 ### Added
 
+- **Audio: timestamped transcripts behind the `audio` feature** (`chunkr-rs[audio]`). Audio files
+  (`wav`, `mp3`, `flac`, `ogg`, `oga`, `m4a`, `m4b`, `aac`) now load through the format dispatcher:
+  the container is decoded in pure Rust (symphonia — no system codecs, no C dependency), the speech
+  is measured, and a registered `Transcriber` turns it into segments. Each segment becomes a
+  `Document` with `start_time_s`/`end_time_s`/`speaker` plus `format="audio"`, `audio_format`,
+  `audio_duration_s`, `sample_rate`, `channels`, `speech_s`, `speech_ratio`, `transcriber`,
+  `segment_index` and `total_segments`, so `SubtitleChunker` merges them into time windows that can
+  be cited back to a timestamp and `DirectoryLoader` routes audio by time rather than by character
+  count. `.opus`/`.webm` are deliberately unsupported: symphonia has no Opus decoder.
+- **Transcriber registry** (`register_transcriber` / `unregister_transcriber` /
+  `registered_transcribers`, and the same three from Python): models are plugged in like PDF parsers
+  and table extractors, so the core keeps no ASR dependency. The most recent registration wins, and
+  `CHUNKR_TRANSCRIBER` picks between several by name.
+- **`packages/chunkr-audio`**: faster-whisper backend, discovered through the
+  `chunkr.transcribers` entry point. The model is built on first transcription, never at import, and
+  `chunkr.register_transcriber` accepts any callable returning
+  `{"start", "end", "text", "speaker"?}` — a hosted API or in-house model works the same way.
+- **Energy VAD** (`speech_spans`, `VadConfig`): an adaptive noise floor plus absolute floor,
+  hangover merging and short-blip rejection, with no model artifact to ship. It reports speech
+  timing, makes a silent file fail *before* a model is called, and fills `speech_ratio`. A recording
+  with no quiet frame anywhere is treated as speech rather than silence, so the transcriber decides.
+
+### Added
+
 - **Zip archives expand member by member**: `.zip` is now a supported extension and each member is
   dispatched through the normal extractors by its own extension, so a `.csv` inside an archive is
   chunked as a table (headers repeated) and a `.md` as Markdown rather than everything being

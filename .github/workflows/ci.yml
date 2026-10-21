@@ -226,3 +226,32 @@ jobs:
           uv pip install --no-deps -e packages/chunkr-tabular
       - name: Extension tests (parquet, Arrow IPC, record spans, routing)
         run: uv run --no-project pytest packages/chunkr-tabular/tests -q
+
+  # ── 7. Audio extension: transcripters for `packages/chunkr-audio` ────────
+  test-audio-extension:
+    name: Audio extension (chunkr-audio)
+    needs: [lint]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - name: Build base wheel + install the extension
+        run: |
+          uv venv
+          # faster-whisper is not installed: the tests cover registration, the
+          # lazy model load and the segment contract, not a model download.
+          uv pip install maturin pytest
+          uv run --no-project maturin develop --features python,audio
+          uv pip install --no-deps -e packages/chunkr-audio
+      - name: Extension tests (entry point, lazy import, timestamped segments)
+        run: uv run --no-project pytest packages/chunkr-audio/tests -q

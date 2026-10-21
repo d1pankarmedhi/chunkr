@@ -139,16 +139,28 @@ const INHERITED_KEYS: &[&str] = &[
     "format",
     "subtitle_format",
     "total_cues",
+    "audio_format",
+    "transcriber",
+    "audio_duration_s",
+    "sample_rate",
+    "channels",
+    "speech_s",
+    "speech_ratio",
+    "total_segments",
 ];
 
-/// True when a document is one cue carrying its own span.
+/// True when a document is one cue (or one transcript segment) carrying its span.
 fn is_cue_document(document: &Document) -> bool {
-    document.metadata.get("format").and_then(Value::as_str) == Some("subtitle")
-        && document
-            .metadata
-            .get("start_time_s")
-            .and_then(Value::as_f64)
-            .is_some()
+    matches!(
+        document.metadata.get("format").and_then(Value::as_str),
+        // An audio loader emits one document per transcript segment, which is a
+        // cue in everything but name: same span keys, same merging rules.
+        Some("subtitle") | Some("audio")
+    ) && document
+        .metadata
+        .get("start_time_s")
+        .and_then(Value::as_f64)
+        .is_some()
         && document
             .metadata
             .get("end_time_s")

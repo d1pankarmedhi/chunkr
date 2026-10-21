@@ -24,9 +24,11 @@ Python wheels cover Linux, Windows and macOS (Intel + Apple Silicon), Python 3.8
 ```bash
 pip install chunkr-rs              # text & document chunking
 pip install "chunkr-rs[pdf]"       # + layout-aware PDF parsing (headings, tables, OCR)
+pip install "chunkr-rs[audio]" chunkr-audio   # + Whisper transcripts of audio files
 
 cargo add chunkr                   # Rust crate
 cargo add chunkr --features pdf    # + liteparse PDF backend (features: pdf, pdf-ocr, pdf-ocr-ppocr)
+cargo add chunkr --features audio  # + pure-Rust audio decoding and speech timing
 
 npm install chunkr-wasm            # browsers, Cloudflare Workers, Node
 ```
@@ -103,6 +105,7 @@ the natural unit of each format:
 | Text | `txt` `md` `log` `json` `jsonl` `ndjson`, any other extension | document |
 | Archives | `zip` | member (dispatched by its own format) |
 | Columnar (`pip install chunkr-tabular`) | `parquet` `feather` `arrow` `ipc` | batch of rows (as a Markdown table) |
+| Audio (`--features audio`, `pip install chunkr-audio`) | `wav` `mp3` `flac` `ogg` `oga` `m4a` `m4b` `aac` | transcript segment (with `start_time_s`/`end_time_s`) |
 
 ```python
 subs   = chunkr.load_documents("talk.vtt")       # one Document per cue, with time spans
@@ -124,6 +127,20 @@ Extracted metadata rides along into every chunk (`sheet_name`, `slide_number`, `
 `DirectoryLoader` routes each file to the chunker its format deserves: spreadsheets and CSV to
 `TableChunker` (headers repeat on every chunk), Markdown to `MarkdownChunker`, code to
 `CodeChunker`, everything else to `RecursiveChunker`.
+
+Audio is decoded in pure Rust and transcribed through a registered transcriber, so a recording chunks
+into the time windows a person actually spoke — and every chunk cites its timestamp:
+
+```python
+docs = chunkr.load_documents("episode.mp3")     # one Document per transcript segment
+chunks = chunkr.SubtitleChunker(max_seconds=60).chunk_documents(docs)  # start_time_s/end_time_s
+```
+
+`chunkr-audio` registers Whisper on install; anything that returns
+`{"start", "end", "text", "speaker"?}` can be registered with
+`chunkr.register_transcriber(name, fn)` — no Rust changes. Without a transcriber, audio fails with
+instructions instead of guessing, and a file with no detectable speech fails before a model is
+called. `CHUNKR_TRANSCRIBER=<name>` picks between several registered backends.
 
 A zip is expanded rather than treated as one blob: every member is dispatched by its own
 extension — a `.csv` inside it is chunked as a table with headers repeated, a `.md` as Markdown — and
