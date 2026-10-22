@@ -29,6 +29,8 @@ pub use archive::{expand_zip, ArchiveLimits};
 #[cfg(not(target_arch = "wasm32"))]
 pub mod auto;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod delimited;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod directory;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod email;
@@ -56,6 +58,8 @@ pub use auto::{
     is_structured, load_documents, load_documents_from_bytes, supported_extensions,
     STRUCTURED_EXTENSIONS,
 };
+#[cfg(not(target_arch = "wasm32"))]
+pub use delimited::parse_records;
 #[cfg(not(target_arch = "wasm32"))]
 pub use directory::DirectoryLoader;
 #[cfg(not(target_arch = "wasm32"))]
