@@ -32,6 +32,10 @@ impl Transcriber for FakeTranscriber {
     }
 }
 
+/// Tests that touch `CHUNKR_*` variables share the process environment, so they
+/// take this lock instead of racing each other.
+static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn tone(samples: &mut Vec<f32>, seconds: f64, rate: u32) {
     for index in 0..(seconds * rate as f64) as usize {
         let phase = 2.0 * std::f32::consts::PI * 220.0 * index as f32 / rate as f32;
@@ -273,14 +277,22 @@ fn a_transcriber_that_finds_nothing_is_an_error() {
 
 #[test]
 fn unknown_or_corrupt_audio_names_the_source() {
-    let error = load_documents_with(b"not audio at all", "mp3", Some("broken.mp3"), None, None)
+    // `decode` is the pure path — no environment, no ffmpeg bridge — so this
+    // asserts the built-in error rather than whatever a parallel test left behind.
+    let error = chunkr::audio::decode(b"not audio at all", "mp3").expect_err("garbage");
+    assert!(error.contains("audio"), "{error}");
+
+    // Naming the source happens for a valid but silent file, which fails before a
+    // transcriber is ever chosen.
+    let silent = encode_wav(&vec![0.0; 16_000], 16_000);
+    let error = load_documents_with(&silent, "wav", Some("episode.wav"), None, None)
         .unwrap_err()
         .to_string();
-    assert!(
-        error.contains("broken.mp3") && error.contains("audio"),
-        "{error}"
-    );
+    assert!(error.contains("episode.wav"), "{error}");
+    assert!(error.contains("no speech"), "{error}");
 
+    // Something must be registered for the "unknown name" branch to be reached.
+    fake("fake-for-unknown-name");
     let error = load_documents_with(
         &wav_fixture(),
         "wav",
@@ -310,4 +322,303 @@ fn registering_replaces_and_unregistering_removes() {
     assert!(unregister_transcriber("fake-test-lifecycle"));
     assert!(!unregister_transcriber("fake-test-lifecycle"));
     assert!(!registered_transcribers().contains(&"fake-test-lifecycle".to_string()));
+}
+
+// ── Resampling ──────────────────────────────────────────────────────────────
+
+/// Count zero crossings, which is twice the frequency for a clean tone.
+fn zero_crossings(samples: &[f32]) -> usize {
+    samples
+        .windows(2)
+        .filter(|pair| (pair[0] < 0.0) != (pair[1] < 0.0))
+        .count()
+}
+
+#[test]
+fn resampling_keeps_pitch_and_duration() {
+    // A 220 Hz tone recorded at 44.1 kHz is what a real recording looks like to
+    // a model that insists on 16 kHz; it must still be 220 Hz afterwards.
+    let mut samples = Vec::new();
+    tone(&mut samples, 2.0, 44_100);
+    let audio = chunkr::audio::DecodedAudio {
+        samples,
+        sample_rate: 44_100,
+        channels: 1,
+        duration_s: 2.0,
+    };
+
+    let resampled = chunkr::audio::resample(&audio, 16_000);
+    assert_eq!(resampled.sample_rate, 16_000);
+    assert!((resampled.duration_s - 2.0).abs() < 0.01);
+
+    let frequency = zero_crossings(&resampled.samples) as f64 / 2.0 / resampled.duration_s;
+    assert!(
+        (frequency - 220.0).abs() < 5.0,
+        "220 Hz became {frequency:.1} Hz"
+    );
+
+    // Upsampling back keeps it, so the filter is not a one-way loss.
+    let restored = chunkr::audio::resample(&resampled, 44_100);
+    assert!((restored.duration_s - 2.0).abs() < 0.01);
+}
+
+#[test]
+fn resampling_a_speech_rate_file_is_a_no_op() {
+    let audio = chunkr::audio::DecodedAudio {
+        samples: vec![0.1, -0.1, 0.1, -0.1],
+        sample_rate: 16_000,
+        channels: 1,
+        duration_s: 4.0 / 16_000.0,
+    };
+    let same = chunkr::audio::resample(&audio, 16_000);
+    assert_eq!(same.samples, audio.samples);
+    assert_eq!(same.sample_rate, 16_000);
+}
+
+// ── whisper.cpp subprocess bridge ───────────────────────────────────────────
+
+#[cfg(unix)]
+mod whisper_cpp {
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use chunkr::audio::{
+        encode_wav, load_documents_with, register_transcriber, unregister_transcriber,
+    };
+
+    /// Write a shell script that stands in for `whisper-cli`.
+    fn script(body: &str) -> PathBuf {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "chunkr-fake-whisper-{}-{}.sh",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).expect("write script");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        path
+    }
+
+    fn speech_wav(rate: u32, seconds: f64) -> Vec<u8> {
+        let mut samples = Vec::new();
+        for index in 0..(seconds * rate as f64) as usize {
+            let phase = 2.0 * std::f32::consts::PI * 220.0 * index as f32 / rate as f32;
+            samples.push(phase.sin() * 0.4);
+        }
+        encode_wav(&samples, rate)
+    }
+
+    #[test]
+    fn runs_the_binary_on_a_16khz_copy_and_maps_the_segments() {
+        // The fake records the WAV it was handed, then writes whisper.cpp's `-oj`
+        // shape, including the markers the real model emits.
+        let captured = std::env::temp_dir().join(format!(
+            "chunkr-captured-{}-{}.wav",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let out_prefix = captured.with_extension("prefix");
+        let json = r#"{"transcription":[
+                {"offsets":{"from":0,"to":2500},"text":" He hoped there would be stew."},
+                {"offsets":{"from":2500,"to":3000},"text":" [BLANK_AUDIO]"},
+                {"offsets":{"from":3000,"to":4200},"text":" For dinner. "}
+            ]}"#;
+        let script = script(&format!(
+            "input=\"\"; out=\"\"\n\
+             while [ $# -gt 0 ]; do\n\
+               case \"$1\" in -f) input=\"$2\"; shift 2;; -of) out=\"$2\"; shift 2;; *) shift;; esac\n\
+             done\n\
+             cp \"$input\" '{captured}'\n\
+             printf '%s' '{json}' > \"$out.json\"\n",
+            captured = captured.display(),
+            json = json.replace('\n', " ")
+        ));
+        let _ = out_prefix;
+
+        register_transcriber(
+            "test-whisper-cpp",
+            Box::new(chunkr::audio::CommandTranscriber::whisper_cpp(
+                &script,
+                "/models/ggml-tiny.en.bin",
+            )),
+        );
+        let result = load_documents_with(
+            &speech_wav(44_100, 5.0),
+            "wav",
+            Some("clip.wav"),
+            None,
+            Some("test-whisper-cpp"),
+        );
+        unregister_transcriber("test-whisper-cpp");
+        let _ = std::fs::remove_file(&script);
+
+        let documents = result.expect("transcribed");
+        assert_eq!(documents.len(), 2, "marker dropped: {documents:#?}");
+        assert_eq!(documents[0].content, "He hoped there would be stew.");
+        assert_eq!(documents[0].metadata["start_time_s"], 0.0);
+        assert_eq!(documents[0].metadata["end_time_s"], 2.5);
+        assert_eq!(documents[1].content, "For dinner.");
+        assert_eq!(documents[1].metadata["end_time_s"], 4.2);
+        assert_eq!(
+            documents[0].metadata["transcriber"],
+            "whisper.cpp/ggml-tiny.en"
+        );
+
+        // The binary must receive 16 kHz mono, whatever the input was.
+        let captured_bytes = std::fs::read(&captured).expect("captured wav");
+        let header = &captured_bytes[..44];
+        let channels = u16::from_le_bytes([header[22], header[23]]);
+        let rate = u32::from_le_bytes([header[24], header[25], header[26], header[27]]);
+        assert_eq!(channels, 1);
+        assert_eq!(rate, 16_000);
+        let _ = std::fs::remove_file(&captured);
+    }
+
+    #[test]
+    fn a_failing_binary_reports_its_own_message() {
+        let script = script(
+            "echo 'error: failed to load model' >&2\n\
+             exit 3",
+        );
+        register_transcriber(
+            "test-whisper-fail",
+            Box::new(chunkr::audio::CommandTranscriber::whisper_cpp(
+                &script,
+                "/models/tiny.bin",
+            )),
+        );
+        let error = load_documents_with(
+            &speech_wav(16_000, 3.0),
+            "wav",
+            Some("clip.wav"),
+            None,
+            Some("test-whisper-fail"),
+        )
+        .expect_err("exit 3 must fail");
+        unregister_transcriber("test-whisper-fail");
+        let _ = std::fs::remove_file(&script);
+
+        let message = error.to_string();
+        assert!(message.contains("failed to load model"), "{message}");
+        assert!(message.contains("whisper.cpp"), "{message}");
+    }
+
+    #[test]
+    fn a_missing_binary_says_how_to_fix_it() {
+        register_transcriber(
+            "test-whisper-missing",
+            Box::new(chunkr::audio::CommandTranscriber::whisper_cpp(
+                "/nonexistent/whisper-cli",
+                "/models/tiny.bin",
+            )),
+        );
+        let error = load_documents_with(
+            &speech_wav(16_000, 3.0),
+            "wav",
+            Some("clip.wav"),
+            None,
+            Some("test-whisper-missing"),
+        )
+        .expect_err("missing binary must fail");
+        unregister_transcriber("test-whisper-missing");
+
+        let message = error.to_string();
+        assert!(message.contains("CHUNKR_WHISPER_BIN"), "{message}");
+        assert!(message.contains("chunkr-audio"), "{message}");
+    }
+
+    #[test]
+    fn registering_from_the_environment_only_happens_once() {
+        let _guard = super::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        // The dispatcher calls this on every load; it must not pile up duplicates.
+        std::env::set_var("CHUNKR_WHISPER_BIN", "/usr/bin/true");
+        std::env::set_var("CHUNKR_WHISPER_MODEL", "/models/tiny.bin");
+        std::env::remove_var("CHUNKR_FFMPEG");
+        chunkr::audio::register_from_env();
+        chunkr::audio::register_from_env();
+        let registered = chunkr::audio::registered_transcribers();
+        std::env::remove_var("CHUNKR_WHISPER_BIN");
+        std::env::remove_var("CHUNKR_WHISPER_MODEL");
+        unregister_transcriber("whisper-cpp");
+
+        assert_eq!(
+            registered
+                .iter()
+                .filter(|name| *name == "whisper-cpp")
+                .count(),
+            1
+        );
+    }
+}
+
+// ── ffmpeg fallback for codecs the core cannot decode ───────────────────────
+
+#[cfg(unix)]
+mod ffmpeg_fallback {
+    use std::os::unix::fs::PermissionsExt;
+
+    use chunkr::audio::decode_with_fallback;
+
+    /// A stub `ffmpeg` that ignores its input and writes a WAV to stdout, which is
+    /// exactly the contract the fallback relies on (`-f wav pipe:1`).
+    fn stub_ffmpeg() -> std::path::PathBuf {
+        let path =
+            std::env::temp_dir().join(format!("chunkr-fake-ffmpeg-{}.sh", std::process::id()));
+        let samples = {
+            let mut samples = Vec::new();
+            for index in 0..8_000 {
+                let phase = 2.0 * std::f32::consts::PI * 220.0 * index as f32 / 16_000.0;
+                samples.push(phase.sin() * 0.3);
+            }
+            chunkr::audio::encode_wav(&samples, 16_000)
+        };
+        let wav_path = path.with_extension("wav");
+        std::fs::write(&wav_path, &samples).expect("write wav");
+        std::fs::write(&path, format!("#!/bin/sh\ncat '{}'\n", wav_path.display()))
+            .expect("write stub");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        path
+    }
+
+    #[test]
+    fn an_opus_like_file_decodes_through_the_configured_binary() {
+        // Not real Opus: the point is that a decode failure routes through the
+        // configured binary instead of returning the built-in error.
+        let _guard = super::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let stub = stub_ffmpeg();
+        std::env::set_var("CHUNKR_FFMPEG", &stub);
+
+        let audio = decode_with_fallback(b"OpusHead not really opus", "ogg")
+            .expect("fallback should decode");
+        std::env::remove_var("CHUNKR_FFMPEG");
+        let _ = std::fs::remove_file(&stub);
+        let _ = std::fs::remove_file(stub.with_extension("wav"));
+
+        assert_eq!(audio.sample_rate, 16_000);
+        assert!((audio.duration_s - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_broken_binary_reports_both_errors() {
+        let path =
+            std::env::temp_dir().join(format!("chunkr-bad-ffmpeg-{}.sh", std::process::id()));
+        std::fs::write(&path, "#!/bin/sh\necho 'no such codec' >&2\nexit 1\n").expect("write");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        std::env::set_var("CHUNKR_FFMPEG", &path);
+
+        let error = decode_with_fallback(b"OpusHead broken", "ogg").expect_err("must fail");
+        std::env::remove_var("CHUNKR_FFMPEG");
+        let _ = std::fs::remove_file(&path);
+
+        assert!(error.contains("ffmpeg fallback failed"), "{error}");
+        assert!(error.contains("no such codec"), "{error}");
+    }
 }

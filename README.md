@@ -142,6 +142,24 @@ chunks = chunkr.SubtitleChunker(max_seconds=60).chunk_documents(docs)  # start_t
 instructions instead of guessing, and a file with no detectable speech fails before a model is
 called. `CHUNKR_TRANSCRIBER=<name>` picks between several registered backends.
 
+From the CLI, point it at a local [whisper.cpp](https://github.com/ggml-org/whisper.cpp) build and no
+Python is involved — the core resamples to the 16 kHz mono WAV the binary requires:
+
+```bash
+CHUNKR_WHISPER_BIN=whisper-cli CHUNKR_WHISPER_MODEL=ggml-base.en.bin \
+  chunkr episode.mp3 -f text
+```
+
+```
+=== episode.mp3 · 0.0s-5.6s ===
+--- [CHUNK 0] ---
+He hoped there would be stew for dinner, turnips and carrots …
+```
+
+Opus is the one common codec with no decoder in the pure-Rust path (symphonia does not implement it),
+so `.ogg`/`.webm` files that carry Opus report the codec and the remedy. Set `CHUNKR_FFMPEG` and the
+same file decodes through it instead — nothing runs unless the built-in path fails first.
+
 A zip is expanded rather than treated as one blob: every member is dispatched by its own
 extension — a `.csv` inside it is chunked as a table with headers repeated, a `.md` as Markdown — and
 each document carries `archive_entry` (its path inside the archive) plus `archive_entries` /

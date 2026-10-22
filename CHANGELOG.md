@@ -32,7 +32,20 @@ artifact.
   `audio_duration_s`, `sample_rate`, `channels`, `speech_s`, `speech_ratio`, `transcriber`,
   `segment_index` and `total_segments`, so `SubtitleChunker` merges them into time windows that can
   be cited back to a timestamp and `DirectoryLoader` routes audio by time rather than by character
-  count. `.opus`/`.webm` are deliberately unsupported: symphonia has no Opus decoder.
+  count.
+- **Opus decodes through an opt-in `ffmpeg` bridge** (`CHUNKR_FFMPEG`). symphonia implements no
+  Opus decoder, and Opus is what WhatsApp voice notes, browser recordings and most downloaded audio
+  actually contain, so the extension alone promised more than the core could do. Codecs the built-in
+  path cannot handle now name themselves (`unsupported audio codec 'opus'` instead of
+  `unsupported codec`) and, when `CHUNKR_FFMPEG` points at a binary, decode through it — nothing
+  runs unless the pure-Rust path has already failed.
+- **CLI transcripts from a local whisper.cpp** (`CHUNKR_WHISPER_BIN` + `CHUNKR_WHISPER_MODEL`):
+  the core resamples to the 16 kHz mono WAV the binary requires, runs it with `-oj`, and maps its
+  segments — so `chunkr episode.mp3` produces timestamped chunks with no Python and no model in the
+  crate.
+- **`resample`**: band-limited downsampling (averaging before decimation, so 44.1 → 16 kHz does not
+  fold high frequencies into the speech band), exposed because every model wants 16 kHz and
+  containers deliver whatever they were encoded at.
 - **Transcriber registry** (`register_transcriber` / `unregister_transcriber` /
   `registered_transcribers`, and the same three from Python): models are plugged in like PDF parsers
   and table extractors, so the core keeps no ASR dependency. The most recent registration wins, and
@@ -61,6 +74,13 @@ artifact.
 
 ### Fixed
 
+- **Audio duration came from the container header, not the decoded samples.** A WAV streamed with an
+  unknown data size declares ~2^32 frames and reported 12 hours for a 4-second file; every timestamp
+  derived from it was wrong. Duration is now measured from the samples that were actually decoded,
+  which is also the audio a model was given.
+- **Transcriber spans past the end of the media are clamped.** Whisper pads its last window to a
+  frame boundary and can report an end beyond the file (a 13.0 s clip ended at 13.1 s); a chunk
+  citing a timestamp the file does not have is worse than a shortened span.
 - **Worksheets whose used area does not start at A1 were read as empty.** Cell lookups used grid
   positions against calamine's absolute-position API, and merge/style coordinates were applied to
   grid indices; a sheet whose first used cell is `C3` lost its header, its merges and its number

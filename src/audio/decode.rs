@@ -78,11 +78,13 @@ pub fn decode(bytes: &[u8], format: &str) -> Result<DecodedAudio, String> {
         .map(|channels| channels.count() as u16)
         .unwrap_or(1);
     let declared_rate = track.codec_params.sample_rate;
-    let declared_frames = track.codec_params.n_frames;
 
     let mut decoder = symphonia::default::get_codecs()
         .make(&track.codec_params, &DecoderOptions::default())
-        .map_err(|error| format!("unsupported audio codec: {error}"))?;
+        .map_err(|error| match sniff_codec(bytes) {
+            Some(codec) => format!("unsupported audio codec '{codec}' ({error})"),
+            None => format!("unsupported audio codec: {error}"),
+        })?;
 
     let mut samples: Vec<f32> = Vec::new();
     let mut sample_rate = declared_rate.unwrap_or(0);
@@ -141,10 +143,11 @@ pub fn decode(bytes: &[u8], format: &str) -> Result<DecodedAudio, String> {
         return Err("no audio samples decoded".to_string());
     }
 
-    let duration_s = match (declared_frames, sample_rate) {
-        (Some(frames), rate) if rate > 0 => frames as f64 / rate as f64,
-        _ => samples.len() as f64 / sample_rate.max(1) as f64,
-    };
+    // Duration comes from the samples actually decoded, not from what the header
+    // declares: a WAV piped in with an unknown data size reports ~2^32 frames
+    // (12 hours for a 4-second file), and streamed or truncated containers lie in
+    // the other direction. Timestamps must match the audio a model was given.
+    let duration_s = samples.len() as f64 / sample_rate.max(1) as f64;
 
     Ok(DecodedAudio {
         samples,
@@ -152,6 +155,169 @@ pub fn decode(bytes: &[u8], format: &str) -> Result<DecodedAudio, String> {
         channels: channels.max(1),
         duration_s,
     })
+}
+
+/// Container codec names for the formats symphonia cannot decode, so the error
+/// says "opus" instead of "unsupported codec".
+///
+/// Provenance: WhatsApp notes, browser recordings and anything downloaded with
+/// `yt-dlp` are Opus far more often than Vorbis, and Opus has no decoder in
+/// symphonia — the extension alone would promise something we cannot do.
+fn sniff_codec(bytes: &[u8]) -> Option<&'static str> {
+    let head = &bytes[..bytes.len().min(4096)];
+    for (magic, name) in [
+        (&b"OpusHead"[..], "opus"),
+        (b"\x01vorbis", "vorbis"),
+        (b"Speex   ", "speex"),
+        (b"#!AMR", "amr"),
+        (b"A_OPUS", "opus"),
+        (b"A_VORBIS", "vorbis"),
+    ] {
+        if head.windows(magic.len()).any(|window| window == magic) {
+            return Some(name);
+        }
+    }
+    None
+}
+
+/// [`decode`], with an external `ffmpeg` as the fallback for codecs the built-in
+/// decoder does not cover (Opus above all).
+///
+/// Set `CHUNKR_FFMPEG` to the binary to enable it. Nothing runs unless that is
+/// set and the pure-Rust path actually failed, so the default build stays
+/// dependency-free while real-world files remain usable.
+pub fn decode_with_fallback(bytes: &[u8], format: &str) -> Result<DecodedAudio, String> {
+    match decode(bytes, format) {
+        Ok(audio) => Ok(audio),
+        Err(error) => {
+            let ffmpeg = match std::env::var("CHUNKR_FFMPEG") {
+                Ok(path) if !path.trim().is_empty() => path.trim().to_string(),
+                _ => {
+                    return Err(match sniff_codec(bytes) {
+                        Some(codec) => format!(
+                            "{error} — this file is {codec}; install ffmpeg and set \
+                             CHUNKR_FFMPEG=/path/to/ffmpeg, or convert it to wav/mp3"
+                        ),
+                        None => error,
+                    })
+                }
+            };
+            decode_via_ffmpeg(&ffmpeg, bytes, format)
+                .map_err(|ffmpeg_error| format!("{error} — ffmpeg fallback failed: {ffmpeg_error}"))
+        }
+    }
+}
+
+/// Decode through an external `ffmpeg`, which handles every codec the built-in
+/// decoder does not (Opus, WebM, AMR, …) and writes a WAV the built-in path reads.
+fn decode_via_ffmpeg(program: &str, bytes: &[u8], format: &str) -> Result<DecodedAudio, String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let ticket = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir().join(format!("chunkr-decode-{}-{ticket}", std::process::id()));
+    std::fs::create_dir_all(&dir)
+        .map_err(|error| format!("cannot create {}: {error}", dir.display()))?;
+    let input = dir.join(format!(
+        "input.{}",
+        if format.is_empty() { "bin" } else { format }
+    ));
+
+    let result = (|| {
+        std::fs::write(&input, bytes).map_err(|error| format!("cannot write input: {error}"))?;
+        let output = std::process::Command::new(program)
+            .arg("-v")
+            .arg("error")
+            .arg("-i")
+            .arg(&input)
+            .arg("-ac")
+            .arg("1")
+            .arg("-f")
+            .arg("wav")
+            .arg("pipe:1")
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped())
+            .output()
+            .map_err(|error| format!("cannot run {program}: {error}"))?;
+        if !output.status.success() || output.stdout.is_empty() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let reason = stderr.lines().last().unwrap_or("no output");
+            return Err(format!("{program} exited with {}: {reason}", output.status));
+        }
+        decode(&output.stdout, "wav")
+    })();
+
+    let _ = std::fs::remove_dir_all(&dir);
+    result
+}
+
+/// Resample to `target_rate`, band-limiting before decimating.
+///
+/// Speech models want 16 kHz; containers deliver whatever they were encoded at
+/// (44.1 or 48 kHz for real recordings), so handing a model the raw rate either
+/// fails or silently stretches the audio. Downsampling averages over the ratio
+/// first — otherwise a 44.1 → 16 kHz decimation folds high frequencies back into
+/// the speech band — then interpolates linearly.
+pub fn resample(audio: &DecodedAudio, target_rate: u32) -> DecodedAudio {
+    let rate = audio.sample_rate.max(1);
+    let target_rate = target_rate.max(1);
+    if rate == target_rate || audio.samples.is_empty() {
+        return DecodedAudio {
+            sample_rate: target_rate,
+            duration_s: samples_duration(&audio.samples, target_rate),
+            ..audio.clone()
+        };
+    }
+
+    let ratio = rate as f64 / target_rate as f64;
+    let filtered = if ratio > 1.0 {
+        moving_average(&audio.samples, ratio.round().max(2.0) as usize)
+    } else {
+        audio.samples.clone()
+    };
+
+    let out_len = (filtered.len() as f64 / ratio).round() as usize;
+    let mut samples = Vec::with_capacity(out_len);
+    for index in 0..out_len {
+        let position = index as f64 * ratio;
+        let left = position.floor() as usize;
+        let fraction = (position - left as f64) as f32;
+        let a = filtered.get(left).copied().unwrap_or(0.0);
+        let b = filtered.get(left + 1).copied().unwrap_or(a);
+        samples.push(a + (b - a) * fraction);
+    }
+
+    DecodedAudio {
+        duration_s: samples_duration(&samples, target_rate),
+        samples,
+        sample_rate: target_rate,
+        channels: audio.channels,
+    }
+}
+
+fn samples_duration(samples: &[f32], sample_rate: u32) -> f64 {
+    samples.len() as f64 / sample_rate.max(1) as f64
+}
+
+/// Centered box filter of `window` taps, via a prefix sum.
+fn moving_average(samples: &[f32], window: usize) -> Vec<f32> {
+    if window < 2 || samples.len() < window {
+        return samples.to_vec();
+    }
+    let half = window / 2;
+    let mut prefix = Vec::with_capacity(samples.len() + 1);
+    prefix.push(0.0f32);
+    for sample in samples {
+        prefix.push(prefix[prefix.len() - 1] + sample);
+    }
+    (0..samples.len())
+        .map(|index| {
+            let start = index.saturating_sub(half);
+            let end = (index + window - half).min(samples.len());
+            let count = (end - start).max(1);
+            (prefix[end] - prefix[start]) / count as f32
+        })
+        .collect()
 }
 
 /// Encode mono `f32` samples as a 16-bit PCM WAV file.

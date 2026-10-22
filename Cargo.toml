@@ -49,8 +49,8 @@ pdf-ocr-ppocr-cuda = ["pdf-ocr-ppocr", "liteparse/oar-ocr-cuda"]
 pdf-ocr-ppocr-directml = ["pdf-ocr-ppocr", "liteparse/oar-ocr-directml"]
 pdf-ocr-ppocr-openvino = ["pdf-ocr-ppocr", "liteparse/oar-ocr-openvino"]
 # Audio containers decode in pure Rust (symphonia) for duration, speech spans and
-# handing the payload to a registered transcriber. `.opus`/`.webm` are not
-# covered: symphonia ships no Opus decoder.
+# handing the payload to a registered transcriber. symphonia ships no Opus
+# decoder, so `.ogg`/`.webm` that carry Opus need `CHUNKR_FFMPEG` set.
 audio = ["dep:symphonia"]
 pdf-ocr-ppocr-tensorrt = ["pdf-ocr-ppocr", "liteparse/oar-ocr-tensorrt"]
 pdf-ocr-ppocr-webgpu = ["pdf-ocr-ppocr", "liteparse/oar-ocr-webgpu"]

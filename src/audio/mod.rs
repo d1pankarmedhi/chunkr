@@ -11,6 +11,11 @@
 //! not belong here. `chunkr-audio` (or any Rust crate / Python plugin) registers
 //! a transcriber — Whisper, a hosted API, an in-house model — mirroring how PDF
 //! parsers and table extractors are plugged in.
+//!
+//! Two escape hatches keep that from becoming a dead end: a local `whisper.cpp`
+//! binary is picked up from `CHUNKR_WHISPER_BIN`/`CHUNKR_WHISPER_MODEL`
+//! ([`CommandTranscriber`]), and codecs the pure-Rust decoder lacks (Opus, above
+//! all) decode through `CHUNKR_FFMPEG` when it is set.
 
 use std::path::Path;
 use std::sync::{Arc, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -20,10 +25,12 @@ use serde_json::Value;
 use crate::error::ChunkrError;
 use crate::structures::document::Document;
 
+mod command;
 mod decode;
 mod vad;
 
-pub use decode::{decode, encode_wav, DecodedAudio};
+pub use command::{register_from_env, CommandTranscriber};
+pub use decode::{decode, decode_with_fallback, encode_wav, resample, DecodedAudio};
 pub use vad::{speech_spans, SpeechSpan, VadConfig};
 
 /// Extensions the decoder accepts.
@@ -135,11 +142,16 @@ pub fn registered_transcribers() -> Vec<String> {
 /// chunkr`, so a caller's own `register_transcriber` afterwards takes precedence
 /// over an installed plugin without extra configuration.
 fn select(requested: Option<&str>) -> Result<Arc<dyn Transcriber>, ChunkrError> {
+    // A local whisper.cpp install is worth using without writing Rust; the
+    // registration is env-driven and only happens when nothing claimed the name.
+    command::register_from_env();
+
     let transcribers = read_registry();
     if transcribers.is_empty() {
         return Err(ChunkrError::ParseError(
             "audio: no transcriber registered — install `chunkr-audio` \
-             (faster-whisper) or register one with \
+             (faster-whisper), set CHUNKR_WHISPER_BIN and CHUNKR_WHISPER_MODEL to \
+             use a local whisper.cpp, or register one with \
              `chunkr.register_transcriber(name, fn)`"
                 .to_string(),
         ));
@@ -193,7 +205,7 @@ pub fn load_documents_with(
 ) -> Result<Vec<Document>, ChunkrError> {
     let format = extension.trim_start_matches('.').to_ascii_lowercase();
     let label = source.unwrap_or(&format);
-    let audio = decode(bytes, &format)
+    let audio = decode_with_fallback(bytes, &format)
         .map_err(|error| ChunkrError::ParseError(format!("audio {label}: {error}")))?;
 
     let config = VadConfig::default();
@@ -212,7 +224,17 @@ pub fn load_documents_with(
         format: &format,
         audio: &audio,
     };
-    let segments = transcriber.transcribe(&transcribe_source)?;
+    let mut segments = transcriber.transcribe(&transcribe_source)?;
+    // Models pad their last window and may report an end past the media (whisper
+    // pads to 30 s and stops at the next frame boundary). A chunk citing a
+    // timestamp the file does not have is worse than a shortened span, so clamp —
+    // and drop anything that only exists beyond the end.
+    let duration_s = audio.duration_s;
+    for segment in &mut segments {
+        segment.start_s = segment.start_s.clamp(0.0, duration_s);
+        segment.end_s = segment.end_s.clamp(segment.start_s, duration_s);
+    }
+    segments.retain(|segment| segment.end_s > segment.start_s);
     if segments.is_empty() {
         return Err(ChunkrError::ParseError(format!(
             "audio {label}: transcriber '{}' returned no segments",

@@ -47,6 +47,16 @@ CHUNKR_TRANSCRIBER=small-fr python app.py
 | `beam_size` | `5` | Lower is faster, rougher |
 | `vad_filter` | `False` | chunkr already measures speech; enable to also let faster-whisper drop silence |
 
+## Known good versions
+
+`faster-whisper` 1.2.1 calls `av.open(..., metadata_errors=...)`, which PyAV removed in 14 — with
+`av>=14` installed, transcription fails with `open() got an unexpected keyword argument
+'metadata_errors'`. Pin `av<14` until faster-whisper catches up:
+
+```bash
+pip install "av<14" faster-whisper
+```
+
 ## What chunkr adds
 
 The core decodes the container (pure Rust, no system codecs), measures the audio,
