@@ -732,3 +732,107 @@ mod speech_models {
         std::env::remove_var("CHUNKR_WHISPER_BIN");
     }
 }
+
+// ── Speech detection must never deny a file the model could read ────────────
+
+mod vad_guard {
+    use chunkr::audio::{decode, encode_wav, load_documents_with, speech_spans, VadConfig};
+
+    /// Naive broadband noise: crossing zero almost every sample, unlike speech.
+    fn noise(seconds: f64, rate: u32, amplitude: f32) -> Vec<f32> {
+        let mut state: u32 = 0x1234_5678;
+        (0..(seconds * rate as f64) as usize)
+            .map(|_| {
+                state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                // Bipolar, like real noise: the mean has to come out.
+                ((state >> 16) as f32 / 32768.0 - 1.0) * amplitude
+            })
+            .collect()
+    }
+
+    #[test]
+    fn white_noise_is_not_counted_as_speech() {
+        let rate = 16_000;
+        let samples = noise(3.0, rate, 0.3);
+        let spans = speech_spans(&samples, rate, &VadConfig::default());
+        let speech: f64 = spans.iter().map(|span| span.end_s - span.start_s).sum();
+        assert!(
+            speech / 3.0 < 0.2,
+            "broadband noise counted as {:.0}% speech",
+            speech / 3.0 * 100.0
+        );
+    }
+
+    #[test]
+    fn a_tone_with_gaps_is_still_found() {
+        // Voiced-ish: a tone is low-ZCR, so the noise gate must leave it alone.
+        let rate = 16_000;
+        let mut samples = vec![0.0f32; rate as usize];
+        for (index, sample) in samples.iter_mut().enumerate().take(rate as usize) {
+            if (rate / 2) < index as u32 {
+                let phase = 2.0 * std::f32::consts::PI * 220.0 * index as f32 / rate as f32;
+                *sample = phase.sin() * 0.3;
+            }
+        }
+        let spans = speech_spans(&samples, rate, &VadConfig::default());
+        assert_eq!(spans.len(), 1, "{spans:?}");
+        assert!(spans[0].start_s > 0.3 && spans[0].end_s < 1.1, "{spans:?}");
+    }
+
+    #[test]
+    fn noisy_speech_reaches_the_transcriber_instead_of_being_refused() {
+        // The measured failure of an energy VAD: speech buried in noise at 0 dB SNR
+        // yields no spans. That must not deny the file — the model decides.
+        let rate = 16_000;
+        let mut samples = vec![0.0f32; (3.0 * rate as f64) as usize];
+        for (index, sample) in samples.iter_mut().enumerate() {
+            let phase = 2.0 * std::f32::consts::PI * 180.0 * index as f32 / rate as f32;
+            *sample = phase.sin() * 0.05;
+        }
+        // Hiss well above the tone: this is what 0 dB SNR looks like to the
+        // detector, and it is why the guard cannot be the VAD's verdict.
+        let loud_noise = noise(3.0, rate, 0.25);
+        for (sample, hiss) in samples.iter_mut().zip(loud_noise) {
+            *sample += hiss;
+        }
+        let wav = encode_wav(&samples, rate);
+
+        // Force the VAD to find nothing by checking the premise first.
+        let audio = decode(&wav, "wav").expect("decode");
+        let spans = speech_spans(&audio.samples, rate, &VadConfig::default());
+        assert!(
+            spans.is_empty(),
+            "premise changed: the detector now finds {spans:?}, so this no longer \
+             exercises the guard"
+        );
+
+        crate::fake("fake-for-noisy-audio");
+        let documents = load_documents_with(
+            &wav,
+            "wav",
+            Some("noisy.wav"),
+            None,
+            Some("fake-for-noisy-audio"),
+        )
+        .expect("a noisy file must reach the transcriber");
+        assert!(!documents.is_empty());
+        assert_eq!(
+            documents[0].metadata["speech_detected"],
+            serde_json::json!(false)
+        );
+        assert_eq!(
+            documents[0].metadata["speech_ratio"],
+            serde_json::json!(0.0)
+        );
+    }
+
+    #[test]
+    fn silent_audio_is_still_refused_before_a_model_is_called() {
+        let wav = encode_wav(&vec![0.0; 16_000], 16_000);
+        let error = load_documents_with(&wav, "wav", Some("empty.wav"), None, None)
+            .expect_err("silence must fail");
+        let message = error.to_string();
+        assert!(message.contains("empty.wav"), "{message}");
+        assert!(message.contains("no speech"), "{message}");
+    }
+}

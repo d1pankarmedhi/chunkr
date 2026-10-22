@@ -24,6 +24,16 @@ artifact.
 
 ### Added
 
+- **Speech detection: noise gate, and a refusal that can no longer be wrong.** Frames whose
+  zero-crossing rate says "broadband noise" are not counted as speech, so a hiss or a fan no longer
+  reports 100% speech. More importantly, `load_documents` now refuses audio only when it is actually
+  silent (peak below -54 dBFS) instead of when the energy estimate found no spans: measured on real
+  speech mixed with white noise, that estimate reports **nothing at 0 dB SNR**, which used to deny a
+  recording Whisper transcribes correctly. Noisy files now go through with
+  `speech_detected: false` and `speech_ratio: 0.0`, and the transcriber's own verdict stands. No
+  Silero, no ONNX runtime, no C dependency — the reasoning, with the measurements, is in
+  `src/audio/vad.rs`.
+
 - **Speech models: pinned manifest, verified on-demand download, `chunkr models`** (`--features audio`).
   Weights are not bundled — crates.io caps a crate at 10 MB, a published wheel would carry a model
   most users never call, and choosing a model is the caller's decision about language, latency and
