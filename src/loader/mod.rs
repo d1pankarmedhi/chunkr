@@ -9,8 +9,8 @@
 //!   and automatically routes files to the optimal chunking strategy.
 //! - [`PDFLoader`]: Extracts text page-by-page from PDF files into [`Document`](crate::structures::document::Document) structs.
 //! - [`SpreadsheetLoader`], [`OfficeLoader`], [`EpubLoader`], [`EmailLoader`],
-//!   [`SubtitleLoader`]: one loader per format family, callable directly when the
-//!   extension is known.
+//!   [`MsgLoader`], [`SubtitleLoader`]: one loader per format family, callable
+//!   directly when the extension is known.
 //! - [`expand_zip`]: expands zip archives member by member, dispatching each one
 //!   through the normal extractors with [`ArchiveLimits`] guarding zip bombs.
 //! - [`TableSource`]: registered by an extension package to add tabular formats
@@ -34,6 +34,8 @@ pub mod directory;
 pub mod email;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod epub;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod msg;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod office;
 #[cfg(not(target_arch = "wasm32"))]
@@ -60,6 +62,8 @@ pub use directory::DirectoryLoader;
 pub use email::EmailLoader;
 #[cfg(not(target_arch = "wasm32"))]
 pub use epub::EpubLoader;
+#[cfg(not(target_arch = "wasm32"))]
+pub use msg::MsgLoader;
 #[cfg(not(target_arch = "wasm32"))]
 pub use office::OfficeLoader;
 #[cfg(not(target_arch = "wasm32"))]

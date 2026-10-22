@@ -27,10 +27,14 @@ use crate::structures::document::Document;
 
 mod command;
 mod decode;
+pub mod models;
 mod vad;
 
 pub use command::{register_from_env, CommandTranscriber};
-pub use decode::{decode, decode_with_fallback, encode_wav, resample, DecodedAudio};
+pub use decode::{
+    decode, decode_with_fallback, encode_wav, ffmpeg_configured, resample, DecodedAudio,
+};
+pub use models::{ModelSpec, MODELS};
 pub use vad::{speech_spans, SpeechSpan, VadConfig};
 
 /// Extensions the decoder accepts.
@@ -38,6 +42,24 @@ pub use vad::{speech_spans, SpeechSpan, VadConfig};
 /// `.opus` and `.webm` are deliberately absent: symphonia has no Opus decoder, so
 /// claiming them would turn a missing-codec gap into a confusing parse error.
 pub const AUDIO_EXTENSIONS: &[&str] = &["wav", "mp3", "flac", "ogg", "oga", "m4a", "m4b", "aac"];
+
+pub use audio_extensions_with_ffmpeg as all_audio_extensions;
+/// Extensions this build can load *only* through `CHUNKR_FFMPEG`.
+pub use decode::FFMPEG_EXTENSIONS;
+
+/// [`AUDIO_EXTENSIONS`] plus the containers only `ffmpeg` can open.
+///
+/// A `&'static` view so the dispatcher can answer "is this audio?" without
+/// allocating; the ffmpeg half is empty unless one is configured.
+pub fn audio_extensions_with_ffmpeg() -> &'static [&'static str] {
+    use std::sync::OnceLock;
+    static JOINED: OnceLock<Vec<&'static str>> = OnceLock::new();
+    JOINED.get_or_init(|| {
+        let mut all: Vec<&'static str> = AUDIO_EXTENSIONS.to_vec();
+        all.extend_from_slice(FFMPEG_EXTENSIONS);
+        all
+    })
+}
 
 /// One timed transcript segment, as a speech model reports it.
 #[derive(Debug, Clone, PartialEq)]

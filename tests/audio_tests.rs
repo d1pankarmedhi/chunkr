@@ -608,6 +608,9 @@ mod ffmpeg_fallback {
 
     #[test]
     fn a_broken_binary_reports_both_errors() {
+        let _guard = super::ENV_LOCK
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let path =
             std::env::temp_dir().join(format!("chunkr-bad-ffmpeg-{}.sh", std::process::id()));
         std::fs::write(&path, "#!/bin/sh\necho 'no such codec' >&2\nexit 1\n").expect("write");
@@ -620,5 +623,112 @@ mod ffmpeg_fallback {
 
         assert!(error.contains("ffmpeg fallback failed"), "{error}");
         assert!(error.contains("no such codec"), "{error}");
+    }
+}
+
+// ── Speech models: manifest, cache and resolution ───────────────────────────
+
+mod speech_models {
+    use chunkr::audio::models;
+
+    #[test]
+    fn the_manifest_pins_every_model_it_offers() {
+        assert!(models::MODELS.len() >= 4);
+        let mut names = Vec::new();
+        for spec in models::MODELS {
+            assert!(!spec.name.is_empty());
+            assert_eq!(spec.sha256.len(), 64, "{} has no full digest", spec.name);
+            assert!(spec.sha256.chars().all(|c| c.is_ascii_hexdigit()));
+            assert!(spec.bytes > 1_000_000, "{} looks like a stub", spec.name);
+            assert!(
+                spec.url.starts_with("https://"),
+                "{} must be TLS",
+                spec.name
+            );
+            assert!(!names.contains(&spec.name), "duplicate {}", spec.name);
+            names.push(spec.name);
+        }
+        // Both language families are reachable by name.
+        assert!(models::spec("base.en").is_some());
+        assert!(models::spec("base").is_some());
+        assert!(models::spec("nope").is_none());
+    }
+
+    #[test]
+    fn the_cache_directory_follows_the_environment() {
+        let _guard = super::ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("CHUNKR_MODEL_DIR", "/tmp/chunkr-models-test");
+        assert_eq!(
+            models::cache_dir(),
+            std::path::PathBuf::from("/tmp/chunkr-models-test")
+        );
+        std::env::remove_var("CHUNKR_MODEL_DIR");
+        assert!(
+            models::cache_dir().ends_with("models"),
+            "default cache dir should end in models: {:?}",
+            models::cache_dir()
+        );
+    }
+
+    #[test]
+    fn resolving_a_missing_model_says_how_to_get_it() {
+        let _guard = super::ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("CHUNKR_MODEL_DIR", "/tmp/chunkr-empty-cache");
+        let error = models::resolve("tiny.en").expect_err("nothing cached");
+        std::env::remove_var("CHUNKR_MODEL_DIR");
+
+        assert!(error.contains("chunkr models pull tiny.en"), "{error}");
+
+        let unknown = models::resolve("gigantic").expect_err("unknown name");
+        assert!(unknown.contains("known:"), "{unknown}");
+        assert!(unknown.contains("base.en"), "{unknown}");
+    }
+
+    #[test]
+    fn a_path_is_taken_as_given() {
+        // A user with their own quantisation must not be second-guessed.
+        let dir = std::env::temp_dir().join(format!("chunkr-model-path-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let file = dir.join("custom-ggml.bin");
+        std::fs::write(&file, b"not really a model").expect("write");
+
+        assert_eq!(models::resolve(file.to_str().unwrap()).unwrap(), file);
+        assert!(models::resolve(dir.join("missing.bin").to_str().unwrap()).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_truncated_cache_entry_is_not_trusted() {
+        let _guard = super::ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let dir = std::env::temp_dir().join(format!("chunkr-partial-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        std::fs::write(dir.join("ggml-tiny.en.bin"), b"partial").expect("write");
+        std::env::set_var("CHUNKR_MODEL_DIR", dir.display().to_string());
+
+        let spec = models::spec("tiny.en").expect("known");
+        assert!(
+            models::cached(spec).is_none(),
+            "a half-downloaded file must not count as cached"
+        );
+
+        std::env::remove_var("CHUNKR_MODEL_DIR");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_binary_is_found_through_the_environment() {
+        let _guard = super::ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("CHUNKR_WHISPER_BIN", "/bin/sh");
+        assert_eq!(
+            models::find_binary(),
+            Some(std::path::PathBuf::from("/bin/sh"))
+        );
+        std::env::set_var("CHUNKR_WHISPER_BIN", "/nonexistent/whisper");
+        assert!(
+            models::find_binary().is_none()
+                || models::find_binary() != Some("/nonexistent/whisper".into()),
+            "a bogus path must not be returned"
+        );
+        std::env::remove_var("CHUNKR_WHISPER_BIN");
     }
 }

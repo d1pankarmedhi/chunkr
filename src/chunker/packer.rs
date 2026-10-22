@@ -39,6 +39,8 @@ const SPAN_SENSITIVE_KEYS: &[&str] = &[
     "end_time_s",
     "duration_s",
     "speaker",
+    "speakers",
+    "speaker_turns",
     // Structured chunks: JSON path and record ranges.
     "path",
     "start_record",

@@ -157,6 +157,21 @@ pub fn decode(bytes: &[u8], format: &str) -> Result<DecodedAudio, String> {
     })
 }
 
+/// Containers the built-in decoder cannot open at all, but `ffmpeg` handles.
+///
+/// Video is included on purpose: the speech in a talk, a lecture recording or a
+/// screen share is what retrieval wants from it, and `ffmpeg` extracts that track
+/// like any other audio. It is only advertised when `CHUNKR_FFMPEG` is set, so an
+/// extension list never promises what this build cannot do.
+pub const FFMPEG_EXTENSIONS: &[&str] = &[
+    "opus", "webm", "mkv", "mp4", "m4v", "mov", "avi", "aiff", "aif", "wma", "amr", "caf",
+];
+
+/// True when an external `ffmpeg` is configured (`CHUNKR_FFMPEG`).
+pub fn ffmpeg_configured() -> bool {
+    matches!(std::env::var("CHUNKR_FFMPEG"), Ok(path) if !path.trim().is_empty())
+}
+
 /// Container codec names for the formats symphonia cannot decode, so the error
 /// says "opus" instead of "unsupported codec".
 ///

@@ -13,6 +13,7 @@ use crate::error::ChunkrError;
 use crate::loader::base::source_metadata;
 use crate::loader::email::EmailLoader;
 use crate::loader::epub::EpubLoader;
+use crate::loader::msg::MsgLoader;
 use crate::loader::office::OfficeLoader;
 use crate::loader::pdf::PDFLoader;
 use crate::loader::spreadsheet::SpreadsheetLoader;
@@ -29,7 +30,7 @@ use crate::structures::document::Document;
 /// Formats with a dedicated extractor rather than a plain-text fallback.
 pub const STRUCTURED_EXTENSIONS: &[&str] = &[
     "pdf", "xlsx", "xlsm", "xlsb", "xls", "ods", "docx", "docm", "pptx", "odt", "epub", "eml",
-    "mbox", "rtf", "xml", "ipynb", "html", "htm", "xhtml", "srt", "vtt", "webvtt", "zip",
+    "mbox", "msg", "rtf", "xml", "ipynb", "html", "htm", "xhtml", "srt", "vtt", "webvtt", "zip",
 ];
 
 /// Extensions understood by [`load_documents`], structured formats first.
@@ -58,10 +59,18 @@ pub fn supported_extensions() -> Vec<String> {
 }
 
 /// Extensions this build can decode as audio (empty without the `audio` feature).
+///
+/// Containers that need an external decoder (`opus`, `webm`, `mp4`, `mov`, …) are
+/// listed only when `CHUNKR_FFMPEG` is set: `supported_extensions()` is a promise,
+/// so it reflects what this process can actually open.
 pub fn audio_extensions() -> &'static [&'static str] {
     #[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
     {
-        crate::audio::AUDIO_EXTENSIONS
+        if crate::audio::ffmpeg_configured() {
+            crate::audio::all_audio_extensions()
+        } else {
+            crate::audio::AUDIO_EXTENSIONS
+        }
     }
     #[cfg(not(all(feature = "audio", not(target_arch = "wasm32"))))]
     {
@@ -192,7 +201,7 @@ fn extract_documents(
             return crate::loader::archive::expand_zip(
                 bytes,
                 source,
-                &crate::loader::archive::ArchiveLimits::default(),
+                &crate::loader::archive::ArchiveLimits::from_env(),
                 depth,
             )
         }
@@ -208,6 +217,7 @@ fn extract_documents(
             SubtitleLoader::new().load_documents(bytes, extension, source)?
         }
         "eml" | "mbox" | "mail" => EmailLoader::new().load_documents(bytes, extension, source)?,
+        "msg" => MsgLoader::new().load_documents(bytes, source)?,
         "html" | "htm" | "xhtml" => {
             vec![document(clean_text(&html_to_text(bytes)?), source, "html")]
         }

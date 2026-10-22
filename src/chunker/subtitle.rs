@@ -32,6 +32,11 @@ pub struct Cue {
 }
 
 /// Chunks subtitle tracks into time windows that never split a cue.
+///
+/// When cues carry speakers (WebVTT voice tags, diarized transcripts), a window
+/// never mixes two of them: a chunk that reads "yes, absolutely — no, never" with
+/// no way to tell who said which half is worse than two shorter chunks that can be
+/// attributed. Tracks without speakers merge purely by size and time.
 #[derive(Debug, Clone)]
 pub struct SubtitleChunker {
     pub max_seconds: f64,
@@ -72,7 +77,9 @@ impl SubtitleChunker {
                 let cue = &cues[end];
                 let projected = characters + 1 + cue.text.len();
                 let seconds = (cue.end_ms.saturating_sub(cues[start].start_ms)) as f64 / 1000.0;
-                if seconds > self.max_seconds || projected > self.max_characters {
+                // A speaker change ends the window even when there is room left.
+                let turn = speakers_differ(&cues[end - 1].speaker, &cue.speaker);
+                if turn || seconds > self.max_seconds || projected > self.max_characters {
                     break;
                 }
                 characters = projected;
@@ -235,9 +242,20 @@ fn window_document(window: &[Cue]) -> Document {
         Value::from(seconds(end_ms.saturating_sub(start_ms))),
     );
     metadata.insert("cue_count".to_string(), Value::from(window.len()));
-    if let Some(speaker) = uniform_speaker(window) {
-        metadata.insert("speaker".to_string(), Value::from(speaker));
-    }
+    match uniform_speaker(window) {
+        Some(speaker) => metadata.insert("speaker".to_string(), Value::from(speaker)),
+        None => {
+            // Several speakers in one window means the cue boundaries disagreed
+            // with the budget; record who and how often so retrieval can still
+            // filter, and so a caller can see the window is mixed.
+            let speakers = speakers_in_order(window);
+            if !speakers.is_empty() {
+                metadata.insert("speakers".to_string(), Value::from(speakers.join(", ")));
+                metadata.insert("speaker_turns".to_string(), Value::from(speakers.len()));
+            }
+            None
+        }
+    };
 
     let content = window
         .iter()
@@ -247,7 +265,30 @@ fn window_document(window: &[Cue]) -> Document {
     Document::new(content, metadata)
 }
 
+/// Whether two consecutive cues come from different speakers.
+///
+/// Unknown speakers do not break a window: an unlabelled cue between two labelled
+/// ones is usually the same person continuing, and splitting on it would produce
+/// fragments that each still cannot be attributed.
+fn speakers_differ(previous: &Option<String>, next: &Option<String>) -> bool {
+    match (previous, next) {
+        (Some(previous), Some(next)) => previous != next,
+        _ => false,
+    }
+}
+
 /// The speaker of a window, when every voiced cue agrees on one.
+/// Distinct speakers in the order they first appear.
+fn speakers_in_order(window: &[Cue]) -> Vec<String> {
+    let mut speakers: Vec<String> = Vec::new();
+    for speaker in window.iter().filter_map(|cue| cue.speaker.as_deref()) {
+        if !speakers.iter().any(|known| known == speaker) {
+            speakers.push(speaker.to_string());
+        }
+    }
+    speakers
+}
+
 fn uniform_speaker(window: &[Cue]) -> Option<String> {
     let mut speakers: Vec<&str> = Vec::new();
     for speaker in window.iter().filter_map(|cue| cue.speaker.as_deref()) {

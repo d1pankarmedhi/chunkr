@@ -884,3 +884,99 @@ fn test_xlsx_used_area_starting_away_froma1_still_lines_up() {
         sheet.content
     );
 }
+
+#[test]
+fn test_msg_message_is_extracted_with_headers() {
+    // Fixture: `data/ascii.msg` from the MIT-licensed `msg_parser` crate (a real
+    // Outlook message, so the CFB parsing is exercised, not a hand-written stub).
+    let path = PathBuf::from("tests/test_files/sample.msg");
+    let documents = chunkr::loader::load_documents(&path).expect("parse .msg");
+    assert_eq!(documents.len(), 1);
+
+    let document = &documents[0];
+    assert_eq!(document.metadata["format"], serde_json::json!("outlook"));
+    assert!(
+        document.metadata.contains_key("subject"),
+        "subject missing: {:?}",
+        document.metadata
+    );
+    assert!(document.metadata.contains_key("from"));
+    assert!(document.metadata.contains_key("date"));
+    assert!(document.content.contains("Subject:"));
+    assert!(
+        document.content.len() > 40,
+        "body is missing: {:?}",
+        document.content
+    );
+}
+
+#[test]
+fn test_msg_is_dispatched_and_in_supported_extensions() {
+    assert!(chunkr::loader::supported_extensions()
+        .iter()
+        .any(|extension| extension == "msg"));
+
+    let error = chunkr::loader::load_documents_from_bytes(b"not a compound file", "msg", None);
+    assert!(error.is_err(), "garbage must not parse as a message");
+}
+
+#[test]
+fn test_msg_attachments_are_dispatched_by_their_own_format() {
+    // Fixture from the MIT-licensed `msg_parser` crate: a real forwarded message
+    // with a `.doc`, a `.png` and a `.jpg` — none of which we can read as text.
+    let path = PathBuf::from("tests/test_files/attachment.msg");
+    let documents = chunkr::loader::load_documents(&path).expect("parse .msg");
+
+    assert_eq!(
+        documents.len(),
+        1,
+        "unreadable attachments are skipped, not faked"
+    );
+    let message = &documents[0];
+    assert_eq!(message.metadata["format"], serde_json::json!("outlook"));
+    assert_eq!(message.metadata["attachment_count"], serde_json::json!(3));
+    assert_eq!(
+        message.metadata["attachments"],
+        serde_json::json!("loan_p~1.doc, image001.png, image002.jpg")
+    );
+    assert!(message.content.contains("Subject:"));
+}
+
+#[test]
+fn test_msg_nested_message_becomes_its_own_document() {
+    // A mail forwarded as an attachment (attach_method 1, a full `.msg` inside):
+    // the nested message is parsed and attributed like a zip member, and the
+    // depth guard keeps a chain of embedded messages finite.
+    let path = PathBuf::from("tests/test_files/nested_attachment.msg");
+    let documents = chunkr::loader::load_documents(&path).expect("parse .msg");
+
+    let nested: Vec<&Document> = documents
+        .iter()
+        .filter(|document| document.metadata.contains_key("attachment_name"))
+        .collect();
+    assert!(
+        !nested.is_empty(),
+        "nested message not extracted: {:?}",
+        documents
+            .iter()
+            .map(|document| document.metadata.get("attachment_name"))
+            .collect::<Vec<_>>()
+    );
+
+    let attachment = nested[0];
+    // The long file name is preferred over the 8.3 one when the message has it.
+    assert_eq!(
+        attachment.metadata["attachment_name"],
+        serde_json::json!("Test Email.msg")
+    );
+    assert!(
+        attachment.metadata["source"]
+            .as_str()
+            .unwrap_or_default()
+            .contains(".msg!Test Email.msg"),
+        "attachment source should chain back to the mail: {:?}",
+        attachment.metadata["source"]
+    );
+    assert!(!attachment.content.trim().is_empty());
+    assert!(nested.len() < 20, "depth guard produced {}", nested.len());
+}

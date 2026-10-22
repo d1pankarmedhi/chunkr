@@ -24,6 +24,38 @@ artifact.
 
 ### Added
 
+- **Speech models: pinned manifest, verified on-demand download, `chunkr models`** (`--features audio`).
+  Weights are not bundled — crates.io caps a crate at 10 MB, a published wheel would carry a model
+  most users never call, and choosing a model is the caller's decision about language, latency and
+  hardware. What ships is the manifest (`tiny.en`, `base.en`, `small.en` and the multilingual trio,
+  each with its size and SHA-256 as published upstream) plus `chunkr models list|pull|dir` and
+  `--asr <model>`: a run downloads what it needs into the platform cache (`CHUNKR_MODEL_DIR`
+  overrides), writes through `.part`, verifies size and digest, then renames — so an interrupted
+  download can never masquerade as a model. `--offline` refuses to fetch. Downloading goes through
+  `curl`, `wget` or PowerShell rather than a TLS stack: the crate keeps its no-C-dependency promise
+  and no HTTP client ships for a code path most users run once.
+- **`--asr` turns the CLI into a transcriber with no configuration**: it resolves the model, finds
+  `whisper-cli`/`whisper-cpp` on `PATH` (or `CHUNKR_WHISPER_BIN`), and registers the backend for the
+  run, so `chunkr episode.mp3 --asr base.en` is the whole setup.
+- **`ffmpeg` containers are advertised when an `ffmpeg` is configured**: `opus`, `webm`, `mkv`, `mp4`,
+  `m4v`, `mov`, `avi`, `aiff`, `wma`, `amr`, `caf` join the audio family, which means the audio track
+  of a lecture or call recording transcribes into the usual timestamped chunks. They are listed only
+  while `CHUNKR_FFMPEG` is set, so `supported_extensions()` never promises what the process cannot do.
+- **Outlook `.msg`**: CFB property streams, RTF-compressed bodies and attachments via `msg_parser` —
+  one document with `format="outlook"`, `subject`, `from`, `to`, `cc`, `date`, `msg_class`,
+  `attachment_count` and `attachments`, mirroring what the EML loader produces so a mailbox exported
+  either way chunks and filters the same. Attachments are dispatched by their own extension like zip
+  members — a forwarded spreadsheet chunks as a table, a PDF as pages, an embedded `.msg` as a
+  message (bounded to 4 levels) — each tagged `attachment_name`/`attachment_index` with a chained
+  `source` (`mail.msg!Test Email.msg`); unreadable ones (images, legacy `.doc`) are skipped rather
+  than faked.
+- **Speaker-aware windows**: when cues carry speakers (WebVTT voice tags, diarized transcripts) a
+  window never mixes two of them — a chunk that reads "yes, absolutely — no, never" with no
+  attribution is worse than two shorter attributed chunks. Windows record `speaker`, or `speakers` +
+  `speaker_turns` when an unlabelled cue let two voices through.
+- **`CHUNKR_ARCHIVE_DEPTH` / `CHUNKR_ARCHIVE_ENTRIES` / `CHUNKR_ARCHIVE_MB`** raise the archive limits
+  from the environment for pipelines whose exports are zip-of-zip, with zip-bomb guards intact.
+
 - **Audio: timestamped transcripts behind the `audio` feature** (`chunkr-rs[audio]`). Audio files
   (`wav`, `mp3`, `flac`, `ogg`, `oga`, `m4a`, `m4b`, `aac`) now load through the format dispatcher:
   the container is decoded in pure Rust (symphonia — no system codecs, no C dependency), the speech

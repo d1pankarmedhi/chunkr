@@ -99,13 +99,14 @@ the natural unit of each format:
 | Documents | `pdf` | page |
 | Spreadsheets | `xlsx` `xlsm` `xlsb` `xls` `ods` `csv` `tsv` | worksheet (as a Markdown table) |
 | Office | `docx` `docm` `pptx` `odt` | document / slide |
-| Books & mail | `epub` `eml` `mbox` | chapter / message |
+| Books & mail | `epub` `eml` `mbox` `msg` | chapter / message |
 | Markup & notebooks | `html` `xml` `rtf` `ipynb` | document |
 | Captions | `srt` `vtt` `webvtt` | cue |
 | Text | `txt` `md` `log` `json` `jsonl` `ndjson`, any other extension | document |
 | Archives | `zip` | member (dispatched by its own format) |
 | Columnar (`pip install chunkr-tabular`) | `parquet` `feather` `arrow` `ipc` | batch of rows (as a Markdown table) |
 | Audio (`--features audio`, `pip install chunkr-audio`) | `wav` `mp3` `flac` `ogg` `oga` `m4a` `m4b` `aac` | transcript segment (with `start_time_s`/`end_time_s`) |
+| Audio & video with `ffmpeg` (`CHUNKR_FFMPEG`) | `opus` `webm` `mkv` `mp4` `m4v` `mov` `avi` `aiff` `wma` `amr` `caf` | transcript segment of the audio track |
 
 ```python
 subs   = chunkr.load_documents("talk.vtt")       # one Document per cue, with time spans
@@ -136,6 +137,15 @@ docs = chunkr.load_documents("episode.mp3")     # one Document per transcript se
 chunks = chunkr.SubtitleChunker(max_seconds=60).chunk_documents(docs)  # start_time_s/end_time_s
 ```
 
+Past `--features audio`, the run-time knobs are: `--asr <model>` (or `CHUNKR_WHISPER_BIN` +
+`CHUNKR_WHISPER_MODEL`), `CHUNKR_MODEL_DIR`, `CHUNKR_TRANSCRIBER`, `CHUNKR_FFMPEG`,
+`CHUNKR_ARCHIVE_DEPTH` / `CHUNKR_ARCHIVE_ENTRIES` / `CHUNKR_ARCHIVE_MB`.
+
+When a track or a transcript carries speakers, a window never mixes two of them — a chunk that reads
+"yes, absolutely — no, never" with no way to tell who said which half is worse than two shorter
+chunks that can be attributed — and windows record `speaker`, or `speakers` + `speaker_turns` when an
+unlabelled cue let two voices in.
+
 `chunkr-audio` registers Whisper on install; anything that returns
 `{"start", "end", "text", "speaker"?}` can be registered with
 `chunkr.register_transcriber(name, fn)` — no Rust changes. Without a transcriber, audio fails with
@@ -143,12 +153,22 @@ instructions instead of guessing, and a file with no detectable speech fails bef
 called. `CHUNKR_TRANSCRIBER=<name>` picks between several registered backends.
 
 From the CLI, point it at a local [whisper.cpp](https://github.com/ggml-org/whisper.cpp) build and no
-Python is involved — the core resamples to the 16 kHz mono WAV the binary requires:
+Python is involved — the core resamples to the 16 kHz mono WAV the binary requires. Models are
+fetched on demand, size- and SHA-256-verified, into the platform cache:
 
 ```bash
-CHUNKR_WHISPER_BIN=whisper-cli CHUNKR_WHISPER_MODEL=ggml-base.en.bin \
-  chunkr episode.mp3 -f text
+chunkr models list                    # pinned models, size, what is already downloaded
+chunkr models pull base.en            # 148 MB, verified, cached once
+chunkr episode.mp3 --asr base.en -f text
+
+# A model file of your own, or a pinned install:
+CHUNKR_WHISPER_BIN=whisper-cli CHUNKR_WHISPER_MODEL=/models/ggml-large-v3.bin chunkr talk.mp3
 ```
+
+Weights are deliberately **not** bundled: crates.io caps a crate at 10 MB, and which model to run is a
+decision about language, latency and hardware. What ships instead is the manifest — name, size and
+digest for each model — so `chunkr models pull` downloads something it can verify, `--offline` fails
+loudly instead of fetching, and `CHUNKR_MODEL_DIR` points the cache at a mounted volume in CI.
 
 ```
 === episode.mp3 · 0.0s-5.6s ===
@@ -158,7 +178,10 @@ He hoped there would be stew for dinner, turnips and carrots …
 
 Opus is the one common codec with no decoder in the pure-Rust path (symphonia does not implement it),
 so `.ogg`/`.webm` files that carry Opus report the codec and the remedy. Set `CHUNKR_FFMPEG` and the
-same file decodes through it instead — nothing runs unless the built-in path fails first.
+same file decodes through it instead — nothing runs unless the built-in path fails first. The same
+bridge covers video containers: the audio track of a `.mp4`/`.mov`/`.mkv` lecture or call recording
+transcribes into the usual timestamped chunks, and those extensions only appear in
+`supported_extensions()` when an `ffmpeg` is actually configured.
 
 A zip is expanded rather than treated as one blob: every member is dispatched by its own
 extension — a `.csv` inside it is chunked as a table with headers repeated, a `.md` as Markdown — and
