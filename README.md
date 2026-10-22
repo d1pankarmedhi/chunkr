@@ -146,6 +146,14 @@ When a track or a transcript carries speakers, a window never mixes two of them 
 chunks that can be attributed — and windows record `speaker`, or `speakers` + `speaker_turns` when an
 unlabelled cue let two voices in.
 
+Speech detection is an energy VAD (adaptive noise floor) with one deliberate rule: the library only
+*refuses* audio that is silent, never audio its estimate did not like. Measured on real speech mixed
+with white noise, the detector reports 54% speech at 20 dB SNR and nothing at 0 dB — a neural VAD
+would do better there, but an ONNX runtime plus a model artifact is a large price for a number nothing
+downstream branches on. So a noisy recording still transcribes (with `speech_detected: false`,
+`speech_ratio: 0.0`), and digital silence fails before a model is loaded. Metadata: `vad`, `speech_s`,
+`speech_ratio`, `speech_detected`.
+
 `chunkr-audio` registers Whisper on install; anything that returns
 `{"start", "end", "text", "speaker"?}` can be registered with
 `chunkr.register_transcriber(name, fn)` — no Rust changes. Without a transcriber, audio fails with

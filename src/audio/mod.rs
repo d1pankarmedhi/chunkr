@@ -37,6 +37,13 @@ pub use decode::{
 pub use models::{ModelSpec, MODELS};
 pub use vad::{speech_spans, SpeechSpan, VadConfig};
 
+/// Peak amplitude below which audio counts as silent for the early refusal.
+///
+/// -54 dBFS: digital silence, muted tracks and empty room noise. Deliberately far
+/// below anything a person would call speech, because a false "no speech" here
+/// denies a file the model could have transcribed.
+const SILENCE_PEAK: f32 = 0.002;
+
 /// Extensions the decoder accepts.
 ///
 /// `.opus` and `.webm` are deliberately absent: symphonia has no Opus decoder, so
@@ -232,10 +239,25 @@ pub fn load_documents_with(
 
     let config = VadConfig::default();
     let spans = speech_spans(&audio.samples, audio.sample_rate, &config);
-    if spans.is_empty() {
+    // `+ 0.0` normalises a negative zero: summing an empty iterator yields -0.0,
+    // which serialises as `-0.0` and reads as a bug in metadata.
+    let speech_s: f64 = spans
+        .iter()
+        .map(|span| span.end_s - span.start_s)
+        .sum::<f64>()
+        + 0.0;
+    let speech_ratio = ((speech_s / audio.duration_s.max(f64::EPSILON)).min(1.0)) + 0.0;
+
+    // Refuse only what every detector agrees on: audio that is silent. An energy
+    // estimate missing speech in a noisy recording (measured: nothing at 0 dB SNR)
+    // is a reason to report `speech_detected: false`, not to deny the file — the
+    // model gets the last word, and its own "no segments" error is the honest one.
+    if spans.is_empty() && audio.peak() < SILENCE_PEAK {
         return Err(ChunkrError::ParseError(format!(
-            "audio {label}: no speech detected in {}s of audio (energy VAD)",
-            audio.duration_s as u64
+            "audio {label}: no speech detected in {}s of audio (peak {:.4}, below the \
+             silence floor)",
+            audio.duration_s as u64,
+            audio.peak()
         )));
     }
 
@@ -264,7 +286,6 @@ pub fn load_documents_with(
         )));
     }
 
-    let speech_s: f64 = spans.iter().map(|span| span.end_s - span.start_s).sum();
     let total_segments = segments.len();
     let mut documents = Vec::with_capacity(total_segments);
 
@@ -279,11 +300,13 @@ pub fn load_documents_with(
         );
         metadata.insert("sample_rate".to_string(), Value::from(audio.sample_rate));
         metadata.insert("channels".to_string(), Value::from(audio.channels));
-        metadata.insert("speech_s".to_string(), Value::from(speech_s));
+        metadata.insert("vad".to_string(), Value::from("energy"));
         metadata.insert(
-            "speech_ratio".to_string(),
-            Value::from((speech_s / audio.duration_s.max(f64::EPSILON)).min(1.0)),
+            "speech_detected".to_string(),
+            Value::from(!spans.is_empty()),
         );
+        metadata.insert("speech_s".to_string(), Value::from(speech_s));
+        metadata.insert("speech_ratio".to_string(), Value::from(speech_ratio));
         metadata.insert("segment_index".to_string(), Value::from(index));
         metadata.insert("total_segments".to_string(), Value::from(total_segments));
         metadata.insert("start_time_s".to_string(), Value::from(segment.start_s));
