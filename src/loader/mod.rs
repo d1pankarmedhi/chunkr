@@ -39,6 +39,8 @@ pub mod office;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod spreadsheet;
 #[cfg(not(target_arch = "wasm32"))]
+mod spreadsheet_format;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod subtitle;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod table_source;
