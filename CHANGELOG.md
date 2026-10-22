@@ -45,6 +45,26 @@ artifact.
   hangover merging and short-blip rejection, with no model artifact to ship. It reports speech
   timing, makes a silent file fail *before* a model is called, and fills `speech_ratio`. A recording
   with no quiet frame anywhere is treated as speech rather than silence, so the transcriber decides.
+- **Number display formats in worksheets**: percentages, currency and thousands separators now
+  render the way the spreadsheet shows them (`0.15` with `0%` becomes `15%`, `1234.5` with
+  `"$"#,##0.00` becomes `$1,234.50`, `#,##0` becomes `1,235`), including custom formats declared in
+  `xl/styles.xml`, negative and zero sections (`($1,234.50)`, a literal `"nil"` section) and locale
+  currency brackets (`[$€-407]`). calamine exposes values but drops cell styles, so the style table
+  and each cell's `s=` attribute are read directly. Rounds halves away from zero like Excel. Covers
+  xlsx only; xls/xlsb/ods keep stored values, and builtin locale currencies render with `$`.
+- **The CLI keeps the unit each chunk came from**: a file is chunked per extracted unit (page,
+  sheet, slide, chapter, email, archive member, subtitle window, JSONL record span) and each chunk
+  inherits that unit's metadata, so `--format jsonl` now carries `sheet_name`, `page_number`,
+  `start_record`, `start_time_s` and friends instead of discarding them. Text output prints a
+  `=== report.xlsx · sheet Budget 1/2 ===` header whenever the unit changes, which also makes
+  `--strategy dir` output unambiguous.
+
+### Fixed
+
+- **Worksheets whose used area does not start at A1 were read as empty.** Cell lookups used grid
+  positions against calamine's absolute-position API, and merge/style coordinates were applied to
+  grid indices; a sheet whose first used cell is `C3` lost its header, its merges and its number
+  formats. Values, formulas, merges and formats now share one absolute frame.
 
 ### Added
 
