@@ -406,3 +406,108 @@ from the affected tail windows. `benchmarks/data/` is downloaded on first run an
 Absolute throughput is higher than the README on this machine (M4 vs whatever the README was
 measured on); the only claim that does not survive is the relative position on token/BPE
 chunking, where chunkr sits behind both Chonkie and LangChain.
+
+## Retrieval quality over real file formats (`bench_retrieval.py`)
+
+The Chroma comparison above measures text corpora with an embedding model. This harness asks the
+question that matters once a library claims to handle *files*: **given a query whose evidence sits at
+a known place in a real document, does the retrieved chunk contain that evidence — and does the
+chunk's metadata say where it came from?**
+
+```bash
+pip install pyarrow maturin && maturin develop --features python     # one-time
+python benchmarks/bench_retrieval.py                                 # ~60 s, all datasets
+python benchmarks/bench_retrieval.py --datasets wtq --splitters chunkr fixed:1000
+```
+
+Corpora are Hugging Face datasets, materialised as real files in formats `chunkr` loads and pinned to
+the commit each run resolves (recorded in the results file):
+
+| key | dataset | queries | gold evidence |
+| --- | --- | --- | --- |
+| `squad` | `rajpurkar/squad` | reading-comprehension questions | character span of the answer in the article |
+| `scifact` | `mteb/scifact` | scientific claims | relevant documents (BEIR qrels) |
+| `nfcorpus` | `mteb/nfcorpus` | medical questions | relevant documents (BEIR qrels) |
+| `wtq` | `TableSenseAI/WikiTableQuestions` | questions over a CSV table | the table, and the row holding the answer |
+
+Retrieval is BM25 (`k1=1.2`, `b=0.75`, inverted index, pure Python) so a run costs a minute and never
+depends on a model version, a GPU or a network round-trip. Splitters every dataset sees the same files
+through:
+
+| splitter | what it does |
+| --- | --- |
+| `chunkr` | `load_documents` (one unit per format unit) + `RecursiveChunker(1000, 120)` for text |
+| `chunkr:2000` | the same at a 2,000-character target |
+| `fixed:N` | naive character window, the usual baseline |
+| `whole` | one chunk per file — recall ceiling, and unusable in practice |
+
+`hit@k` = share of queries whose evidence is inside a top-k chunk; `integrity` = share of answers no
+chunk boundary cuts through (a splitter can score high at k=10 and still demolish answers);
+`nDCG@10`/`R@10` are document-level, chunk scores aggregated per document by max (BEIR convention).
+
+| dataset | splitter | hit@1 | hit@5 | MRR | integrity | nDCG@10 | R@10 | chunks/doc | mean chars |
+| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| squad | `chunkr` | 0.648 | 0.854 | 0.736 | **1.000** | — | — | 42.4 | 752 |
+| squad | `chunkr:2000` | 0.668 | 0.862 | 0.754 | **1.000** | — | — | 20.3 | 1555 |
+| squad | `fixed:1000` | 0.652 | 0.846 | 0.736 | 0.970 | — | — | 36.2 | 988 |
+| squad | `fixed:2000` | 0.656 | 0.864 | 0.747 | 0.996 | — | — | 17.2 | 1946 |
+| squad | `whole` | 0.782 | 0.934 | 0.846 | 1.000 | — | — | 1.0 | 31534 |
+| scifact | `chunkr` | — | — | 0.579 | — | 0.621 | 0.750 | 2.1 | 727 |
+| scifact | `chunkr:2000` | — | — | 0.616 | — | 0.657 | 0.787 | 1.2 | 1307 |
+| scifact | `fixed:1000` | — | — | 0.601 | — | 0.643 | 0.773 | 2.1 | 780 |
+| scifact | `fixed:2000` | — | — | 0.616 | — | 0.658 | 0.787 | 1.2 | 1320 |
+| scifact | `whole` | — | — | 0.616 | — | 0.659 | 0.793 | 1.0 | 1500 |
+| nfcorpus | `chunkr` | — | — | 0.111 | — | 0.137 | 0.223 | 2.2 | 747 |
+| nfcorpus | `fixed:1000` | — | — | 0.113 | — | 0.139 | 0.223 | 2.2 | 803 |
+| nfcorpus | `whole` | — | — | 0.110 | — | 0.139 | 0.235 | 1.0 | 1592 |
+| wtq | `chunkr` | **0.294** | **0.440** | **0.360** | **0.944** | — | — | 1.0 | 2400 |
+| wtq | `fixed:1000` | 0.258 | 0.376 | 0.313 | 0.878 | — | — | 2.9 | 862 |
+| wtq | `fixed:2000` | 0.278 | 0.410 | 0.332 | 0.878 | — | — | 1.7 | 1410 |
+| wtq | `whole` | 0.266 | 0.404 | 0.328 | 0.878 | — | — | 1.0 | 2300 |
+
+500 queries, a fixed seed, one session; raw output in
+[`results/retrieval_hf_20261022T080623Z.json`](results/retrieval_hf_20261022T080623Z.json).
+
+### What the numbers say
+
+* **Sentence-aware boundaries are what "units" buy, and it shows where answers are cut.** On SQuAD
+  articles `chunkr` cuts **no** answer in two at either size (integrity 1.000); a fixed window cuts
+  3% of them at 1,000 characters even with 120 characters of overlap. `hit@k` then ties, which is the
+  point: the gain is in the chunks that survive, not in a reshuffled ranking.
+* **Chunking short documents costs 2-3 nDCG points, and no splitter escapes it.** scifact abstracts
+  are ~1.5 KB, so any 1,000-character window loses ~2 points against not chunking at all
+  (`whole` 0.659). At a 2,000-character target `chunkr` returns to parity (0.657) with 1.2 chunks per
+  document instead of 1. Sentence-aware packing does not rescue a document that barely needs
+  splitting — it just refuses to cut one.
+* **Tables are where format-native extraction wins outright.** `chunkr` loads a CSV as a Markdown
+  table with the header repeated on every row, so a 1-table-per-chunk corpus beats naive windows on
+  hit@1 (+3.6 points), hit@5 (+3.6) and integrity (+6.6). A naive splitter cuts rows in half and
+  orphans cells from their header.
+* **`whole` is a trap.** It wins SQuAD hit@k with 31 KB chunks: nine times the embedding window of a
+  normal model, and useless for citing an answer back to a page.
+* **`nfcorpus` is the control.** Every splitter lands within 0.002 nDCG: when chunking is not the
+  bottleneck the harness says so instead of manufacturing a difference. (BM25 is genuinely weak on
+  this collection — 0.14 vs 0.66 on scifact — and a reference `rank_bm25` implementation reproduces
+  the same number, so the harness is not the cause.)
+
+### Bug found while running this: `.csv`/`.tsv` were never loaded as tables
+
+The README format table has claimed "worksheet (as a Markdown table)" for `csv`/`tsv` since the
+dispatcher landed, but the dispatcher only sent `xlsx`/`xls`/`xlsb`/`ods` to the spreadsheet loader:
+a `.csv` fell through to the text fallback and came back as raw text. The WTQ row above is what
+exposed it — `chunkr` and `whole` produced identical numbers because they *were* identical. Fixed in
+`src/loader/delimited.rs` (quote-aware, dependency-free parser shared with the table renderer) with
+`tests/delimited_tests.rs`; the table above is the before/after difference in one row.
+
+### Caveats
+
+* Lexical retrieval only. A dense retriever would move absolute numbers ~10 points and could change
+  the ordering on short abstracts; the Chroma harness above covers the embedding case.
+* Absolute `hit@1` on WTQ (0.29) is a property of surname-only table retrieval with BM25, not of the
+  chunker — compare rows against each other, not against papers with different analyzers and qrels.
+* `chunkr` and `fixed` splitters do not have identical mean chunk length (752 vs 988 characters at
+  the "same" 1,000 target, because sentence packing leaves slack). Compare at matched chunk
+  *count* (`chunkr:2000` vs `fixed:2000` vs `whole`) when that difference matters.
+* PDFs, EPUB and audio are absent: no small, permissively licensed HF dataset pairs them with
+  gold page/chapter/timestamp coordinates. Their units are covered by unit tests and the
+  provenance assertions in `tests/` instead.

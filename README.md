@@ -385,6 +385,19 @@ The `pages` column is a page count, not a word count: the extension returns 2,03
 | semchunk | 0.736 | 0.851 | 0.883 | **0.070** | **0.045** | **0.033** | 0.260 | 644 |
 | LlamaIndex | 0.654 | 0.752 | 0.805 | 0.013 | 0.010 | 0.009 | 0.054 | 4,136 |
 
+**Retrieval quality over real files** — Hugging Face datasets chunked as actual `.txt`/`.csv` files, BM25 retrieval, gold evidence taken from the dataset (`python benchmarks/bench_retrieval.py`). `hit@k` = the answer is inside a top-k chunk; `integrity` = no chunk boundary cuts through it.
+
+| Dataset | Splitter | hit@1 | hit@5 | integrity | nDCG@10 | chunks/doc | avg chars |
+| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| SQuAD articles | **chunkr** | 0.648 | 0.854 | **1.000** | — | 42.4 | 752 |
+| SQuAD articles | naive 1,000-char window | 0.652 | 0.846 | 0.970 | — | 36.2 | 988 |
+| WikiTableQuestions | **chunkr** | **0.294** | **0.440** | **0.944** | — | 1.0 | 2,400 |
+| WikiTableQuestions | naive 1,000-char window | 0.258 | 0.376 | 0.878 | — | 2.9 | 862 |
+| SciFact (BEIR) | **chunkr, 2,000-char target** | — | — | — | **0.657** | 1.2 | 1,307 |
+| SciFact (BEIR) | no chunking at all | — | — | — | 0.659 | 1.0 | 1,500 |
+
+Sentence-aware boundaries never cut an answer in two; a CSV loads as a Markdown table with its header on every row, so a table corpus retrieves better than one built from text windows. On 1.5 KB abstracts chunking itself costs ~2 nDCG points whatever the splitter, which is why 2,000-character targets return to parity with not chunking. Method, caveats and the `nfcorpus` control: [`benchmarks/README.md`](benchmarks/README.md#retrieval-quality-over-real-file-formats-bench_retrievalpy).
+
 chunkr leads recall at every k (+0.030 / +0.016 / +0.020 over the next best) and stays first with per-corpus retrieval. `P@k` tracks chunk length — chunkr's 854-char chunks carry more non-answer text than the 644-790-char fields, and that ordering is the whole gap. Interpolated to *the same* chunk length (500-900 chars) chunkr leads recall *and* purity at every budget. Full sweep, recursive + markdown: [`benchmarks/README.md`](benchmarks/README.md). OCR accuracy per engine: [`benchmarks/README.md`](benchmarks/README.md#ocr-accuracy-ocr_accuracypy).
 
 ## FAQ

@@ -1,9 +1,9 @@
 //! Automatic format dispatch: pick the right extractor from a file extension.
 //!
 //! Extensions without a dedicated parser are decoded as text: byte-order marks are
-//! always honoured and `.txt`/`.log`/`.csv`/`.tsv` also accept legacy single-byte
-//! encodings, while formats that are UTF-8 by convention are rejected when they are
-//! not valid UTF-8.
+//! always honoured and `.txt`/`.log` also accept legacy single-byte encodings,
+//! while formats that are UTF-8 by convention are rejected when they are not valid
+//! UTF-8. Delimited files (`.csv`, `.tsv`) load as tables, not as raw text.
 
 use std::path::Path;
 
@@ -11,6 +11,7 @@ use serde_json::Value;
 
 use crate::error::ChunkrError;
 use crate::loader::base::source_metadata;
+use crate::loader::delimited::load_delimited;
 use crate::loader::email::EmailLoader;
 use crate::loader::epub::EpubLoader;
 use crate::loader::msg::MsgLoader;
@@ -29,8 +30,9 @@ use crate::structures::document::Document;
 
 /// Formats with a dedicated extractor rather than a plain-text fallback.
 pub const STRUCTURED_EXTENSIONS: &[&str] = &[
-    "pdf", "xlsx", "xlsm", "xlsb", "xls", "ods", "docx", "docm", "pptx", "odt", "epub", "eml",
-    "mbox", "msg", "rtf", "xml", "ipynb", "html", "htm", "xhtml", "srt", "vtt", "webvtt", "zip",
+    "pdf", "xlsx", "xlsm", "xlsb", "xls", "ods", "csv", "tsv", "docx", "docm", "pptx", "odt",
+    "epub", "eml", "mbox", "msg", "rtf", "xml", "ipynb", "html", "htm", "xhtml", "srt", "vtt",
+    "webvtt", "zip",
 ];
 
 /// Extensions understood by [`load_documents`], structured formats first.
@@ -44,7 +46,7 @@ pub fn supported_extensions() -> Vec<String> {
         .collect();
     extensions.extend(
         [
-            "txt", "md", "markdown", "csv", "tsv", "json", "jsonl", "ndjson", "yaml", "yml",
+            "txt", "md", "markdown", "json", "jsonl", "ndjson", "yaml", "yml",
         ]
         .iter()
         .map(|e| e.to_string()),
@@ -155,7 +157,7 @@ fn load_from_table_source(
 /// enough to decode rather than reject. Other text formats are UTF-8 by
 /// convention, so a payload that is not valid UTF-8 is reported instead of
 /// silently turned into mojibake.
-const LEGACY_ENCODING_FORMATS: &[&str] = &["txt", "text", "log", "csv", "tsv"];
+const LEGACY_ENCODING_FORMATS: &[&str] = &["txt", "text", "log"];
 
 /// Extract documents from an in-memory payload with a known extension.
 pub fn load_documents_from_bytes(
@@ -209,6 +211,7 @@ fn extract_documents(
         "xlsx" | "xlsm" | "xlsb" | "xls" | "ods" => {
             SpreadsheetLoader::new().load_documents(bytes, source)?
         }
+        "csv" | "tsv" => load_delimited(bytes, extension, source)?,
         "docx" | "docm" | "pptx" | "odt" => {
             OfficeLoader::new().load_documents(bytes, extension, source)?
         }
