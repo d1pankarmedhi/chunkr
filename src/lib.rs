@@ -51,6 +51,8 @@
 //! Most users will want to import [`prelude::*`](prelude), which brings all chunkers,
 //! loaders, pipeline stages, and data structures into scope.
 
+#[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
+pub mod audio;
 pub mod chunker;
 pub mod error;
 pub mod loader;

@@ -2469,6 +2469,133 @@ fn normalize_extensions(extensions: &[String]) -> PyResult<Vec<String>> {
     Ok(normalized)
 }
 
+/// Register a speech-to-text transcriber under `name`.
+///
+/// The callable is invoked as `transcriber(audio_bytes, format)` and returns an
+/// iterable of mappings: `{"start": float, "end": float, "text": str,
+/// "speaker": str?}` in seconds from the start of the audio. It replaces any
+/// transcriber already registered under the same name.
+#[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
+#[pyfunction]
+#[pyo3(signature = (name, transcriber))]
+pub fn register_transcriber(name: &str, transcriber: Py<PyAny>) -> PyResult<()> {
+    let callable = Python::with_gil(|py| transcriber.bind(py).is_callable());
+    if !callable {
+        return Err(PyValueError::new_err("transcriber must be callable"));
+    }
+    crate::audio::register_transcriber(
+        name,
+        Box::new(PyTranscriber {
+            name: name.to_string(),
+            transcriber,
+        }),
+    );
+    Ok(())
+}
+
+/// Remove a registered transcriber. Returns True when one was removed.
+#[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
+#[pyfunction]
+pub fn unregister_transcriber(name: &str) -> bool {
+    crate::audio::unregister_transcriber(name)
+}
+
+/// Names of every registered transcriber, in registration order.
+#[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
+#[pyfunction]
+pub fn transcribers() -> Vec<String> {
+    crate::audio::registered_transcribers()
+}
+
+#[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
+struct PyTranscriber {
+    name: String,
+    transcriber: Py<PyAny>,
+}
+
+#[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
+impl crate::audio::Transcriber for PyTranscriber {
+    fn name(&self) -> String {
+        self.name.clone()
+    }
+
+    fn transcribe(
+        &self,
+        source: &crate::audio::AudioSource<'_>,
+    ) -> Result<Vec<crate::audio::TranscriptSegment>, ChunkrError> {
+        Python::with_gil(|py| self.call(py, source)).map_err(|error| {
+            ChunkrError::ParseError(format!("transcriber '{}': {error}", self.name))
+        })
+    }
+}
+
+#[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
+impl PyTranscriber {
+    fn call(
+        &self,
+        py: Python<'_>,
+        source: &crate::audio::AudioSource<'_>,
+    ) -> PyResult<Vec<crate::audio::TranscriptSegment>> {
+        let raw = self
+            .transcriber
+            .call1(py, (PyBytes::new_bound(py, source.bytes), source.format))?;
+        segments_from_python(raw.bind(py))
+    }
+}
+
+/// Convert what a Python transcriber returned into timed segments.
+#[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
+fn segments_from_python(
+    value: &Bound<'_, PyAny>,
+) -> PyResult<Vec<crate::audio::TranscriptSegment>> {
+    use crate::audio::TranscriptSegment;
+
+    let mut segments = Vec::new();
+    for (index, item) in value.iter()?.enumerate() {
+        let item = item?;
+        // A mapping (the documented shape) or an object with those attributes,
+        // which is what a SDK's own segment class usually looks like.
+        let mapping = item.downcast::<pyo3::types::PyDict>().ok();
+        let get = |key: &str| -> PyResult<Option<Bound<'_, PyAny>>> {
+            match &mapping {
+                Some(mapping) => mapping.get_item(key),
+                None if item.hasattr(key)? => Ok(Some(item.getattr(key)?)),
+                None => Ok(None),
+            }
+        };
+
+        let start = get("start")?
+            .ok_or_else(|| PyValueError::new_err(format!("segment {index}: missing 'start'")))?
+            .extract::<f64>()?;
+        let end = get("end")?
+            .ok_or_else(|| PyValueError::new_err(format!("segment {index}: missing 'end'")))?
+            .extract::<f64>()?;
+        let text = get("text")?
+            .ok_or_else(|| PyValueError::new_err(format!("segment {index}: missing 'text'")))?
+            .extract::<String>()?;
+
+        if !(start.is_finite() && end.is_finite()) || end < start {
+            return Err(PyValueError::new_err(format!(
+                "segment {index}: expected 0 <= start <= end, got {start}..{end}"
+            )));
+        }
+        if text.trim().is_empty() {
+            // Models emit empty segments for silence; they carry no text to index.
+            continue;
+        }
+
+        let mut segment = TranscriptSegment::new(start, end, text);
+        if let Some(speaker) = get("speaker")? {
+            if !speaker.is_none() {
+                segment = segment.with_speaker(speaker.extract::<String>()?);
+            }
+        }
+        segments.push(segment);
+    }
+
+    Ok(segments)
+}
+
 /// File extensions handled by [`load_documents`], structured formats first.
 #[pyfunction]
 pub fn supported_extensions() -> Vec<String> {
@@ -2518,6 +2645,12 @@ pub fn chunkr(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(register_table_loader, m)?)?;
     m.add_function(wrap_pyfunction!(unregister_table_loader, m)?)?;
     m.add_function(wrap_pyfunction!(table_loaders, m)?)?;
+    #[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
+    {
+        m.add_function(wrap_pyfunction!(register_transcriber, m)?)?;
+        m.add_function(wrap_pyfunction!(unregister_transcriber, m)?)?;
+        m.add_function(wrap_pyfunction!(transcribers, m)?)?;
+    }
     m.add_function(wrap_pyfunction!(pages_to_documents, m)?)?;
     m.add_function(wrap_pyfunction!(register_pdf_backend, m)?)?;
     m.add_function(wrap_pyfunction!(unregister_pdf_backend, m)?)?;

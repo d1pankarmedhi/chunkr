@@ -32,6 +32,32 @@ pub struct ArchiveLimits {
     pub ratio_floor_bytes: u64,
 }
 
+impl ArchiveLimits {
+    /// Defaults with any `CHUNKR_ARCHIVE_*` overrides applied.
+    ///
+    /// Deeply nested bundles are a legitimate export shape (a zip of zips of
+    /// CSVs), but the safe default is shallow; the env override lets a pipeline
+    /// raise it without a rebuild and without turning zip-bomb protection off.
+    pub fn from_env() -> Self {
+        let mut limits = Self::default();
+        if let Some(depth) = env_number("CHUNKR_ARCHIVE_DEPTH") {
+            limits.max_depth = depth as usize;
+        }
+        if let Some(entries) = env_number("CHUNKR_ARCHIVE_ENTRIES") {
+            limits.max_entries = entries as usize;
+        }
+        if let Some(bytes) = env_number("CHUNKR_ARCHIVE_MB") {
+            limits.max_uncompressed_bytes = bytes.saturating_mul(1024 * 1024);
+        }
+        limits
+    }
+}
+
+/// Parse a non-negative integer env var, ignoring junk rather than failing a load.
+fn env_number(name: &str) -> Option<u64> {
+    std::env::var(name).ok()?.trim().parse::<u64>().ok()
+}
+
 impl Default for ArchiveLimits {
     fn default() -> Self {
         Self {

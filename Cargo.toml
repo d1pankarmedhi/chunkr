@@ -48,6 +48,10 @@ pdf-ocr-ppocr-coreml = ["pdf-ocr-ppocr", "liteparse/oar-ocr-coreml"]
 pdf-ocr-ppocr-cuda = ["pdf-ocr-ppocr", "liteparse/oar-ocr-cuda"]
 pdf-ocr-ppocr-directml = ["pdf-ocr-ppocr", "liteparse/oar-ocr-directml"]
 pdf-ocr-ppocr-openvino = ["pdf-ocr-ppocr", "liteparse/oar-ocr-openvino"]
+# Audio containers decode in pure Rust (symphonia) for duration, speech spans and
+# handing the payload to a registered transcriber. symphonia ships no Opus
+# decoder, so `.ogg`/`.webm` that carry Opus need `CHUNKR_FFMPEG` set.
+audio = ["dep:symphonia"]
 pdf-ocr-ppocr-tensorrt = ["pdf-ocr-ppocr", "liteparse/oar-ocr-tensorrt"]
 pdf-ocr-ppocr-webgpu = ["pdf-ocr-ppocr", "liteparse/oar-ocr-webgpu"]
 
@@ -67,6 +71,7 @@ pyo3 = { version = "0.22", features = ["abi3-py38"], optional = true }
 wasm-bindgen = { version = "0.2.92", optional = true }
 serde-wasm-bindgen = { version = "0.6", optional = true }
 js-sys = { version = "0.3.69", optional = true }
+msg_parser = "0.3"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tree-sitter = "0.24"
@@ -84,6 +89,18 @@ quick-xml = "0.42.0"
 html2text = "0.17.3"
 encoding_rs = "0.8.42"
 mail-parser = "0.11.9"
+# Decode-only audio: no encoder, no C library, no system codecs.
+symphonia = { version = "0.5.4", default-features = false, features = [
+    "aac",
+    "adpcm",
+    "flac",
+    "isomp4",
+    "mp3",
+    "ogg",
+    "pcm",
+    "vorbis",
+    "wav",
+], optional = true }
 # OOXML/EPUB containers are stored or deflated; the default feature set pulls
 # in aes/bzip2/lzma/xz/zstd/zopfli, none of which a document needs.
 zip = { version = "9.0.3", default-features = false, features = ["deflate"] }

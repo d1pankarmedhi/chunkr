@@ -11,7 +11,7 @@ use crate::chunker::recursive::RecursiveChunker;
 use crate::chunker::subtitle::SubtitleChunker;
 use crate::chunker::table::{TableChunker, TableFormat};
 use crate::error::ChunkrError;
-use crate::loader::auto::load_documents;
+use crate::loader::auto::{is_audio, load_documents};
 use crate::loader::base::BaseLoader;
 use crate::loader::pdf::PDFLoader;
 use crate::loader::table_source::has_table_source;
@@ -312,8 +312,12 @@ impl DirectoryLoader {
                     .with_chunk_size(self.chunk_size)
                     .with_overlap(self.overlap),
             ),
-            // Caption tracks chunk by time window, not by character count.
+            // Captions and transcripts chunk by time window, not by character
+            // count, so a chunk can be cited back to a timestamp.
             "srt" | "vtt" | "webvtt" => {
+                Box::new(SubtitleChunker::new().with_max_characters(self.chunk_size))
+            }
+            ext if is_audio(ext) => {
                 Box::new(SubtitleChunker::new().with_max_characters(self.chunk_size))
             }
             "json" | "jsonl" | "ndjson" => {

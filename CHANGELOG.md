@@ -24,6 +24,72 @@ artifact.
 
 ### Added
 
+- **Speech models: pinned manifest, verified on-demand download, `chunkr models`** (`--features audio`).
+  Weights are not bundled — crates.io caps a crate at 10 MB, a published wheel would carry a model
+  most users never call, and choosing a model is the caller's decision about language, latency and
+  hardware. What ships is the manifest (`tiny.en`, `base.en`, `small.en` and the multilingual trio,
+  each with its size and SHA-256 as published upstream) plus `chunkr models list|pull|dir` and
+  `--asr <model>`: a run downloads what it needs into the platform cache (`CHUNKR_MODEL_DIR`
+  overrides), writes through `.part`, verifies size and digest, then renames — so an interrupted
+  download can never masquerade as a model. `--offline` refuses to fetch. Downloading goes through
+  `curl`, `wget` or PowerShell rather than a TLS stack: the crate keeps its no-C-dependency promise
+  and no HTTP client ships for a code path most users run once.
+- **`--asr` turns the CLI into a transcriber with no configuration**: it resolves the model, finds
+  `whisper-cli`/`whisper-cpp` on `PATH` (or `CHUNKR_WHISPER_BIN`), and registers the backend for the
+  run, so `chunkr episode.mp3 --asr base.en` is the whole setup.
+- **`ffmpeg` containers are advertised when an `ffmpeg` is configured**: `opus`, `webm`, `mkv`, `mp4`,
+  `m4v`, `mov`, `avi`, `aiff`, `wma`, `amr`, `caf` join the audio family, which means the audio track
+  of a lecture or call recording transcribes into the usual timestamped chunks. They are listed only
+  while `CHUNKR_FFMPEG` is set, so `supported_extensions()` never promises what the process cannot do.
+- **Outlook `.msg`**: CFB property streams, RTF-compressed bodies and attachments via `msg_parser` —
+  one document with `format="outlook"`, `subject`, `from`, `to`, `cc`, `date`, `msg_class`,
+  `attachment_count` and `attachments`, mirroring what the EML loader produces so a mailbox exported
+  either way chunks and filters the same. Attachments are dispatched by their own extension like zip
+  members — a forwarded spreadsheet chunks as a table, a PDF as pages, an embedded `.msg` as a
+  message (bounded to 4 levels) — each tagged `attachment_name`/`attachment_index` with a chained
+  `source` (`mail.msg!Test Email.msg`); unreadable ones (images, legacy `.doc`) are skipped rather
+  than faked.
+- **Speaker-aware windows**: when cues carry speakers (WebVTT voice tags, diarized transcripts) a
+  window never mixes two of them — a chunk that reads "yes, absolutely — no, never" with no
+  attribution is worse than two shorter attributed chunks. Windows record `speaker`, or `speakers` +
+  `speaker_turns` when an unlabelled cue let two voices through.
+- **`CHUNKR_ARCHIVE_DEPTH` / `CHUNKR_ARCHIVE_ENTRIES` / `CHUNKR_ARCHIVE_MB`** raise the archive limits
+  from the environment for pipelines whose exports are zip-of-zip, with zip-bomb guards intact.
+
+- **Audio: timestamped transcripts behind the `audio` feature** (`chunkr-rs[audio]`). Audio files
+  (`wav`, `mp3`, `flac`, `ogg`, `oga`, `m4a`, `m4b`, `aac`) now load through the format dispatcher:
+  the container is decoded in pure Rust (symphonia — no system codecs, no C dependency), the speech
+  is measured, and a registered `Transcriber` turns it into segments. Each segment becomes a
+  `Document` with `start_time_s`/`end_time_s`/`speaker` plus `format="audio"`, `audio_format`,
+  `audio_duration_s`, `sample_rate`, `channels`, `speech_s`, `speech_ratio`, `transcriber`,
+  `segment_index` and `total_segments`, so `SubtitleChunker` merges them into time windows that can
+  be cited back to a timestamp and `DirectoryLoader` routes audio by time rather than by character
+  count.
+- **Opus decodes through an opt-in `ffmpeg` bridge** (`CHUNKR_FFMPEG`). symphonia implements no
+  Opus decoder, and Opus is what WhatsApp voice notes, browser recordings and most downloaded audio
+  actually contain, so the extension alone promised more than the core could do. Codecs the built-in
+  path cannot handle now name themselves (`unsupported audio codec 'opus'` instead of
+  `unsupported codec`) and, when `CHUNKR_FFMPEG` points at a binary, decode through it — nothing
+  runs unless the pure-Rust path has already failed.
+- **CLI transcripts from a local whisper.cpp** (`CHUNKR_WHISPER_BIN` + `CHUNKR_WHISPER_MODEL`):
+  the core resamples to the 16 kHz mono WAV the binary requires, runs it with `-oj`, and maps its
+  segments — so `chunkr episode.mp3` produces timestamped chunks with no Python and no model in the
+  crate.
+- **`resample`**: band-limited downsampling (averaging before decimation, so 44.1 → 16 kHz does not
+  fold high frequencies into the speech band), exposed because every model wants 16 kHz and
+  containers deliver whatever they were encoded at.
+- **Transcriber registry** (`register_transcriber` / `unregister_transcriber` /
+  `registered_transcribers`, and the same three from Python): models are plugged in like PDF parsers
+  and table extractors, so the core keeps no ASR dependency. The most recent registration wins, and
+  `CHUNKR_TRANSCRIBER` picks between several by name.
+- **`packages/chunkr-audio`**: faster-whisper backend, discovered through the
+  `chunkr.transcribers` entry point. The model is built on first transcription, never at import, and
+  `chunkr.register_transcriber` accepts any callable returning
+  `{"start", "end", "text", "speaker"?}` — a hosted API or in-house model works the same way.
+- **Energy VAD** (`speech_spans`, `VadConfig`): an adaptive noise floor plus absolute floor,
+  hangover merging and short-blip rejection, with no model artifact to ship. It reports speech
+  timing, makes a silent file fail *before* a model is called, and fills `speech_ratio`. A recording
+  with no quiet frame anywhere is treated as speech rather than silence, so the transcriber decides.
 - **Number display formats in worksheets**: percentages, currency and thousands separators now
   render the way the spreadsheet shows them (`0.15` with `0%` becomes `15%`, `1234.5` with
   `"$"#,##0.00` becomes `$1,234.50`, `#,##0` becomes `1,235`), including custom formats declared in
@@ -40,6 +106,13 @@ artifact.
 
 ### Fixed
 
+- **Audio duration came from the container header, not the decoded samples.** A WAV streamed with an
+  unknown data size declares ~2^32 frames and reported 12 hours for a 4-second file; every timestamp
+  derived from it was wrong. Duration is now measured from the samples that were actually decoded,
+  which is also the audio a model was given.
+- **Transcriber spans past the end of the media are clamped.** Whisper pads its last window to a
+  frame boundary and can report an end beyond the file (a 13.0 s clip ended at 13.1 s); a chunk
+  citing a timestamp the file does not have is worse than a shortened span.
 - **Worksheets whose used area does not start at A1 were read as empty.** Cell lookups used grid
   positions against calamine's absolute-position API, and merge/style coordinates were applied to
   grid indices; a sheet whose first used cell is `C3` lost its header, its merges and its number

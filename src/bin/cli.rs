@@ -1,4 +1,4 @@
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
@@ -81,10 +81,57 @@ struct Cli {
     /// Enrich chunks with SHA-256 hash, text metrics, and chunk IDs
     #[arg(long = "enrich")]
     enrich: bool,
+
+    /// Transcribe audio with a local whisper.cpp build (`--features audio`)
+    #[arg(long = "asr", value_name = "MODEL", help_heading = "Audio")]
+    asr: Option<String>,
+
+    /// Skip a model download and fail if it is not already cached
+    #[arg(long = "offline", help_heading = "Audio")]
+    offline: bool,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// Manage speech models: list the pinned ones, or download one
+    Models {
+        #[command(subcommand)]
+        action: ModelsAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum ModelsAction {
+    /// Show the pinned models, their size and whether they are downloaded
+    List,
+    /// Download models (verifying size and SHA-256)
+    Pull {
+        /// One or more model names (`tiny.en`, `base`, `small.en`)
+        #[arg(value_name = "MODEL", required = true)]
+        models: Vec<String>,
+    },
+    /// Print the model cache directory
+    Dir,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
+
+    if let Some(Command::Models { action }) = cli.command {
+        return run_models(action);
+    }
+
+    #[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
+    if let Some(model) = &cli.asr {
+        configure_asr(model, cli.offline)?;
+    }
+    #[cfg(any(not(feature = "audio"), target_arch = "wasm32"))]
+    if cli.asr.is_some() {
+        return Err("--asr needs a build with `--features audio`".into());
+    }
 
     // 1. If Strategy::Dir, run directory loader directly
     let mut chunks = if cli.strategy == Strategy::Dir {
@@ -338,4 +385,75 @@ fn unit_label(metadata: &std::collections::HashMap<String, serde_json::Value>) -
         (Some(name), None) => Some(name.to_string()),
         (None, unit) => unit,
     }
+}
+
+// ── Audio: model management and the whisper.cpp bridge ──────────────────────
+
+#[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
+fn run_models(action: ModelsAction) -> Result<(), Box<dyn std::error::Error>> {
+    use chunkr::audio::models;
+
+    match action {
+        ModelsAction::Dir => println!("{}", models::cache_dir().display()),
+        ModelsAction::List => {
+            let cache = models::cache_dir();
+            println!("cache: {}", cache.display());
+            println!();
+            println!("{:<10} {:>10}  {:<12}  STATUS", "MODEL", "SIZE", "LANGUAGE");
+            for spec in models::MODELS {
+                let status = if models::cached(spec).is_some() {
+                    "downloaded".to_string()
+                } else {
+                    String::new()
+                };
+                println!(
+                    "{:<10} {:>7.0} MB  {:<10}  {}",
+                    spec.name,
+                    spec.bytes as f64 / 1e6,
+                    if spec.multilingual {
+                        "multilingual"
+                    } else {
+                        "english"
+                    },
+                    status
+                );
+            }
+        }
+        ModelsAction::Pull { models: names } => {
+            for name in names {
+                let path = models::pull(&name)?;
+                println!("{} -> {}", name, path.display());
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(any(not(feature = "audio"), target_arch = "wasm32"))]
+fn run_models(_action: ModelsAction) -> Result<(), Box<dyn std::error::Error>> {
+    Err("model management needs a build with `--features audio`".into())
+}
+
+/// Resolve the model, find the binary, and register whisper.cpp for this run.
+#[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
+fn configure_asr(model: &str, offline: bool) -> Result<(), Box<dyn std::error::Error>> {
+    use chunkr::audio::models;
+
+    let model_path = if offline {
+        models::resolve(model)?
+    } else {
+        models::pull(model)?
+    };
+    let binary = models::find_binary().ok_or(
+        "no whisper.cpp binary found — install it (`brew install whisper-cpp`) or set \
+         CHUNKR_WHISPER_BIN, then run `chunkr models pull base.en`",
+    )?;
+
+    chunkr::audio::register_transcriber(
+        "whisper-cpp",
+        Box::new(chunkr::audio::CommandTranscriber::whisper_cpp(
+            binary, model_path,
+        )),
+    );
+    Ok(())
 }

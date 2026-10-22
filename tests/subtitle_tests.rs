@@ -123,19 +123,47 @@ fn test_window_budgets_and_speaker_metadata() {
         &serde_json::json!("Neil deGrasse Tyson")
     );
 
-    // A window spanning two speakers reports no single speaker.
-    let mixed = SubtitleChunker::new()
+    // A speaker change ends the window even with budget to spare: a chunk that
+    // mixes two voices cannot be attributed, so two windows are better than one.
+    let turns = SubtitleChunker::new()
         .with_max_seconds(10.0)
         .chunk(VTT)
         .unwrap();
+    assert_eq!(turns.len(), 2, "one window per speaker turn");
+    assert_eq!(
+        turns[0].metadata.get("cue_count").unwrap(),
+        &serde_json::json!(2),
+        "both Roger cues stay together"
+    );
+    assert_eq!(
+        turns[0].metadata.get("speaker").unwrap(),
+        &serde_json::json!("Roger Bingham")
+    );
+    assert_eq!(
+        turns[1].metadata.get("speaker").unwrap(),
+        &serde_json::json!("Neil deGrasse Tyson")
+    );
+    assert!(seconds(&turns[1], "start_time_s") >= seconds(&turns[0], "end_time_s"));
+
+    // Only an unlabelled cue lets two speakers share a window; then the window
+    // records who and how many turns it contains.
+    let mixed_track = "1\n00:00:00,000 --> 00:00:01,000\n<v A>Yes.\n\n2\n00:00:01,000 --> 00:00:02,000\nNo.\n\n3\n00:00:02,000 --> 00:00:03,000\n<v B>Never.\n";
+    let mixed = SubtitleChunker::new()
+        .with_max_seconds(10.0)
+        .chunk(mixed_track);
+    let mixed = mixed.expect("chunked");
     assert_eq!(mixed.len(), 1);
     assert_eq!(
-        mixed[0].metadata.get("cue_count").unwrap(),
-        &serde_json::json!(3)
+        mixed[0].metadata.get("speakers").unwrap(),
+        &serde_json::json!("A, B")
+    );
+    assert_eq!(
+        mixed[0].metadata.get("speaker_turns").unwrap(),
+        &serde_json::json!(2)
     );
     assert!(
         !mixed[0].metadata.contains_key("speaker"),
-        "mixed windows carry no speaker: {:?}",
+        "mixed windows carry no single speaker: {:?}",
         mixed[0].metadata
     );
 }

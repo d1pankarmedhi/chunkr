@@ -106,3 +106,58 @@ fn test_cli_chunks_each_unit_and_prints_its_origin() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ── Speech models: the CLI surface (no network) ─────────────────────────────
+// The audio feature owns the manifest, so these only exist in that build; the
+// default build answers `chunkr models` with a "rebuild with --features audio" error.
+
+#[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
+#[test]
+fn test_cli_models_list_shows_pinned_models_without_downloading() {
+    let out = run_chunkr(&["models", "list"], "");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(stdout.contains("tiny.en"), "{stdout}");
+    assert!(stdout.contains("base.en"), "{stdout}");
+    assert!(stdout.contains("cache:"), "{stdout}");
+    // Nothing was fetched: listing is a read, not a download.
+    assert!(!stdout.contains("downloading"), "{stdout}");
+}
+
+#[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
+#[test]
+fn test_cli_models_dir_prints_the_cache_path() {
+    let out = run_chunkr(&["models", "dir"], "");
+    assert!(out.status.success());
+    let path = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        path.trim().ends_with("models") || path.contains("chunkr"),
+        "{path}"
+    );
+}
+
+#[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
+#[test]
+fn test_cli_asr_offline_with_a_cold_cache_fails_with_instructions() {
+    // A cache directory that cannot contain the model, and --offline: the run must
+    // say which command to use instead of reaching for the network.
+    let dir = std::env::temp_dir().join(format!("chunkr-cli-asr-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let out = Command::new(chunkr_bin())
+        .args(["-", "--asr", "tiny.en", "--offline"])
+        .env("CHUNKR_MODEL_DIR", &dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("run");
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("chunkr models pull tiny.en"), "{stderr}");
+}

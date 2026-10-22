@@ -13,6 +13,7 @@ use crate::error::ChunkrError;
 use crate::loader::base::source_metadata;
 use crate::loader::email::EmailLoader;
 use crate::loader::epub::EpubLoader;
+use crate::loader::msg::MsgLoader;
 use crate::loader::office::OfficeLoader;
 use crate::loader::pdf::PDFLoader;
 use crate::loader::spreadsheet::SpreadsheetLoader;
@@ -29,7 +30,7 @@ use crate::structures::document::Document;
 /// Formats with a dedicated extractor rather than a plain-text fallback.
 pub const STRUCTURED_EXTENSIONS: &[&str] = &[
     "pdf", "xlsx", "xlsm", "xlsb", "xls", "ods", "docx", "docm", "pptx", "odt", "epub", "eml",
-    "mbox", "rtf", "xml", "ipynb", "html", "htm", "xhtml", "srt", "vtt", "webvtt", "zip",
+    "mbox", "msg", "rtf", "xml", "ipynb", "html", "htm", "xhtml", "srt", "vtt", "webvtt", "zip",
 ];
 
 /// Extensions understood by [`load_documents`], structured formats first.
@@ -48,14 +49,47 @@ pub fn supported_extensions() -> Vec<String> {
         .iter()
         .map(|e| e.to_string()),
     );
+    extensions.extend(
+        audio_extensions()
+            .iter()
+            .map(|extension| extension.to_string()),
+    );
     extensions.extend(registered_extensions());
     extensions
+}
+
+/// Extensions this build can decode as audio (empty without the `audio` feature).
+///
+/// Containers that need an external decoder (`opus`, `webm`, `mp4`, `mov`, …) are
+/// listed only when `CHUNKR_FFMPEG` is set: `supported_extensions()` is a promise,
+/// so it reflects what this process can actually open.
+pub fn audio_extensions() -> &'static [&'static str] {
+    #[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
+    {
+        if crate::audio::ffmpeg_configured() {
+            crate::audio::all_audio_extensions()
+        } else {
+            crate::audio::AUDIO_EXTENSIONS
+        }
+    }
+    #[cfg(not(all(feature = "audio", not(target_arch = "wasm32"))))]
+    {
+        &[]
+    }
+}
+
+/// True when the extension is an audio container this build decodes.
+pub fn is_audio(extension: &str) -> bool {
+    let extension = normalize(extension);
+    audio_extensions().contains(&extension.as_str())
 }
 
 /// True when the extension has a dedicated extractor.
 pub fn is_structured(extension: &str) -> bool {
     let extension = normalize(extension);
-    STRUCTURED_EXTENSIONS.contains(&extension.as_str()) || has_table_source(&extension)
+    STRUCTURED_EXTENSIONS.contains(&extension.as_str())
+        || has_table_source(&extension)
+        || is_audio(&extension)
 }
 
 /// Lower-case extension of a path or archive member name, without the dot.
@@ -155,12 +189,19 @@ fn extract_documents(
     source: Option<&str>,
     depth: usize,
 ) -> Result<Vec<Document>, ChunkrError> {
+    // Audio decodes and transcribes rather than extracting text; the arm lives
+    // behind the feature that provides the decoder.
+    #[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
+    if is_audio(extension) {
+        return crate::audio::load_documents(bytes, extension, source, None);
+    }
+
     let documents = match extension {
         "zip" => {
             return crate::loader::archive::expand_zip(
                 bytes,
                 source,
-                &crate::loader::archive::ArchiveLimits::default(),
+                &crate::loader::archive::ArchiveLimits::from_env(),
                 depth,
             )
         }
@@ -176,6 +217,7 @@ fn extract_documents(
             SubtitleLoader::new().load_documents(bytes, extension, source)?
         }
         "eml" | "mbox" | "mail" => EmailLoader::new().load_documents(bytes, extension, source)?,
+        "msg" => MsgLoader::new().load_documents(bytes, source)?,
         "html" | "htm" | "xhtml" => {
             vec![document(clean_text(&html_to_text(bytes)?), source, "html")]
         }
