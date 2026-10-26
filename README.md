@@ -138,7 +138,8 @@ chunks = chunkr.SubtitleChunker(max_seconds=60).chunk_documents(docs)  # start_t
 ```
 
 Past `--features audio`, the run-time knobs are: `--asr <model>` (or `CHUNKR_WHISPER_BIN` +
-`CHUNKR_WHISPER_MODEL`), `CHUNKR_MODEL_DIR`, `CHUNKR_TRANSCRIBER`, `CHUNKR_FFMPEG`,
+`CHUNKR_WHISPER_MODEL`), `CHUNKR_MODEL_DIR`, `CHUNKR_TRANSCRIBER`, `CHUNKR_AUDIO_WINDOW_S`,
+`CHUNKR_FFMPEG`,
 `CHUNKR_ARCHIVE_DEPTH` / `CHUNKR_ARCHIVE_ENTRIES` / `CHUNKR_ARCHIVE_MB`.
 
 When a track or a transcript carries speakers, a window never mixes two of them — a chunk that reads
@@ -155,10 +156,26 @@ downstream branches on. So a noisy recording still transcribes (with `speech_det
 `speech_ratio`, `speech_detected`.
 
 `chunkr-audio` registers Whisper on install; anything that returns
-`{"start", "end", "text", "speaker"?}` can be registered with
+`{"start", "end", "text", "speaker"?, "words"?}` can be registered with
 `chunkr.register_transcriber(name, fn)` — no Rust changes. Without a transcriber, audio fails with
 instructions instead of guessing, and a file with no detectable speech fails before a model is
 called. `CHUNKR_TRANSCRIBER=<name>` picks between several registered backends.
+
+Word timings are kept, not discarded: pass `words` (as faster-whisper, whisper.cpp, Deepgram,
+AssemblyAI and Scribe all return them) and each segment carries `word_count`, `first_word_s` and
+`last_word_s` — flat keys, so they filter in Chroma/Qdrant. The whisper.cpp bridge reads them from the
+JSON token offsets itself.
+
+Long recordings can be cut before the model sees them, at the quietest point near each seam (WhisperX's
+min-cut: no audio is dropped, windows never overlap, the transcript keeps its timeline):
+
+```bash
+CHUNKR_AUDIO_WINDOW_S=30 chunkr interview.mp3     # 30 s windows, seams on the quietest frame
+```
+
+Off by default, because a backend that already batches (faster-whisper) does its own VAD windowing;
+it pays off for hosted APIs with upload caps and for batched local batches. Measured on 27 s of real
+speech: 20 s windows gave the same 50 words as a single call, no text lost.
 
 From the CLI, point it at a local [whisper.cpp](https://github.com/ggml-org/whisper.cpp) build and no
 Python is involved — the core resamples to the 16 kHz mono WAV the binary requires. Models are

@@ -29,6 +29,7 @@ mod command;
 mod decode;
 pub mod models;
 mod vad;
+mod window;
 
 pub use command::{register_from_env, CommandTranscriber};
 pub use decode::{
@@ -36,6 +37,25 @@ pub use decode::{
 };
 pub use models::{ModelSpec, MODELS};
 pub use vad::{speech_spans, SpeechSpan, VadConfig};
+pub use window::window_bounds;
+
+/// Move a segment (and its words) forward by `offset` seconds.
+fn shift_segment(segment: &mut TranscriptSegment, offset: f64) {
+    segment.start_s += offset;
+    segment.end_s += offset;
+    for word in &mut segment.words {
+        word.start_s += offset;
+        word.end_s += offset;
+    }
+}
+
+/// Window length from `CHUNKR_AUDIO_WINDOW_S`, when set to a usable number.
+fn window_seconds_from_env() -> Option<f64> {
+    std::env::var("CHUNKR_AUDIO_WINDOW_S")
+        .ok()
+        .and_then(|value| value.trim().parse::<f64>().ok())
+        .filter(|value| value.is_finite() && *value >= 1.0)
+}
 
 /// Peak amplitude below which audio counts as silent for the early refusal.
 ///
@@ -79,6 +99,34 @@ pub struct TranscriptSegment {
     pub text: String,
     /// Speaker label, when the model does diarization.
     pub speaker: Option<String>,
+    /// Per-word timings, when the model provides them.
+    ///
+    /// WhisperX, faster-whisper, Deepgram, AssemblyAI and Scribe all return words;
+    /// keeping them is what makes a citation point at a word and lets a caller cut
+    /// a long segment on a sentence boundary without losing its timestamps.
+    pub words: Vec<WordTiming>,
+}
+
+/// One word with its span inside the media.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WordTiming {
+    /// The word as the model wrote it (punctuation included), trimmed.
+    pub text: String,
+    /// Seconds from the start of the audio.
+    pub start_s: f64,
+    /// Seconds from the start of the audio.
+    pub end_s: f64,
+}
+
+impl WordTiming {
+    pub fn new(text: impl Into<String>, start_s: f64, end_s: f64) -> Self {
+        let start_s = start_s.max(0.0);
+        Self {
+            text: text.into(),
+            start_s,
+            end_s: end_s.max(start_s),
+        }
+    }
 }
 
 impl TranscriptSegment {
@@ -88,12 +136,26 @@ impl TranscriptSegment {
             end_s,
             text: text.into(),
             speaker: None,
+            words: Vec::new(),
         }
     }
 
     pub fn with_speaker(mut self, speaker: impl Into<String>) -> Self {
         self.speaker = Some(speaker.into());
         self
+    }
+
+    /// Attach per-word timings, keeping only words that sit inside the segment.
+    pub fn with_words(mut self, words: Vec<WordTiming>) -> Self {
+        self.words = words
+            .into_iter()
+            .filter(|word| !word.text.trim().is_empty() && word.end_s > word.start_s)
+            .collect();
+        self
+    }
+
+    pub fn word_count(&self) -> usize {
+        self.words.len()
     }
 }
 
@@ -268,7 +330,45 @@ pub fn load_documents_with(
         format: &format,
         audio: &audio,
     };
-    let mut segments = transcriber.transcribe(&transcribe_source)?;
+    // Long audio is cut before the model sees it, at the quietest point near each
+    // seam: speech models are trained on ~30 s inputs, and WhisperX showed that
+    // seams placed on quiet regions both batch better and transcribe better than
+    // seams placed on arbitrary time. Off by default — one payload per call is what
+    // most backends expect.
+    let window_s = window_seconds_from_env();
+    let mut windows = None;
+    let mut segments = match window_s {
+        Some(window_s) => {
+            let bounds =
+                window_bounds(&audio.samples, audio.sample_rate, window_s, window_s * 0.15);
+            windows = Some(bounds.len());
+            let mut collected = Vec::new();
+            for (start, end) in bounds {
+                let slice = &audio.samples[start..end];
+                let piece = DecodedAudio {
+                    samples: slice.to_vec(),
+                    sample_rate: audio.sample_rate,
+                    channels: audio.channels,
+                    duration_s: slice.len() as f64 / audio.sample_rate.max(1) as f64,
+                };
+                let wav = encode_wav(&piece.samples, piece.sample_rate);
+                let offset = start as f64 / audio.sample_rate.max(1) as f64;
+                let part = AudioSource {
+                    bytes: &wav,
+                    path,
+                    format: "wav",
+                    audio: &piece,
+                };
+                let mut part_segments = transcriber.transcribe(&part)?;
+                for segment in &mut part_segments {
+                    shift_segment(segment, offset);
+                }
+                collected.extend(part_segments);
+            }
+            collected
+        }
+        None => transcriber.transcribe(&transcribe_source)?,
+    };
     // Models pad their last window and may report an end past the media (whisper
     // pads to 30 s and stops at the next frame boundary). A chunk citing a
     // timestamp the file does not have is worse than a shortened span, so clamp —
@@ -315,8 +415,20 @@ pub fn load_documents_with(
             "duration_s".to_string(),
             Value::from((segment.end_s - segment.start_s).max(0.0)),
         );
-        if let Some(speaker) = segment.speaker {
-            metadata.insert("speaker".to_string(), Value::from(speaker));
+        if let Some(speaker) = &segment.speaker {
+            metadata.insert("speaker".to_string(), Value::from(speaker.as_str()));
+        }
+        if !segment.words.is_empty() {
+            metadata.insert("word_count".to_string(), Value::from(segment.word_count()));
+            let first = segment.words.first().map(|word| word.start_s);
+            let last = segment.words.last().map(|word| word.end_s);
+            if let (Some(first), Some(last)) = (first, last) {
+                metadata.insert("first_word_s".to_string(), Value::from(first));
+                metadata.insert("last_word_s".to_string(), Value::from(last));
+            }
+        }
+        if let Some(count) = windows {
+            metadata.insert("audio_windows".to_string(), Value::from(count));
         }
         documents.push(Document::new(segment.text, metadata));
     }

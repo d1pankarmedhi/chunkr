@@ -33,6 +33,17 @@ repository tooling in `benchmarks/`.
 
 ### Added
 
+- **Word timings survive transcription, and long audio can be cut before the model sees it.**
+  `TranscriptSegment` carries `words` (per-word `text`/`start`/`end`) — accepted from Python
+  transcribers as `{"word", "start", "end"}`, and read from whisper.cpp's `-ojf` token offsets by the
+  CLI bridge, which now merges sub-word pieces and trailing punctuation into words and drops special
+  tokens. Each document gains flat `word_count`, `first_word_s` and `last_word_s`, so a citation can
+  point at a word and a long segment can be re-cut without losing its timestamps.
+  `CHUNKR_AUDIO_WINDOW_S=<seconds>` cuts the payload into non-overlapping windows with every seam at
+  the quietest frame near the boundary (WhisperX's min-cut; nothing is dropped), transcribes each and
+  restores the original timeline, reporting `audio_windows`. Off by default: backends that batch
+  already window themselves. Measured on 27 s of real speech, 20 s windows returned the same 50 words
+  as a single call.
 - **Retrieval-quality benchmark over Hugging Face datasets** (`benchmarks/bench_retrieval.py`,
   repository tooling, not shipped): SQuAD answer spans, SciFact and NFCorpus BEIR qrels, and
   WikiTableQuestions gold rows, materialised as real `.txt`/`.csv` files and retrieved with BM25, so

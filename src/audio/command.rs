@@ -86,6 +86,9 @@ impl Transcriber for CommandTranscriber {
             .arg("-t")
             .arg(self.threads.to_string())
             .arg("-oj")
+            // `-ojf` adds token offsets; without it the JSON has no word timings at
+            // all. It is ignored by whisper.cpp builds that predate the flag.
+            .arg("-ojf")
             .arg("-of")
             .arg(&out)
             .arg("-np")
@@ -114,8 +117,14 @@ impl Transcriber for CommandTranscriber {
 /// Parse whisper.cpp's `-oj` output.
 ///
 /// The shape is `{"transcription": [{"offsets": {"from": ms, "to": ms},
-/// "text": " …"}]}`; offsets are milliseconds and text arrives with a leading
-/// space and any `[BLANK_AUDIO]`/`(music)` markers the model emits.
+/// "text": " …", "tokens": [{"text": " I", "offsets": {...}}]}]}`; offsets are
+/// milliseconds and text arrives with a leading space and any
+/// `[BLANK_AUDIO]`/`(music)` markers the model emits.
+///
+/// Tokens are merged into words: whisper.cpp's vocabulary is word-level for common
+/// words and sub-word for the rest, and a word is identified by the space its token
+/// starts with. Punctuation arrives as its own token and is glued back to the word
+/// before it.
 fn read_segments(
     path: &Path,
     output: &std::process::Output,
@@ -169,13 +178,62 @@ fn read_segments(
             .pointer("/offsets/to")
             .and_then(Value::as_f64)
             .unwrap_or(from);
-        segments.push(TranscriptSegment::new(
+        let segment = TranscriptSegment::new(
             (from / 1000.0).max(0.0),
             (to / 1000.0).max(from / 1000.0),
             text,
-        ));
+        );
+        let words = entry
+            .get("tokens")
+            .and_then(Value::as_array)
+            .map(|tokens| words_from_tokens(tokens))
+            .unwrap_or_default();
+        segments.push(if words.is_empty() {
+            segment
+        } else {
+            segment.with_words(words)
+        });
     }
     Ok(segments)
+}
+
+/// Merge whisper.cpp tokens into words.
+///
+/// A token starting with a space begins a word; anything else extends the word
+/// already open (sub-word pieces, trailing punctuation). Special tokens —
+/// `[_BEG_]`, `[_TT_23]` — and zero-length tokens are dropped.
+fn words_from_tokens(tokens: &[Value]) -> Vec<crate::audio::WordTiming> {
+    let mut words: Vec<crate::audio::WordTiming> = Vec::new();
+    for token in tokens {
+        let text = token
+            .get("text")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let from = token
+            .pointer("/offsets/from")
+            .and_then(Value::as_f64)
+            .unwrap_or_default()
+            / 1000.0;
+        let to = token
+            .pointer("/offsets/to")
+            .and_then(Value::as_f64)
+            .unwrap_or(from * 1000.0)
+            / 1000.0;
+        let stripped = text.trim();
+        if stripped.is_empty() || (stripped.starts_with('[') && stripped.ends_with(']')) {
+            continue;
+        }
+        let starts_word = text.starts_with(' ');
+        match words.last_mut() {
+            Some(word) if !starts_word => {
+                word.text.push_str(stripped);
+                word.end_s = word.end_s.max(to);
+            }
+            _ => words.push(crate::audio::WordTiming::new(stripped, from, to)),
+        }
+    }
+    words.retain(|word| !word.text.is_empty());
+    words
 }
 
 /// Unique per call, so two threads transcribing cannot collide.

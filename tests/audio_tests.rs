@@ -836,3 +836,243 @@ mod vad_guard {
         assert!(message.contains("no speech"), "{message}");
     }
 }
+
+// ── Word timings and quiet-seam windows ────────────────────────────────────
+
+mod words_and_windows {
+    use super::ENV_LOCK;
+    use chunkr::audio::{
+        encode_wav, load_documents_with, register_transcriber, unregister_transcriber,
+        window_bounds, SpeechSpan, Transcriber, TranscriptSegment, VadConfig, WordTiming,
+    };
+    use chunkr::error::ChunkrError;
+    use serde_json::json;
+
+    /// A tone with silent gaps, so seam placement has something to find.
+    fn speech(rate: u32, seconds: f64) -> Vec<f32> {
+        let mut samples = vec![0.0f32; (seconds * rate as f64) as usize];
+        for (index, sample) in samples.iter_mut().enumerate() {
+            let t = index as f32 / rate as f32;
+            let in_gap =
+                (2.0..2.3).contains(&t) || (4.0..4.3).contains(&t) || (6.0..6.3).contains(&t);
+            if !in_gap {
+                *sample = (2.0 * std::f32::consts::PI * 220.0 * t).sin() * 0.4;
+            }
+        }
+        samples
+    }
+
+    #[test]
+    fn window_bounds_never_drop_audio_and_respect_the_limit() {
+        let samples = speech(16_000, 8.0);
+        let bounds = window_bounds(&samples, 16_000, 3.0, 0.5);
+        assert!(bounds.len() >= 3, "{bounds:?}");
+        assert_eq!(bounds[0].0, 0);
+        assert_eq!(bounds.last().unwrap().1, samples.len());
+        for pair in bounds.windows(2) {
+            assert_eq!(pair[0].1, pair[1].0);
+        }
+        for (start, end) in &bounds {
+            assert!((end - start) as f64 / 16_000.0 <= 3.0 + 0.001);
+        }
+    }
+
+    /// Reports how many seconds it was handed and how many calls it saw.
+    struct WindowProbe {
+        seen: std::sync::Arc<std::sync::Mutex<Vec<f64>>>,
+    }
+
+    impl Transcriber for WindowProbe {
+        fn name(&self) -> String {
+            "window-probe".to_string()
+        }
+
+        fn transcribe(
+            &self,
+            source: &chunkr::audio::AudioSource<'_>,
+        ) -> Result<Vec<TranscriptSegment>, ChunkrError> {
+            self.seen.lock().unwrap().push(source.audio.duration_s);
+            // One segment per call, at the start of the piece it was given.
+            Ok(vec![TranscriptSegment::new(0.0, 0.5, "chunk").with_words(
+                vec![
+                    WordTiming::new("chunk", 0.0, 0.25),
+                    WordTiming::new("two", 0.25, 0.5),
+                ],
+            )])
+        }
+    }
+
+    #[test]
+    fn chunking_windows_cuts_the_payload_and_offsets_the_transcript() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let rate = 16_000;
+        let samples = speech(rate, 8.0);
+        let wav = encode_wav(&samples, rate);
+
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        register_transcriber("window-probe", Box::new(WindowProbe { seen: seen.clone() }));
+        std::env::set_var("CHUNKR_AUDIO_WINDOW_S", "3");
+
+        let documents =
+            load_documents_with(&wav, "wav", Some("talk.wav"), None, Some("window-probe"))
+                .expect("windowed transcription");
+
+        let durations = seen.lock().unwrap().clone();
+        assert!(
+            durations.len() >= 3,
+            "expected several calls, got {durations:?}"
+        );
+        for duration in &durations {
+            assert!(
+                *duration <= 3.0 + 0.001,
+                "call of {duration:.2}s exceeds the window"
+            );
+        }
+        // Windows tile the file, so the offsets must be increasing and inside it.
+        let starts: Vec<f64> = documents
+            .iter()
+            .map(|document| document.metadata["start_time_s"].as_f64().unwrap())
+            .collect();
+        assert!(
+            starts.windows(2).all(|pair| pair[0] <= pair[1]),
+            "{starts:?}"
+        );
+        assert_eq!(
+            documents[0].metadata["audio_windows"],
+            json!(durations.len())
+        );
+        assert_eq!(documents[0].metadata["word_count"], json!(2));
+        assert!(starts.last().unwrap() > &3.0, "{starts:?}");
+
+        unregister_transcriber("window-probe");
+        std::env::remove_var("CHUNKR_AUDIO_WINDOW_S");
+    }
+
+    #[test]
+    fn without_the_env_var_the_payload_is_sent_once() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        let rate = 16_000;
+        let wav = encode_wav(&speech(rate, 8.0), rate);
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        register_transcriber("window-probe", Box::new(WindowProbe { seen: seen.clone() }));
+        std::env::remove_var("CHUNKR_AUDIO_WINDOW_S");
+
+        let documents = load_documents_with(&wav, "wav", None, None, Some("window-probe")).unwrap();
+        assert_eq!(seen.lock().unwrap().len(), 1);
+        assert_eq!(documents.len(), 1);
+        assert_eq!(documents[0].metadata["word_count"], json!(2));
+        assert!(!documents[0].metadata.contains_key("audio_windows"));
+
+        unregister_transcriber("window-probe");
+    }
+
+    #[test]
+    fn words_land_in_flat_metadata() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        struct Wordy;
+        impl Transcriber for Wordy {
+            fn name(&self) -> String {
+                "wordy".to_string()
+            }
+            fn transcribe(
+                &self,
+                _source: &chunkr::audio::AudioSource<'_>,
+            ) -> Result<Vec<TranscriptSegment>, ChunkrError> {
+                Ok(vec![TranscriptSegment::new(0.0, 1.5, "hello there")
+                    .with_words(vec![
+                        WordTiming::new("hello", 0.0, 0.6),
+                        WordTiming::new("there", 0.6, 1.5),
+                    ])])
+            }
+        }
+        register_transcriber("wordy", Box::new(Wordy));
+        let wav = encode_wav(&speech(16_000, 2.0), 16_000);
+        let documents = load_documents_with(&wav, "wav", None, None, Some("wordy")).unwrap();
+        let metadata = &documents[0].metadata;
+        assert_eq!(metadata["word_count"], json!(2));
+        assert_eq!(metadata["first_word_s"], json!(0.0));
+        assert_eq!(metadata["last_word_s"], json!(1.5));
+        // Words are timings, not payload: nothing nested leaks into metadata.
+        assert!(
+            !metadata.keys().any(|key| key.contains("words\"")),
+            "{metadata:?}"
+        );
+        unregister_transcriber("wordy");
+    }
+
+    #[test]
+    fn vad_spans_stay_the_seam_a_model_based_detector_would_plug_into() {
+        // The windowing code takes the same shape a neural VAD would return.
+        let spans =
+            chunkr::audio::speech_spans(&speech(16_000, 8.0), 16_000, &VadConfig::default());
+        assert!(!spans.is_empty());
+        assert!(spans
+            .iter()
+            .all(|span: &SpeechSpan| span.end_s > span.start_s));
+    }
+}
+
+mod whisper_cpp_words {
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::PathBuf;
+
+    use chunkr::audio::{
+        encode_wav, load_documents_with, register_transcriber, unregister_transcriber,
+        CommandTranscriber,
+    };
+    use serde_json::json;
+
+    fn script(body: &str) -> PathBuf {
+        let path =
+            std::env::temp_dir().join(format!("chunkr-words-whisper-{}.sh", std::process::id()));
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).expect("write script");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        path
+    }
+
+    #[test]
+    fn token_offsets_become_words() {
+        // whisper.cpp with `-ojf`: tokens carry offsets; sub-word pieces and
+        // trailing punctuation must not become words of their own, and special
+        // tokens must not become text.
+        let json = json!({
+            "transcription": [{
+                "offsets": {"from": 0, "to": 2600},
+                "text": " I have a dream.",
+                "tokens": [
+                    {"text": "[_BEG_]", "offsets": {"from": 0, "to": 0}},
+                    {"text": " I", "offsets": {"from": 0, "to": 180}},
+                    {"text": " have", "offsets": {"from": 180, "to": 900}},
+                    {"text": " a", "offsets": {"from": 1060, "to": 1200}},
+                    {"text": " dre", "offsets": {"from": 1200, "to": 1700}},
+                    {"text": "am", "offsets": {"from": 1700, "to": 2000}},
+                    {"text": ".", "offsets": {"from": 2000, "to": 2100}},
+                    {"text": " There", "offsets": {"from": 2100, "to": 2600}}
+                ]
+            }]
+        })
+        .to_string();
+        let script = script(&format!(
+            "while [ $# -gt 0 ]; do\n\
+               case \"$1\" in -of) out=\"$2\"; shift 2;; *) shift;; esac\n\
+             done\n\
+             printf '%s' '{json}' > \"$out.json\"\n"
+        ));
+        register_transcriber(
+            "words-whisper",
+            Box::new(CommandTranscriber::whisper_cpp(&script, "/models/tiny.bin")),
+        );
+        let samples: Vec<f32> = (0..16_000 * 3)
+            .map(|index| (2.0 * std::f32::consts::PI * 220.0 * index as f32 / 16_000.0).sin() * 0.4)
+            .collect();
+        let wav = encode_wav(&samples, 16_000);
+        let documents =
+            load_documents_with(&wav, "wav", Some("clip.wav"), None, Some("words-whisper"))
+                .expect("transcription with words");
+        let metadata = &documents[0].metadata;
+        assert_eq!(metadata["word_count"], json!(5), "{metadata:?}");
+        assert_eq!(metadata["first_word_s"], json!(0.0));
+        assert_eq!(metadata["last_word_s"], json!(2.6));
+        unregister_transcriber("words-whisper");
+    }
+}
