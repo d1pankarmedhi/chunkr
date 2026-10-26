@@ -464,7 +464,10 @@ def register_transcriber(name: str, transcriber: Any) -> None:
     The callable is invoked as ``transcriber(audio_bytes, format)`` and returns an
     iterable of ``{"start": float, "end": float, "text": str, "speaker": str}``
     mappings (or objects exposing those attributes), in seconds from the start of
-    the audio; ``speaker`` is optional and empty-text segments are dropped. Chunkr decodes the audio for its duration
+    the audio; ``speaker`` is optional, ``words`` may carry per-word timings
+    (``{"word"/"text", "start", "end"}`` — what faster-whisper, whisper.cpp, Deepgram,
+    AssemblyAI and Scribe return) and becomes flat ``word_count``/``first_word_s``/
+    ``last_word_s`` metadata, and empty-text segments are dropped. Chunkr decodes the audio for its duration
     and speech measurement, then turns each segment into a document carrying
     ``start_time_s``/``end_time_s`` so chunks can be cited back to a timestamp.
     ``pip install chunkr-audio`` registers faster-whisper this way.

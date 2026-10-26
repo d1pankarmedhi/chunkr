@@ -2590,10 +2590,52 @@ fn segments_from_python(
                 segment = segment.with_speaker(speaker.extract::<String>()?);
             }
         }
+        if let Some(words) = get("words")? {
+            if !words.is_none() {
+                segment = segment.with_words(words_from_python(&words)?);
+            }
+        }
         segments.push(segment);
     }
 
     Ok(segments)
+}
+
+/// Per-word timings from a Python transcriber.
+///
+/// Accepts mappings or objects exposing `word`/`text` plus `start`/`end`, which is
+/// what faster-whisper, whisper.cpp wrappers and the hosted SDKs all return.
+#[cfg(all(feature = "audio", not(target_arch = "wasm32")))]
+fn words_from_python(value: &Bound<'_, PyAny>) -> PyResult<Vec<crate::audio::WordTiming>> {
+    let mut words = Vec::new();
+    for (index, item) in value.iter()?.enumerate() {
+        let item = item?;
+        let mapping = item.downcast::<pyo3::types::PyDict>().ok();
+        let get = |key: &str| -> PyResult<Option<Bound<'_, PyAny>>> {
+            match &mapping {
+                Some(mapping) => mapping.get_item(key),
+                None if item.hasattr(key)? => Ok(Some(item.getattr(key)?)),
+                None => Ok(None),
+            }
+        };
+        let text = get("word")?
+            .or(get("text")?)
+            .ok_or_else(|| PyValueError::new_err(format!("word {index}: missing 'word'/'text'")))?
+            .extract::<String>()?;
+        let start = get("start")?
+            .ok_or_else(|| PyValueError::new_err(format!("word {index}: missing 'start'")))?
+            .extract::<f64>()?;
+        let end = get("end")?
+            .ok_or_else(|| PyValueError::new_err(format!("word {index}: missing 'end'")))?
+            .extract::<f64>()?;
+        if !(start.is_finite() && end.is_finite()) || end < start {
+            return Err(PyValueError::new_err(format!(
+                "word {index}: expected 0 <= start <= end, got {start}..{end}"
+            )));
+        }
+        words.push(crate::audio::WordTiming::new(text, start, end));
+    }
+    Ok(words)
 }
 
 /// File extensions handled by [`load_documents`], structured formats first.

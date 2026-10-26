@@ -86,6 +86,63 @@ def test_audio_loads_through_the_registered_transcriber(tmp_path, monkeypatch):
         chunkr.unregister_transcriber("test-audio")
 
 
+def test_word_timings_are_kept_as_flat_metadata(tmp_path):
+    """Words are what faster-whisper/whisper.cpp return; they must survive the bridge."""
+    import chunkr
+
+    def transcribe(audio: bytes, audio_format: str):
+        return [
+            {
+                "start": 0.5,
+                "end": 1.5,
+                "text": "First thing said.",
+                "words": [
+                    {"word": " First", "start": 0.5, "end": 0.8},
+                    {"word": " thing", "start": 0.8, "end": 1.1},
+                    # An SDK's own word class, not a dict.
+                    type("W", (), {"word": " said.", "start": 1.1, "end": 1.5})(),
+                ],
+            }
+        ]
+
+    chunkr.register_transcriber("test-words", transcribe)
+    try:
+        path = tmp_path / "clip.wav"
+        write_wav(path)
+        document = chunkr.load_documents(str(path))[0]
+        assert document.metadata["word_count"] == 3
+        assert document.metadata["first_word_s"] == pytest.approx(0.5)
+        assert document.metadata["last_word_s"] == pytest.approx(1.5)
+    finally:
+        chunkr.unregister_transcriber("test-words")
+
+
+def test_long_audio_is_windowed_at_quiet_seams_when_asked(tmp_path, monkeypatch):
+    """CHUNKR_AUDIO_WINDOW_S cuts before the model sees it; spans stay on the timeline."""
+    import chunkr
+
+    calls = []
+
+    def transcribe(audio: bytes, audio_format: str):
+        calls.append(len(audio))
+        return [{"start": 0.0, "end": 0.4, "text": "piece"}]
+
+    chunkr.register_transcriber("test-window", transcribe)
+    monkeypatch.setenv("CHUNKR_AUDIO_WINDOW_S", "1")
+    try:
+        path = tmp_path / "long.wav"
+        write_wav(path, seconds=4.0)
+        documents = chunkr.load_documents(str(path))
+        assert len(calls) >= 3, f"expected several calls, got {len(calls)}"
+        assert all(size < 40_000 for size in calls), "each call carries one window"
+        assert documents[0].metadata["audio_windows"] == len(calls)
+        starts = [document.metadata["start_time_s"] for document in documents]
+        assert starts == sorted(starts)
+        assert starts[-1] > 1.0
+    finally:
+        chunkr.unregister_transcriber("test-window")
+
+
 def test_whisper_transcriber_fails_with_a_clear_message_without_the_runtime():
     """The lazy import turns a missing dependency into advice, not a traceback."""
     from chunkr_audio import WhisperTranscriber
