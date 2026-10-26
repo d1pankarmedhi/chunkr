@@ -7,10 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-The `Fixed` entry below ships with **`chunkr-pdf` 0.1.1**: the extension is versioned
+The PDF `Fixed` entry below ships with **`chunkr-pdf` 0.1.1**: the extension is versioned
 independently of the base package, which stays at 1.6.0 until the format-dispatcher entries below
-are released. The two `benchmarks/` entries are repository tooling, not part of any published
-artifact.
+are released. The `.csv` fix below ships with the crate; the retrieval benchmark that found it is
+repository tooling in `benchmarks/`.
 
 ### Fixed
 
@@ -21,9 +21,24 @@ artifact.
   `scope.max_pages=None` now means every page, matching the documented behaviour and the Rust
   backend. The payload also reports the document's `total_pages` now. Regression tests cover the
   default, the explicit override, and (opt-in, `CHUNKR_BIG_PDF=<pdf>`) a >1000-page document.
+- **`.csv` and `.tsv` now load as tables, as documented.** The dispatcher sent only
+  `xlsx`/`xls`/`xlsb`/`ods` to the spreadsheet loader; delimited files fell through to the text
+  fallback and came back as raw text, even though the format table promised "worksheet (as a Markdown
+  table)". A new `src/loader/delimited.rs` parses them dependency-free and quote-aware — embedded
+  delimiters and newlines stay inside a cell, `""` unescapes, CRLF and BOMs are handled, unquoted
+  quotes are tolerated — and renders through the same Markdown renderer as the spreadsheets and the
+  table-source extensions, so a CSV document carries `format: "table"`, `table_format`, `row_count`,
+  `column_count` and `row_offset`. Found by the new retrieval benchmark (below), where a whole table
+  corpus retrieved identically to raw text.
 
 ### Added
 
+- **Retrieval-quality benchmark over Hugging Face datasets** (`benchmarks/bench_retrieval.py`,
+  repository tooling, not shipped): SQuAD answer spans, SciFact and NFCorpus BEIR qrels, and
+  WikiTableQuestions gold rows, materialised as real `.txt`/`.csv` files and retrieved with BM25, so
+  chunkers are compared on evidence containment, boundary integrity and nDCG rather than on a proxy.
+  Corpora are pinned to the dataset commit each run resolves; the run is one minute and needs no
+  model download.
 - **Speech detection: noise gate, and a refusal that can no longer be wrong.** Frames whose
   zero-crossing rate says "broadband noise" are not counted as speech, so a hiss or a fan no longer
   reports 100% speech. More importantly, `load_documents` now refuses audio only when it is actually
