@@ -1,0 +1,173 @@
+{
+  "generated_at": "2026-10-27T08:36:03+00:00",
+  "python": "3.12.11",
+  "settings": {
+    "clips": 60,
+    "gap_ms": 500,
+    "seam_seconds": [
+      20.0,
+      30.0
+    ],
+    "caption_seconds": [
+      15.0,
+      30.0,
+      60.0
+    ],
+    "k": 5,
+    "query_tokens": 3,
+    "seed": 7,
+    "transcriber": "auto",
+    "peak": 0.5
+  },
+  "dataset": {
+    "repo": "google/fleurs",
+    "revision": "70bb2e84b976b7e960aa89f1c648e09c59f894dd",
+    "license": "CC BY 4.0"
+  },
+  "corpus": {
+    "utterances": 60,
+    "duration_s": 576.3,
+    "speech_s": 546.8,
+    "speech_ratio": 0.9488113829602638,
+    "gaps": 59
+  },
+  "seams": [
+    {
+      "window_s": 20.0,
+      "windows": 32,
+      "max_window_s": 19.875,
+      "covered_s": 576.3,
+      "coefficient_of_variation": 0.147,
+      "seams": 31,
+      "seams_in_gap": 10,
+      "seams_in_speech": 21,
+      "gap_hit_rate": 0.3225806451612903,
+      "seam_in_clip_rate": 0.6774193548387096,
+      "loud_seam_rate": 0.0,
+      "median_seam_db_below_speech": 26.9,
+      "median_gap_margin_s": 0.03,
+      "speech_s": 533.96,
+      "speech_ratio": 0.9265,
+      "speech_detected": true,
+      "segments": 32
+    },
+    {
+      "window_s": 30.0,
+      "windows": 21,
+      "max_window_s": 29.675,
+      "covered_s": 576.3,
+      "coefficient_of_variation": 0.127,
+      "seams": 20,
+      "seams_in_gap": 7,
+      "seams_in_speech": 13,
+      "gap_hit_rate": 0.35,
+      "seam_in_clip_rate": 0.65,
+      "loud_seam_rate": 0.0,
+      "median_seam_db_below_speech": 28.9,
+      "median_gap_margin_s": 0.025,
+      "speech_s": 533.96,
+      "speech_ratio": 0.9265,
+      "speech_detected": true,
+      "segments": 21
+    }
+  ],
+  "captions": [
+    {
+      "questions": 60,
+      "windows": 51,
+      "mean_window_s": 10.809803921568626,
+      "temporal_recall@k": 1.0,
+      "temporal_precision@k": 0.8441795456681748,
+      "integrity": 1.0,
+      "splitter": "subtitle:15"
+    },
+    {
+      "questions": 60,
+      "windows": 23,
+      "mean_window_s": 24.578260869565216,
+      "temporal_recall@k": 1.0,
+      "temporal_precision@k": 0.3713591829533361,
+      "integrity": 1.0,
+      "splitter": "subtitle:30"
+    },
+    {
+      "questions": 60,
+      "windows": 11,
+      "mean_window_s": 51.93636363636363,
+      "temporal_recall@k": 1.0,
+      "temporal_precision@k": 0.17574337950253988,
+      "integrity": 1.0,
+      "splitter": "subtitle:60"
+    },
+    {
+      "questions": 60,
+      "windows": 20,
+      "mean_window_s": 28.814999999999998,
+      "temporal_recall@k": 0.6833333333333333,
+      "temporal_precision@k": 0.19845555555555566,
+      "integrity": 0.6833333333333333,
+      "splitter": "fixed:30"
+    },
+    {
+      "questions": 60,
+      "windows": 1,
+      "mean_window_s": 576.3,
+      "temporal_recall@k": 1.0,
+      "temporal_precision@k": 0.01581352304933773,
+      "integrity": 1.0,
+      "splitter": "whole"
+    }
+  ],
+  "transcription": {
+    "transcriber": "whisper",
+    "model": "base (default)",
+    "runs": [
+      {
+        "window_s": null,
+        "segments": 64,
+        "utterances": 60,
+        "wer": 0.09432454036770584,
+        "wer_per_utterance": 0.0984049711493827,
+        "wer_worst": 1.0,
+        "utterances_with_errors": 7,
+        "utterances_missing": 1,
+        "words": 1239,
+        "segments_with_words": 64,
+        "timing_monotonic": true,
+        "timing_inside_media": true,
+        "first_document": "When you call someone who is thousands of miles away, you're using a s"
+      },
+      {
+        "window_s": 20.0,
+        "segments": 95,
+        "utterances": 60,
+        "wer": 0.10071942446043165,
+        "wer_per_utterance": 0.13952737405817983,
+        "wer_worst": 1.0,
+        "utterances_with_errors": 15,
+        "utterances_missing": 1,
+        "words": 1254,
+        "segments_with_words": 95,
+        "timing_monotonic": true,
+        "timing_inside_media": true,
+        "first_document": "When you call someone who is thousands of miles away, you are using a "
+      },
+      {
+        "window_s": 30.0,
+        "segments": 102,
+        "utterances": 60,
+        "wer": 0.10871302957633892,
+        "wer_per_utterance": 0.14120198592971342,
+        "wer_worst": 1.1176470588235294,
+        "utterances_with_errors": 13,
+        "utterances_missing": 0,
+        "words": 1253,
+        "segments_with_words": 102,
+        "timing_monotonic": true,
+        "timing_inside_media": true,
+        "first_document": "When you call someone who is thousands of miles away, you are using a "
+      }
+    ]
+  },
+  "elapsed_s": 204.2
+}

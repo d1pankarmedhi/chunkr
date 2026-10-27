@@ -578,9 +578,106 @@ exposed it — `chunkr` and `whole` produced identical numbers because they *wer
 * `chunkr` and `fixed` splitters do not have identical mean chunk length (752 vs 988 characters at
   the "same" 1,000 target, because sentence packing leaves slack). Compare at matched chunk
   *count* (`chunkr:2000` vs `fixed:2000` vs `whole`) when that difference matters.
-* PDFs, EPUB and audio are absent: no small, permissively licensed HF dataset pairs them with
-  gold page/chapter/timestamp coordinates. Their units are covered by unit tests and the
-  provenance assertions in `tests/` instead.
+* PDFs and EPUB are absent: no small, permissively licensed HF dataset pairs them with gold
+  page/chapter coordinates. Their units are covered by unit tests and the provenance assertions in
+  `tests/` instead. Audio has its own harness — see [below](#audio-and-speech-bench_audiopy).
 * `P@k` is a function of `k` and chunk size, so it is only comparable across splitters at the same
   `k`, never against a paper using a different cutoff. `doc P@k` is the stable part: it does not
   reward a splitter for producing more chunks per document.
+
+## Audio and speech (`bench_audio.py`)
+
+Audio needs three questions that text does not, because everything downstream of a transcript segment
+is time:
+
+1. **Do chunk boundaries land in silence?** A seam through a word is unrecoverable; a seam in a pause
+   costs nothing. Gold is exact: real utterances glued together with known silent gaps.
+2. **Does the speech accounting match the audio?** `speech_s`/`speech_ratio` are what a caller uses to
+   decide a file has speech at all.
+3. **Do transcript/caption windows serve retrieval?** Cue times give a *temporal* recall (was the cue
+   inside a returned window?) and a *temporal* precision (how much of the window is the cue?).
+
+```bash
+# no model needed: VAD accounting, seam placement, caption retrieval
+python benchmarks/bench_audio.py --clips 60 --k 5
+
+# add word error rate, windows off vs on (any registered transcriber)
+pip install chunkr-audio && python benchmarks/bench_audio.py --clips 60 --k 5 --transcriber auto
+```
+
+The corpus is `google/fleurs` en_us dev (CC BY 4.0): the dev tarball is streamed and closed after the
+first `--clips` utterances, so a run downloads ~30 MB rather than 171 MB. Clips are peak-normalised to
+a common level and joined with 500 ms of digital silence, producing one long WAV, one SRT cue track
+and a manifest of exact speech intervals.
+
+### Results (60 utterances, 576 s, 95% speech, `faster-whisper` via `chunkr-audio`)
+
+| seams (`CHUNKR_AUDIO_WINDOW_S`) | windows | in a gap | seam in a clip | **loud seam** | median below speech | `speech_ratio` (gold 0.95) |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 20 s | 32 | 0.323 | 0.677 | **0.000** | 26.9 dB | 0.9265 |
+| 30 s | 21 | 0.350 | 0.650 | **0.000** | 28.9 dB | 0.9265 |
+
+| caption splitter | windows | mean window | temporal recall@5 | **temporal precision@5** | **integrity** |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| `subtitle:15` | 51 | 10.8 s | 1.000 | **0.844** | **1.000** |
+| `subtitle:30` | 23 | 24.6 s | 1.000 | 0.371 | **1.000** |
+| `subtitle:60` | 11 | 51.9 s | 1.000 | 0.176 | **1.000** |
+| `fixed:30` | 20 | 28.8 s | 0.683 | 0.198 | 0.683 |
+| `whole` | 1 | 576.3 s | 1.000 | 0.016 | 1.000 |
+
+| windows | segments | **WER** | per-utterance WER | words | timing monotonic | timing inside media |
+| :--- | ---: | ---: | ---: | ---: | :--- | :--- |
+| off | 64 | **0.094** | 0.098 | 1,239 | ✅ | ✅ |
+| 20 s | 95 | **0.101** | 0.140 | 1,254 | ✅ | ✅ |
+| 30 s | 102 | **0.109** | 0.141 | 1,253 | ✅ | ✅ |
+
+Raw output: [`results/audio_fleurs_20261027T083603Z.json`](results/audio_fleurs_20261027T083603Z.json).
+
+### What the numbers say
+
+* **Windowing is nearly free, and that is the point.** WER moves 0.094 → 0.101 (20 s) → 0.109 (30 s):
+  pre-chunking at quiet seams costs under a point and a half, while every timestamps stays monotonic
+  and inside the media duration. An optimisation that wrecked transcriptions would show up here first.
+* **Seams land in pauses, not on words.** No seam is louder than 27 dB below the speech of the clip it
+  falls into (`loud seam = 0.000`), and the median seam is 27–29 dB down. Read the `seam in a clip`
+  column with that in mind: 68% of seams fall inside an utterance's *boundaries*, but inside a pause
+  inside it — the two columns together are the honest picture, and only the second one is about
+  cutting speech.
+* **Caption windows never cut a cue.** `SubtitleChunker` scores 1.000 integrity at every window size;
+  a naive 30 s timeline splits 32% of the cues it crosses — and its temporal recall drops to 0.683
+  for exactly that reason.
+* **Precision is where window size shows.** 0.844 at 15 s, 0.371 at 30 s, 0.176 at 60 s, 0.016 for one
+  chunk per file: recall saturates because the corpus is small, so the trade-off is visible in how much
+  of the returned window is the thing you asked for — the same conclusion as the text harness, in
+  seconds instead of characters.
+
+### Bug found while running this: the VAD called quiet recordings silent
+
+The first run reported `speech_ratio: 0.40` on a corpus that is 95% speech. `VadConfig::silence_db`
+was an absolute **-50 dBFS** gate, and real recordings span 40 dB of gain (FLEURS peaks: 0.005 to
+0.96), so speech 25 dB down was classified as silence: **9 of 20 clips detected, 11 at exactly 0.00**.
+With the floor at -80 dBFS (where dither lives), 20 of 20 are detected and `speech_ratio` lands at
+0.93 against a gold 0.95. Fixed in `src/audio/vad.rs` with two tests (quiet speech found, -100 dBFS
+dither not).
+
+### Bug found while running this (in the harness): WER was measuring gain
+
+Before clips were normalised, the same corpus scored WER **0.373 unwindowed vs 0.186 windowed** — a
+result that would have "proved" pre-chunking improves transcription. It was the opposite: the
+transcriber silently dropped 14 of 60 quiet clips when it saw the whole file, and windowing fed it
+smaller, louder-enough pieces. Peak-normalising each clip (what an ingestion pipeline does anyway)
+moved WER to 0.094 and turned the comparison into a measurement of chunking. Any audio benchmark that
+joins clips of different loudness will report the same artefact.
+
+### Caveats
+
+* Temporal recall saturates at 1.000 on this corpus: with ~60 cues, no windows and 3-word queries,
+  BM25 finds the cue almost every time. Precision and integrity are the columns that discriminate;
+  treat recall here as a floor, not a headline.
+* `fixed:30` splits cue *text* proportionally by time, so it is a stronger baseline than a real naive
+  splitter — and it still loses integrity.
+* One speaker-less, English-only corpus. Speaker turns, multi-talker overlap and non-English are not
+  covered: `speakers`/`speaker_turns` metadata comes from the transcriber and is passed through, never
+  inferred, so there is nothing for this harness to score without a diarised dataset.
+* The WER layer needs a transcriber (`pip install chunkr-audio` or `CHUNKR_WHISPER_BIN`), which is why
+  it is opt-in; the VAD/seam/caption layers run with no model at all.

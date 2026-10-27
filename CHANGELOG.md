@@ -41,6 +41,17 @@ repository tooling in `benchmarks/`.
 
 ### Added
 
+- **An audio benchmark, and the two bugs its first run found.** `benchmarks/bench_audio.py` builds a
+  corpus from real `google/fleurs` utterances (streamed from the pinned revision, peak-normalised,
+  joined with known silent gaps) and measures what text metrics cannot: seam placement in seconds
+  (no seam lands on loud speech, median 27 dB below the surrounding speech), VAD accounting against
+  the known speech duration (`speech_ratio` 0.93 vs gold 0.95), caption-window retrieval with exact
+  temporal gold (integrity 1.000 for `SubtitleChunker` vs 0.683 for a naive 30 s timeline; temporal
+  precision 0.844 → 0.016 as windows grow), and — with any registered transcriber — word error rate
+  with windowing off/on (0.094 → 0.101 at 20 s, 0.109 at 30 s), plus monotonicity and in-media
+  timestamp checks. The VAD found quiet recordings to be "silent" (see Fixed) and the harness's own
+  first WER run was measuring clip gain rather than chunking, both of which are documented in
+  `benchmarks/README.md`.
 - **Retrieval benchmark now reports precision, and proves the archive paths are retrieval-neutral.**
   `benchmarks/bench_retrieval.py` gains `P@k` (share of the top-k chunks that carry the answer) and
   `doc P@k` (share taken from the gold document), so recall and precision are read together, plus
