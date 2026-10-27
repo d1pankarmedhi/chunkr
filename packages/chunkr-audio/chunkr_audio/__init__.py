@@ -3,7 +3,7 @@
 Installing this package is enough: ``import chunkr`` discovers the
 ``chunkr.transcribers`` entry point and registers :class:`WhisperTranscriber`, so
 ``chunkr.load_documents("interview.mp3")`` returns timestamped transcript segments
-that chunk by time window.
+that chunk by time window, with per-word timings when the model provides them.
 
 The model is created on first use, never at import: loading chunkr must not cost
 a multi-hundred-megabyte download.
@@ -39,6 +39,7 @@ class WhisperTranscriber:
         language: Optional[str] = None,
         beam_size: int = 5,
         vad_filter: bool = False,
+        word_timestamps: bool = True,
     ) -> None:
         self.model_size = model_size
         self.device = device
@@ -47,6 +48,9 @@ class WhisperTranscriber:
         self.beam_size = beam_size
         # Chunkr already measures speech; a second VAD pass is opt-in.
         self.vad_filter = vad_filter
+        # Word timings let a chunk cite an exact word and be re-cut later; they
+        # cost one alignment pass and are on by default.
+        self.word_timestamps = word_timestamps
         self._model: Any = None
 
     def _load(self) -> Any:
@@ -63,7 +67,7 @@ class WhisperTranscriber:
         return self._model
 
     def __call__(self, audio: bytes, audio_format: str = "wav") -> List[Dict[str, Any]]:
-        """Transcribe encoded ``audio`` into ``{start, end, text, speaker}`` dicts.
+        """Transcribe encoded ``audio`` into ``{start, end, text, words?}`` dicts.
 
         faster-whisper decodes the container itself, so the bytes are written to a
         temporary file with the right extension; that keeps the ``av``/PyAV backend
@@ -81,13 +85,10 @@ class WhisperTranscriber:
                 language=self.language,
                 beam_size=self.beam_size,
                 vad_filter=self.vad_filter,
+                word_timestamps=self.word_timestamps,
             )
             return [
-                {
-                    "start": float(segment.start),
-                    "end": float(segment.end),
-                    "text": segment.text.strip(),
-                }
+                segment_document(segment)
                 for segment in segments
                 if segment.text.strip()
             ]
@@ -96,6 +97,29 @@ class WhisperTranscriber:
 
     def __repr__(self) -> str:  # pragma: no cover - debugging aid
         return f"WhisperTranscriber(model_size={self.model_size!r}, device={self.device!r})"
+
+
+def segment_document(segment: Any) -> Dict[str, Any]:
+    """One faster-whisper segment as a chunkr transcriber returns it.
+
+    ``words`` is passed through whenever the model produced it — chunkr turns it
+    into ``word_count``/``first_word_s``/``last_word_s`` plus the word list a
+    caller needs to cite or re-cut.
+    """
+    document: Dict[str, Any] = {
+        "start": float(segment.start),
+        "end": float(segment.end),
+        "text": segment.text.strip(),
+    }
+    words = getattr(segment, "words", None) or []
+    timings = [
+        {"word": word.word, "start": float(word.start), "end": float(word.end)}
+        for word in words
+        if getattr(word, "word", "").strip()
+    ]
+    if timings:
+        document["words"] = timings
+    return document
 
 
 def register() -> str:

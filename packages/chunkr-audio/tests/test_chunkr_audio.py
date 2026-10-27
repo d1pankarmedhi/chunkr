@@ -143,6 +143,44 @@ def test_long_audio_is_windowed_at_quiet_seams_when_asked(tmp_path, monkeypatch)
         chunkr.unregister_transcriber("test-window")
 
 
+def test_whisper_words_reach_the_document(tmp_path, monkeypatch):
+    """faster-whisper's word timings must survive into the metadata."""
+    import chunkr
+    from chunkr_audio import WhisperTranscriber
+
+    class Word:
+        def __init__(self, word, start, end):
+            self.word, self.start, self.end = word, start, end
+
+    class Segment:
+        start, end, text = 0.5, 1.5, " First thing said."
+        words = [Word(" First", 0.5, 0.8), Word(" thing", 0.8, 1.1), Word(" said.", 1.1, 1.5)]
+
+    seen = {}
+
+    class Model:
+        def transcribe(self, path, **options):
+            seen.update(options)
+            return [Segment()], None
+
+    transcriber = WhisperTranscriber()
+    monkeypatch.setattr(transcriber, "_load", lambda: Model())
+    assert seen == {}
+    assert transcriber(b"RIFF", "wav")[0]["words"][0] == {"word": " First", "start": 0.5, "end": 0.8}
+    assert seen["word_timestamps"] is True, "word timings were not requested"
+
+    chunkr.register_transcriber("test-words", transcriber)
+    try:
+        path = tmp_path / "clip.wav"
+        write_wav(path)
+        document = chunkr.load_documents(str(path))[0]
+        assert document.metadata["word_count"] == 3
+        assert document.metadata["first_word_s"] == pytest.approx(0.5)
+        assert document.metadata["last_word_s"] == pytest.approx(1.5)
+    finally:
+        chunkr.unregister_transcriber("test-words")
+
+
 def test_whisper_transcriber_fails_with_a_clear_message_without_the_runtime():
     """The lazy import turns a missing dependency into advice, not a traceback."""
     from chunkr_audio import WhisperTranscriber
