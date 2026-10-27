@@ -104,6 +104,14 @@ symphonia = { version = "0.5.4", default-features = false, features = [
 # OOXML/EPUB containers are stored or deflated; the default feature set pulls
 # in aes/bzip2/lzma/xz/zstd/zopfli, none of which a document needs.
 zip = { version = "9.0.3", default-features = false, features = ["deflate"] }
+# Archive formats beyond zip, all pure Rust: no C, no system libraries, wasm-safe.
+# zip already pulls flate2 (miniz_oxide) for its deflate; gzip reuses it.
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
+tar = "0.4"
+bzip2-rs = "0.1.2"
+lzma-rust2 = { version = "0.24", default-features = false, features = ["std", "xz"] }
+ruzstd = { version = "0.9", default-features = false, features = ["std"] }
+sevenz-rust2 = { version = "0.24", default-features = false }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 getrandom = { version = "0.3", features = ["wasm_js"] }
@@ -115,3 +123,5 @@ required-features = ["pdf"]
 
 [dev-dependencies]
 zip = { version = "9.0.3", default-features = false, features = ["deflate"] }
+# Archive tests build tar/gzip containers in memory; bzip2/xz/zstd/7z payloads
+# are small committed fixtures (`tests/fixtures/archives`).

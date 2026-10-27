@@ -32,7 +32,7 @@ use crate::structures::document::Document;
 pub const STRUCTURED_EXTENSIONS: &[&str] = &[
     "pdf", "xlsx", "xlsm", "xlsb", "xls", "ods", "csv", "tsv", "docx", "docm", "pptx", "odt",
     "epub", "eml", "mbox", "msg", "rtf", "xml", "ipynb", "html", "htm", "xhtml", "srt", "vtt",
-    "webvtt", "zip",
+    "webvtt",
 ];
 
 /// Extensions understood by [`load_documents`], structured formats first.
@@ -51,6 +51,7 @@ pub fn supported_extensions() -> Vec<String> {
         .iter()
         .map(|e| e.to_string()),
     );
+    extensions.extend(ARCHIVE_EXTENSIONS.iter().map(|e| e.to_string()));
     extensions.extend(
         audio_extensions()
             .iter()
@@ -90,8 +91,21 @@ pub fn is_audio(extension: &str) -> bool {
 pub fn is_structured(extension: &str) -> bool {
     let extension = normalize(extension);
     STRUCTURED_EXTENSIONS.contains(&extension.as_str())
+        || is_archive(&extension)
         || has_table_source(&extension)
         || is_audio(&extension)
+}
+
+/// Archive extensions, including the single-stream compressors.
+///
+/// `foo.tar.gz` and `foo.csv.gz` both arrive as `gz`: the container is recognised
+/// from its magic bytes, and the name only decides what the payload is called.
+pub const ARCHIVE_EXTENSIONS: &[&str] = &[
+    "zip", "tar", "7z", "rar", "gz", "tgz", "bz2", "tbz2", "tbz", "xz", "txz", "zst", "tzst",
+];
+
+fn is_archive(extension: &str) -> bool {
+    ARCHIVE_EXTENSIONS.contains(&extension)
 }
 
 /// Lower-case extension of a path or archive member name, without the dot.
@@ -165,17 +179,22 @@ pub fn load_documents_from_bytes(
     extension: &str,
     source: Option<&str>,
 ) -> Result<Vec<Document>, ChunkrError> {
-    extract_payload(bytes, &normalize(extension), source, 0)
+    extract_payload(bytes, &normalize(extension), source, 0, None)
 }
 
 /// Extract a payload, tracking how many archives already contain it.
+///
+/// `limits` carries the archive limits of the load that started this: a nested
+/// archive must be measured against the limits its caller asked for, not against
+/// the environment defaults.
 pub(crate) fn extract_payload(
     bytes: &[u8],
     extension: &str,
     source: Option<&str>,
     depth: usize,
+    limits: Option<&crate::loader::archive::ArchiveLimits>,
 ) -> Result<Vec<Document>, ChunkrError> {
-    let documents = extract_documents(bytes, extension, source, depth)
+    let documents = extract_documents(bytes, extension, source, depth, limits)
         .map_err(|error| qualify_source(source, error))?;
 
     Ok(documents
@@ -190,6 +209,7 @@ fn extract_documents(
     extension: &str,
     source: Option<&str>,
     depth: usize,
+    limits: Option<&crate::loader::archive::ArchiveLimits>,
 ) -> Result<Vec<Document>, ChunkrError> {
     // Audio decodes and transcribes rather than extracting text; the arm lives
     // behind the feature that provides the decoder.
@@ -199,13 +219,16 @@ fn extract_documents(
     }
 
     let documents = match extension {
-        "zip" => {
-            return crate::loader::archive::expand_zip(
-                bytes,
-                source,
-                &crate::loader::archive::ArchiveLimits::from_env(),
-                depth,
-            )
+        extension if is_archive(extension) => {
+            let defaults;
+            let limits = match limits {
+                Some(limits) => limits,
+                None => {
+                    defaults = crate::loader::archive::ArchiveLimits::from_env();
+                    &defaults
+                }
+            };
+            return crate::loader::archive::expand(bytes, source, limits, depth);
         }
         "pdf" => PDFLoader::new().load_pages_from_bytes(bytes)?,
         "xlsx" | "xlsm" | "xlsb" | "xls" | "ods" => {
@@ -248,7 +271,7 @@ fn extract_documents(
                 .any(|known| known == extension)
             {
                 if let Some(sniffed) = sniff_extension(bytes) {
-                    return extract_documents(bytes, sniffed, source, depth);
+                    return extract_documents(bytes, sniffed, source, depth, limits);
                 }
             }
             let has_bom = encoding_rs::Encoding::for_bom(bytes).is_some();
@@ -293,6 +316,14 @@ fn sniff_extension(bytes: &[u8]) -> Option<&'static str> {
     }
     if prefix(b"{\\rtf") {
         return Some("rtf");
+    }
+    // Archives name themselves: a `.tar`, `.gz` or `.7z` payload that reached the
+    // text fallback would otherwise be loaded as mojibake. Zip is left to the
+    // container walk below, which knows a docx from a plain zip.
+    if let Some(container) = crate::loader::archive::sniff_container(bytes) {
+        if container != crate::loader::archive::Container::Zip {
+            return Some(container.extension());
+        }
     }
     if !prefix(b"PK\x03\x04") && !prefix(b"PK\x05\x06") {
         return None;

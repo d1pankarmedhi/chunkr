@@ -103,7 +103,7 @@ the natural unit of each format:
 | Markup & notebooks | `html` `xml` `rtf` `ipynb` | document |
 | Captions | `srt` `vtt` `webvtt` | cue |
 | Text | `txt` `md` `log` `json` `jsonl` `ndjson`, any other extension | document |
-| Archives | `zip` | member (dispatched by its own format) |
+| Archives | `zip` `7z` `tar` `gz` `tgz` `bz2` `tbz2` `xz` `txz` `zst` `tzst` (`rar` is named and refused) | member (dispatched by its own format) |
 | Columnar (`pip install chunkr-tabular`) | `parquet` `feather` `arrow` `ipc` | batch of rows (as a Markdown table) |
 | Audio (`--features audio`, `pip install chunkr-audio`) | `wav` `mp3` `flac` `ogg` `oga` `m4a` `m4b` `aac` | transcript segment (with `start_time_s`/`end_time_s`) |
 | Audio & video with `ffmpeg` (`CHUNKR_FFMPEG`) | `opus` `webm` `mkv` `mp4` `m4v` `mov` `avi` `aiff` `wma` `amr` `caf` | transcript segment of the audio track |
@@ -208,25 +208,37 @@ bridge covers video containers: the audio track of a `.mp4`/`.mov`/`.mkv` lectur
 transcribes into the usual timestamped chunks, and those extensions only appear in
 `supported_extensions()` when an `ffmpeg` is actually configured.
 
-A zip is expanded rather than treated as one blob: every member is dispatched by its own
+An archive is expanded rather than treated as one blob: every member is dispatched by its own
 extension — a `.csv` inside it is chunked as a table with headers repeated, a `.md` as Markdown — and
 each document carries `archive_entry` (its path inside the archive) plus `archive_entries` /
-`archive_skipped` counts, so a chunk still cites the exact member it came from. Nested archives
-expand two levels deep by default. `ArchiveLimits` guards the reads before they happen: 1000 entries,
-512 MiB uncompressed, 100:1 per-entry compression ratio above a 1 MiB floor, depth 2 — a breach
-reports which limit was hit instead of quietly eating memory:
+`archive_skipped` counts, so a chunk still cites the exact member it came from.
+
+Containers are recognised by their magic bytes, so extensionless or mislabelled payloads still
+expand: `zip`, `7z`, `tar`, tar compressed with gzip/bzip2/xz/zstd (`.tar.gz`, `.tgz`, `.tar.bz2`,
+`.tar.xz`, `.tar.zst`), and a *single compressed document* (`.csv.gz`, `.jsonl.bz2`, `.xml.xz`,
+`.txt.zst`) which becomes one document named by its inner name. All decoders are pure Rust — no C, no
+system libraries, wasm-safe. `rar` is recognised and named, with the advice to extract it first: no
+credible pure-Rust reader exists for it.
 
 ```python
-chunkr.load_documents("bundle.zip")                   # members, dispatched by format
-chunkr.expand_zip?  # Rust: expand_zip(bytes, source, &ArchiveLimits::default(), 0)
+chunkr.load_documents("bundle.tar.gz")                # members, dispatched by format
+chunkr.load_documents("dump/events.jsonl.zst")        # one document, format jsonl
+# Rust: chunkr::expand(bytes, source, &ArchiveLimits::default(), 0)
 ```
+
+`ArchiveLimits` guards the reads: 1000 entries, 512 MiB uncompressed, depth 2 (a compressed tar
+counts as one archive). Where a container declares sizes up front (zip per entry, 7z and tar per
+header) the limits are checked *before* reading; where it cannot (gz/bz2/xz/zst) the decoder is cut
+off mid-stream, so a 200 MB bomb is refused in milliseconds instead of being expanded. A breach
+reports which limit was hit.
 
 Members that are not readable documents (images, binaries) are skipped and counted in
 `archive_skipped`; a corrupt archive or a breached limit is an error naming the entry.
 
 Payloads that do not name themselves are not guessed at: with an empty or unknown extension chunkr
-identifies PDF and RTF by prefix and zip containers (`docx`, `xlsx`, `pptx`, `odt`, `epub`) by their
-entries, then falls back to text — while a known extension always wins over the content.
+identifies PDF and RTF by prefix, archives by their magic bytes, and zip containers (`docx`, `xlsx`,
+`pptx`, `odt`, `epub`) by their entries, then falls back to text — while a known extension always
+wins over the content.
 
 Encoding rules are explicit: byte-order marks are always honoured, `.txt`/`.log`/`.csv`/`.tsv`
 also decode legacy single-byte encodings, and formats that are UTF-8 by convention (`md`, `json`,

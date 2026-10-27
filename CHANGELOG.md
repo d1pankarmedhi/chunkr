@@ -33,6 +33,21 @@ repository tooling in `benchmarks/`.
 
 ### Added
 
+- **Archives beyond zip: `7z`, `tar`, compressed tar and single compressed files.** Every container
+  is recognised by its magic bytes, so extensionless and mislabelled payloads expand too: `tar`,
+  `.tar.gz`/`.tgz`, `.tar.bz2`, `.tar.xz`, `.tar.zst`, `7z`, and a compressed *document*
+  (`.csv.gz`, `.jsonl.bz2`, `.xml.xz`, `.txt.zst`) which loads as one document named by its inner
+  name. Members go through the normal extractors as before and keep `archive_entry` /
+  `archive_entries` / `archive_skipped`; `source` shows the whole chain
+  (`export.tar.gz!deep/notes.txt`). `rar` is recognised and refused with advice — there is no
+  pure-Rust reader for it and this crate takes no C dependency. Every decoder (flate2/miniz_oxide,
+  bzip2-rs, lzma-rust2, ruzstd, sevenz-rust2, tar) is pure Rust, so nothing new is needed on wasm.
+- **Decompression limits for streams that declare no size.** zip checks each entry's declared
+  sizes, 7z and tar check the header sizes before reading, and gz/bz2/xz/zst are cut off mid-stream:
+  a 200 MB gzip bomb is refused in milliseconds instead of being expanded. A compressed tar counts
+  as *one* archive for `max_depth`, and `ArchiveLimits` now propagates into nested archives instead
+  of being reset to the environment defaults partway down the tree. `expand_zip` became `expand`,
+  which takes any supported container.
 - **Word timings survive transcription, and long audio can be cut before the model sees it.**
   `TranscriptSegment` carries `words` (per-word `text`/`start`/`end`) — accepted from Python
   transcribers as `{"word", "start", "end"}`, and read from whisper.cpp's `-ojf` token offsets by the

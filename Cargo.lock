@@ -454,6 +454,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bzip2-rs"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "beeb59e7e4c811ab37cc73680c798c7a5da77fc9989c62b09138e31ee740f735"
+dependencies = [
+ "crc32fast",
+ "tinyvec",
+]
+
+[[package]]
 name = "bzip2-sys"
 version = "0.1.13+1.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -549,14 +559,17 @@ dependencies = [
 name = "chunkr"
 version = "1.6.0"
 dependencies = [
+ "bzip2-rs",
  "calamine",
  "clap",
  "encoding_rs",
+ "flate2",
  "getrandom 0.3.4",
  "html2text",
  "js-sys",
  "liteparse",
  "lopdf 0.32.0",
+ "lzma-rust2 0.24.0",
  "mail-parser",
  "memchr",
  "msg_parser",
@@ -565,11 +578,14 @@ dependencies = [
  "quick-xml 0.42.0",
  "rayon",
  "regex",
+ "ruzstd",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
+ "sevenz-rust2",
  "sha2 0.10.9",
  "symphonia",
+ "tar",
  "thiserror 1.0.69",
  "tiktoken-rs",
  "tokenizers 0.21.4",
@@ -2308,6 +2324,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e20f57f9918e5bd7bc58c22cdd70a6afc7375d4dd9683af5f2b34bd3d2bba619"
 
 [[package]]
+name = "lzma-rust2"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1c46f3fcd2e888afdb01a07efc071cb21300e07c68d32c3e8b01b5c8cb1fcaa"
+
+[[package]]
+name = "lzma-rust2"
+version = "0.24.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "490750560fa7851fbbf5d3ab1a8750f09350ed361ed8aed85b1e1e40587812ee"
+dependencies = [
+ "sha2 0.11.0",
+]
+
+[[package]]
 name = "lzma-sys"
 version = "0.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2945,7 +2976,7 @@ checksum = "d7b497d21a8b6fbb4b5a544f8fadb77e801a09ae0add9e411d31c6f89e3c1e90"
 dependencies = [
  "glob",
  "hmac-sha256",
- "lzma-rust2",
+ "lzma-rust2 0.15.8",
  "ureq",
 ]
 
@@ -3913,6 +3944,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ruzstd"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "69e4ce4a039f42bf25920b95667e4d789e98749ab11bbb8d2c2936f788421bb5"
+
+[[package]]
 name = "ryu"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4044,6 +4081,18 @@ dependencies = [
  "itoa",
  "ryu",
  "serde",
+]
+
+[[package]]
+name = "sevenz-rust2"
+version = "0.24.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2f0c68c0e8289bfd09e49ef433e8de02c7c464afc1d7f5a275c99749a880e301"
+dependencies = [
+ "crc32fast",
+ "js-sys",
+ "lzma-rust2 0.23.0",
+ "wasm-bindgen",
 ]
 
 [[package]]

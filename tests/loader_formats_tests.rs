@@ -416,7 +416,7 @@ fn test_utf16_text_with_bom_is_decoded() {
 
 #[test]
 fn test_binary_payload_is_rejected() {
-    let binary = [0x50, 0x4b, 0x03, 0x04, 0x00, 0x01, 0x02, 0x00];
+    let binary = [0x00, 0x01, 0x02, 0xfe, 0xff, 0x40, 0x13];
     let error = load_documents_from_bytes(&binary, "unknown", None).unwrap_err();
     assert!(error.to_string().contains("binary payload"));
 }
