@@ -14,6 +14,14 @@ repository tooling in `benchmarks/`.
 
 ### Fixed
 
+- **Speech detection no longer declares quiet recordings silent.** The energy VAD's absolute
+  floor was -50 dBFS, so any recording more than ~25 dB down — a quiet mic, a phone call, a
+  normalised-down corpus — was reported as `speech_detected: false` / `speech_ratio: 0.0` even
+  though the speech is plainly audible. Measured on real `google/fleurs` utterances (peaks span
+  0.005 to 0.96): **9 of 20 clips detected before, 20 of 20 after**, median `speech_ratio` 0.00 →
+  0.83. The floor is now -80 dBFS, where only dither lives; the relative threshold above the noise
+  floor is what separates speech from silence, and refusal still keys on near-silence
+  (`SILENCE_PEAK`), so a file that is genuinely silent is still refused before a model loads.
 - **PDF documents longer than 1,000 pages were silently truncated** by the `chunkr-rs[pdf]` /
   `chunkr-pdf` extension. The plugin passed `max_pages=None` through to liteparse, whose Python
   binding then fell back to its own 1,000-page default: a 2,066-page PDF came back as 1,000 pages,
