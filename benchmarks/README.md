@@ -418,6 +418,7 @@ chunk's metadata say where it came from?**
 pip install pyarrow maturin && maturin develop --features python     # one-time
 python benchmarks/bench_retrieval.py                                 # ~60 s, all datasets
 python benchmarks/bench_retrieval.py --datasets wtq --splitters chunkr fixed:1000
+python benchmarks/bench_retrieval.py --containers gz tar-gz 7z --suite   # ~2 min, archive parity
 ```
 
 Corpora are Hugging Face datasets, materialised as real files in formats `chunkr` loads and pinned to
@@ -440,33 +441,51 @@ through:
 | `chunkr:2000` | the same at a 2,000-character target |
 | `fixed:N` | naive character window, the usual baseline |
 | `whole` | one chunk per file — recall ceiling, and unusable in practice |
+| `chunkr@gz` | the same corpus, one `.gz` per document (single-stream decompression) |
+| `chunkr@tar-gz` | one `.tar.gz` per document (archive member dispatch) |
+| `chunkr@7z` | one `.7z` per document (7z, written by `py7zr`) |
+| `chunkr@suite` | the **whole corpus in one `.tar.gz`**, doc id taken from `archive_entry` |
 
 `hit@k` = share of queries whose evidence is inside a top-k chunk; `integrity` = share of answers no
 chunk boundary cuts through (a splitter can score high at k=10 and still demolish answers);
 `nDCG@10`/`R@10` are document-level, chunk scores aggregated per document by max (BEIR convention).
 
-| dataset | splitter | hit@1 | hit@5 | MRR | integrity | nDCG@10 | R@10 | chunks/doc | mean chars |
-| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| squad | `chunkr` | 0.648 | 0.854 | 0.736 | **1.000** | — | — | 42.4 | 752 |
-| squad | `chunkr:2000` | 0.668 | 0.862 | 0.754 | **1.000** | — | — | 20.3 | 1555 |
-| squad | `fixed:1000` | 0.652 | 0.846 | 0.736 | 0.970 | — | — | 36.2 | 988 |
-| squad | `fixed:2000` | 0.656 | 0.864 | 0.747 | 0.996 | — | — | 17.2 | 1946 |
-| squad | `whole` | 0.782 | 0.934 | 0.846 | 1.000 | — | — | 1.0 | 31534 |
-| scifact | `chunkr` | — | — | 0.579 | — | 0.621 | 0.750 | 2.1 | 727 |
-| scifact | `chunkr:2000` | — | — | 0.616 | — | 0.657 | 0.787 | 1.2 | 1307 |
-| scifact | `fixed:1000` | — | — | 0.601 | — | 0.643 | 0.773 | 2.1 | 780 |
-| scifact | `fixed:2000` | — | — | 0.616 | — | 0.658 | 0.787 | 1.2 | 1320 |
-| scifact | `whole` | — | — | 0.616 | — | 0.659 | 0.793 | 1.0 | 1500 |
-| nfcorpus | `chunkr` | — | — | 0.111 | — | 0.137 | 0.223 | 2.2 | 747 |
-| nfcorpus | `fixed:1000` | — | — | 0.113 | — | 0.139 | 0.223 | 2.2 | 803 |
-| nfcorpus | `whole` | — | — | 0.110 | — | 0.139 | 0.235 | 1.0 | 1592 |
-| wtq | `chunkr` | **0.294** | **0.440** | **0.360** | **0.944** | — | — | 1.0 | 2400 |
-| wtq | `fixed:1000` | 0.258 | 0.376 | 0.313 | 0.878 | — | — | 2.9 | 862 |
-| wtq | `fixed:2000` | 0.278 | 0.410 | 0.332 | 0.878 | — | — | 1.7 | 1410 |
-| wtq | `whole` | 0.266 | 0.404 | 0.328 | 0.878 | — | — | 1.0 | 2300 |
+Recall and precision are both reported, because a splitter can be good at one and bad at the other:
+
+* `P@k` — of the k chunks returned, how many carry the answer. This is what a prompt actually pays
+  for: a top-10 where one chunk holds the answer and nine are filler still "recalls" (hit@5 = 1.0)
+  while wasting 90% of the context window.
+* `doc P@k` — of the k chunks returned, how many came from the gold document at all. The gap between
+  `doc P@k` and `P@k` is chunk bloat: how much of the ranking is spent circling the right file.
+
+| dataset | splitter | hit@1 | hit@5 | MRR | integrity | nDCG@10 | R@10 | P@k | doc P@k | chunks/doc | mean chars |
+| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| squad | `chunkr` | 0.648 | 0.854 | 0.736 | **1.000** | — | — | 0.090 | **0.446** | 42.4 | 752 |
+| squad | `chunkr:2000` | 0.668 | 0.862 | 0.754 | **1.000** | — | — | 0.092 | 0.454 | 20.3 | 1555 |
+| squad | `fixed:1000` | 0.652 | 0.846 | 0.736 | 0.970 | — | — | 0.100 | 0.480 | 36.2 | 988 |
+| squad | `fixed:2000` | 0.656 | 0.864 | 0.747 | 0.996 | — | — | 0.098 | 0.464 | 17.2 | 1946 |
+| squad | `whole` | 0.782 | 0.934 | 0.846 | 1.000 | — | — | 0.095 | 0.095 | 1.0 | 31534 |
+| scifact | `chunkr` | — | — | 0.579 | — | 0.621 | 0.750 | 0.081 | 0.075 | 2.1 | 727 |
+| scifact | `chunkr:2000` | — | — | 0.616 | — | 0.657 | 0.787 | 0.086 | 0.079 | 1.2 | 1307 |
+| scifact | `fixed:1000` | — | — | 0.601 | — | 0.643 | 0.773 | 0.084 | 0.077 | 2.1 | 780 |
+| scifact | `fixed:2000` | — | — | 0.616 | — | 0.658 | 0.787 | 0.086 | 0.079 | 1.2 | 1320 |
+| scifact | `whole` | — | — | 0.616 | — | 0.659 | 0.793 | 0.087 | 0.079 | 1.0 | 1500 |
+| nfcorpus | `chunkr` | — | — | 0.111 | — | 0.137 | 0.223 | 0.205 | 0.022 | 2.2 | 747 |
+| nfcorpus | `chunkr:2000` | — | — | 0.109 | — | 0.138 | 0.232 | 0.215 | 0.023 | 1.2 | 1377 |
+| nfcorpus | `fixed:1000` | — | — | 0.113 | — | 0.139 | 0.223 | 0.203 | 0.022 | 2.2 | 803 |
+| nfcorpus | `fixed:2000` | — | — | 0.108 | — | 0.136 | 0.229 | 0.214 | 0.023 | 1.2 | 1391 |
+| nfcorpus | `whole` | — | — | 0.110 | — | 0.139 | 0.235 | 0.216 | 0.024 | 1.0 | 1592 |
+| wtq | `chunkr` | **0.294** | **0.440** | **0.360** | **0.944** | — | — | 0.053 | 0.057 | 1.0 | 2400 |
+| wtq | `chunkr:2000` | **0.294** | **0.440** | **0.360** | **0.944** | — | — | 0.053 | 0.057 | 1.0 | 2400 |
+| wtq | `fixed:1000` | 0.258 | 0.376 | 0.313 | 0.878 | — | — | 0.044 | **0.080** | 2.9 | 862 |
+| wtq | `fixed:2000` | 0.278 | 0.410 | 0.332 | 0.878 | — | — | 0.046 | 0.066 | 1.7 | 1410 |
+| wtq | `whole` | 0.266 | 0.404 | 0.328 | 0.878 | — | — | 0.049 | 0.057 | 1.0 | 2300 |
 
 500 queries, a fixed seed, one session; raw output in
-[`results/retrieval_hf_20261022T080623Z.json`](results/retrieval_hf_20261022T080623Z.json).
+[`results/retrieval_hf_20261027T073734Z.json`](results/retrieval_hf_20261027T073734Z.json). The
+pre-archive run [`results/retrieval_hf_20261022T080623Z.json`](results/retrieval_hf_20261022T080623Z.json)
+is reproduced field for field by this one (`--queries 500 --sample 500`, identical splitters): 20 rows,
+0 numeric differences, so the container work below changed no retrieval behaviour.
 
 ### What the numbers say
 
@@ -489,6 +508,57 @@ chunk boundary cuts through (a splitter can score high at k=10 and still demolis
   bottleneck the harness says so instead of manufacturing a difference. (BM25 is genuinely weak on
   this collection — 0.14 vs 0.66 on scifact — and a reference `rank_bm25` implementation reproduces
   the same number, so the harness is not the cause.)
+* **Recall and precision disagree, and that is the useful part.** On SQuAD, `chunkr` and `fixed:1000`
+  tie on `hit@5` (0.854 vs 0.846) but a fixed window returns 10% of its top-10 from the gold article
+  into slots that do *not* hold the answer — `P@k` 0.100 vs 0.090 — while cutting 3% of answers in
+  half. Fewer, better-placed chunks beat more, cheaper ones: `chunkr:2000` matches `fixed:1000`'s
+  precision (0.092 vs 0.100) with half the chunks per document (20.3 vs 36.2) and no cut answers.
+* **`doc P@k` exposes the ceiling on tables.** `fixed:1000` beats `chunkr` on WTQ `doc P@k`
+  (0.080 vs 0.057) purely by producing 2.9 chunks per table against 1: more shots at the right file.
+  It pays for that with integrity (0.878 vs 0.944) and with hit@1/hit@5 (0.258/0.376 vs
+  0.294/0.440), which is the trade this library deliberately does not make — a table is one unit,
+  and a split table is a broken one.
+* **`whole` shows why precision has to be read next to recall.** Best SQuAD `hit@k` of the run
+  (0.782/0.934) at a `P@k` of 0.095 that is identical to its `doc P@k` 0.095: every "chunk" is a whole
+  document, so the answer is somewhere in the 31 KB that comes back and nothing in the ranking says
+  where. Recall without precision is a prompt full of hay.
+
+### Container parity: the archive paths are retrieval-neutral
+
+The archive work (`.gz`, `.tar.gz`, `.bz2`, `.xz`, `.zst`, `.7z`) has to be *invisible* to retrieval:
+same bytes in, same chunks out, same ranking. The run above re-materialises every corpus four ways —
+per-document `.gz`, per-document `.tar.gz`, per-document `.7z`, and the whole corpus inside one
+`.tar.gz` whose document ids come from `archive_entry` — and compares each against the plain files:
+
+```bash
+python benchmarks/bench_retrieval.py --queries 500 --sample 500 \
+    --containers gz tar-gz 7z --suite
+```
+
+**16 of 16 container runs are parity-EXACT** (`chunks`, `hit@1/3/5/10`, `MRR`, `integrity`, `nDCG`,
+`R@10`, `P@k`, `doc P@k` all identical within 1e-3) across 442-and-5,183-member archives:
+
+| dataset | files | `chunkr@suite` members | parity |
+| --- | ---: | ---: | --- |
+| squad | 442 | 442 | EXACT |
+| scifact | 5,183 | 5,183 | EXACT |
+| nfcorpus | 3,633 | 3,633 | EXACT |
+| wtq | 464 | 464 | EXACT |
+
+Two things this measured that a unit test cannot: a corpus-wide archive is a usable ingestion path
+(doc id = `archive_entry`, 5,183 documents from one file), and the per-document containers cost
+nothing in retrieval quality — the loader is not silently normalising, dropping or reordering text.
+The suite run also needs `CHUNKR_ARCHIVE_ENTRIES` above the corpus size (the default 1,000 is a bomb
+guard); the harness raises it and says so.
+
+### Bug found while running this (in the harness, not the crate)
+
+The first container run reported `parity=DIFFERS` for WTQ only, with mean chunk length 2,436 vs
+2,411. The cause was the harness caching `0.csv.gz` from an earlier `--sample 80` run:
+materialisation rewrites `docs/0.csv` with a *different* table under the same name, so the archive
+held the previous table. Container files are now always rewritten, and the parity column is what
+caught it — a comparison that only looks at ingest counts would have missed a wrong-table bug
+entirely.
 
 ### Bug found while running this: `.csv`/`.tsv` were never loaded as tables
 
@@ -511,3 +581,6 @@ exposed it — `chunkr` and `whole` produced identical numbers because they *wer
 * PDFs, EPUB and audio are absent: no small, permissively licensed HF dataset pairs them with
   gold page/chapter/timestamp coordinates. Their units are covered by unit tests and the
   provenance assertions in `tests/` instead.
+* `P@k` is a function of `k` and chunk size, so it is only comparable across splitters at the same
+  `k`, never against a paper using a different cutoff. `doc P@k` is the stable part: it does not
+  reward a splitter for producing more chunks per document.

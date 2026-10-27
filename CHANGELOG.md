@@ -33,6 +33,13 @@ repository tooling in `benchmarks/`.
 
 ### Added
 
+- **Retrieval benchmark now reports precision, and proves the archive paths are retrieval-neutral.**
+  `benchmarks/bench_retrieval.py` gains `P@k` (share of the top-k chunks that carry the answer) and
+  `doc P@k` (share taken from the gold document), so recall and precision are read together, plus
+  `--containers gz|tar-gz|7z` and `--suite`: every corpus is re-materialised as per-document `.gz`,
+  `.tar.gz`, `.7z` and as one corpus-wide `.tar.gz` (doc id from `archive_entry`) and compared
+  against the plain files. All 16 container runs are parity-EXACT on chunks, hit@1/3/5/10, MRR,
+  integrity, nDCG, R@10 and both precision figures, including a 5,183-member archive.
 - **Archives beyond zip: `7z`, `tar`, compressed tar and single compressed files.** Every container
   is recognised by its magic bytes, so extensionless and mislabelled payloads expand too: `tar`,
   `.tar.gz`/`.tgz`, `.tar.bz2`, `.tar.xz`, `.tar.zst`, `7z`, and a compressed *document*

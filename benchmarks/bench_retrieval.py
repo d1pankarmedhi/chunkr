@@ -34,6 +34,17 @@ Metrics
   (max), then BEIR-style `nDCG@10`, `recall@10`, `MRR@10` over the qrels, so the effect
   of chunking on document retrieval is what is being measured.
 
+Recall *and* precision are reported, because a splitter can be good at one and bad at the
+other: `hit@k`/`R@10` say whether the evidence was found, `precision@k` says how much of
+what was returned actually carries the answer (a top-10 of mostly irrelevant chunks
+pollutes a prompt even when the answer is in there), and `doc_precision@k` says how much
+of the top-k was spent on the right document at all.
+
+`--containers` re-runs the same corpus through the new archive paths — `.gz`, `.tar.gz`
+and `.7z`, one archive per document, plus `--suite` for the whole corpus inside a single
+`.tar.gz`. Chunking is content-based, so a container that changes a single metric is a
+loader bug; the run prints a parity verdict per dataset.
+
 Every splitter sees the same file. `chunkr` uses its own loader (one unit per format
 unit, then recursive sentence-aware chunking only for text units); `fixed:N` is the
 usual naive character window; `whole` is one chunk per file (no chunking) and exists as
@@ -290,15 +301,23 @@ class Chunk:
     metadata: dict[str, Any]
 
 
-def split_chunkr(path: Path, size: int, overlap: int) -> list[Chunk]:
-    """`chunkr.load_documents`, then recursive chunking for oversized *text* units."""
+def split_chunkr(
+    path: Path, size: int, overlap: int, logical_suffix: str | None = None
+) -> list[Chunk]:
+    """`chunkr.load_documents`, then recursive chunking for oversized *text* units.
+
+    `logical_suffix` is the extension of the document *inside* a container
+    (`notes.txt` for `notes.txt.gz`), so a compressed text file is chunked like the
+    text file it is.
+    """
     import chunkr as chunkr_module
 
     units = chunkr_module.load_documents(str(path))
     recursive = chunkr_module.RecursiveChunker(size, overlap, chunkr_module.SENTENCE_SEPARATORS)
+    suffix = (logical_suffix or path.suffix).lower()
     chunks: list[Chunk] = []
     for unit in units:
-        if path.suffix.lower() in TEXT_EXTS and len(unit.content) > size:
+        if suffix in TEXT_EXTS and len(unit.content) > size:
             for piece in recursive.chunk(unit.content):
                 chunks.append(Chunk(piece.content, {**unit.metadata, **piece.metadata}))
         else:
@@ -322,6 +341,88 @@ def split_fixed(path: Path, size: int, overlap: int) -> list[Chunk]:
 
 def split_whole(path: Path, size: int, overlap: int) -> list[Chunk]:
     return [Chunk(path.read_text(encoding="utf-8", errors="replace"), {"source": path.name})]
+
+
+CONTAINER_SUFFIXES = {"gz": ".gz", "tar-gz": ".tar.gz", "7z": ".7z"}
+
+
+def container_docs(docs_dir: Path, variant: str) -> dict[str, Path]:
+    """The same corpus, one archive per document, in `variant`'s format.
+
+    Per-document containers are how a corpus usually arrives from a dump or an
+    export tool, and they exercise the single-stream and archive member paths
+    without changing what any query is looking at.
+    """
+    import gzip
+    import io
+    import tarfile
+
+    out_dir = docs_dir.parent / variant
+    out_dir.mkdir(parents=True, exist_ok=True)
+    mapping: dict[str, Path] = {}
+    for source in sorted(docs_dir.iterdir()):
+        if not source.is_file():
+            continue
+        data = source.read_bytes()
+        target = out_dir / f"{source.name}{CONTAINER_SUFFIXES[variant]}"
+        # Always rewritten: the corpus is re-materialised on every run, so a cached
+        # archive could otherwise carry a different table under the same file name.
+        if variant == "gz":
+            target.write_bytes(gzip.compress(data))
+        elif variant == "tar-gz":
+            buffer = io.BytesIO()
+            with tarfile.open(fileobj=buffer, mode="w") as archive:
+                info = tarfile.TarInfo(source.name)
+                info.size = len(data)
+                archive.addfile(info, io.BytesIO(data))
+            target.write_bytes(gzip.compress(buffer.getvalue()))
+        else:
+            import py7zr
+
+            target.unlink(missing_ok=True)
+            with py7zr.SevenZipFile(target, "w") as archive:
+                archive.writestr(data, source.name)
+        mapping[source.name] = target
+    return mapping
+
+
+def suite_archive(docs_dir: Path, variant: str = "tar-gz") -> Path:
+    """The whole corpus inside one archive: one member per document."""
+    import gzip
+    import io
+    import tarfile
+
+    target = docs_dir.parent / f"suite{CONTAINER_SUFFIXES[variant]}"
+    if True:  # always rewritten, for the same reason as the per-document archives
+        buffer = io.BytesIO()
+        with tarfile.open(fileobj=buffer, mode="w") as archive:
+            for source in sorted(docs_dir.iterdir()):
+                if not source.is_file():
+                    continue
+                data = source.read_bytes()
+                info = tarfile.TarInfo(source.name)
+                info.size = len(data)
+                archive.addfile(info, io.BytesIO(data))
+        target.write_bytes(gzip.compress(buffer.getvalue()))
+    return target
+
+
+def split_chunkr_units(units, size: int, overlap: int) -> list[Chunk]:
+    """Chunk already-loaded units, keyed by the name each unit reports."""
+    import chunkr as chunkr_module
+
+    recursive = chunkr_module.RecursiveChunker(size, overlap, chunkr_module.SENTENCE_SEPARATORS)
+    chunks: list[Chunk] = []
+    for unit in units:
+        metadata = dict(unit.metadata)
+        name = metadata.get("archive_entry") or metadata.get("file_name") or ""
+        metadata["doc"] = name
+        if Path(str(name)).suffix.lower() in TEXT_EXTS and len(unit.content) > size:
+            for piece in recursive.chunk(unit.content):
+                chunks.append(Chunk(piece.content, {**metadata, **piece.metadata, "doc": name}))
+        else:
+            chunks.append(Chunk(unit.content, metadata))
+    return chunks
 
 
 def splitters(specs: Sequence[str], size: int, overlap: int) -> dict[str, Callable[[Path], list[Chunk]]]:
@@ -441,6 +542,8 @@ class Report:
     hits: dict[int, int] = field(default_factory=lambda: {1: 0, 3: 0, 5: 0, 10: 0})
     rr: float = 0.0
     integrity: int = 0
+    precise: float = 0.0  # share of top-k chunks that carry the gold evidence
+    in_doc: float = 0.0  # share of top-k chunks taken from the gold document
     queries: int = 0
     ndcg: float = 0.0
     recall: float = 0.0
@@ -480,7 +583,21 @@ def evaluate_span(
             if not any(query.spans[0][0] < start < query.spans[0][1] for start in starts):
                 report.integrity += 1
 
-        for position, index_in_flat in enumerate(rank(index.scores(query.text), k), start=1):
+        top = rank(index.scores(query.text), k)
+        for index_in_flat in top:
+            name, within_doc = origin[index_in_flat]
+            chunk = flat[index_in_flat]
+            if name == query.doc:
+                report.in_doc += 1
+            if query.row is not None:
+                matched = name == query.doc and row_present(chunk.text, query.row)
+            else:
+                span = spans[within_doc] if name == query.doc else None
+                matched = bool(span) and any(overlaps(span, gold) for gold in query.spans)
+            if matched:
+                report.precise += 1
+
+        for position, index_in_flat in enumerate(top, start=1):
             name, within_doc = origin[index_in_flat]
             if name != query.doc:
                 continue  # a hit must be the evidence file, not just any chunk
@@ -498,6 +615,9 @@ def evaluate_span(
                 break
 
     report.rr /= max(report.queries, 1)
+    returned = max(report.queries * k, 1)
+    report.precise /= returned
+    report.in_doc /= returned
     return report
 
 
@@ -516,6 +636,11 @@ def evaluate_docs(queries: list[Query], docs: dict[str, list[Chunk]], k: int = 1
             if score > best.get(name, -1.0):
                 best[name] = score
         order = sorted(best, key=lambda name: best[name], reverse=True)[:k]
+        relevant = set(query.gold_docs)
+        for name in order:
+            if name in relevant:
+                report.precise += 1
+        report.in_doc += sum(1 for name in order if name == query.doc)
         position = order.index(query.doc) + 1 if query.doc in order else 0
         if position:
             report.rr += 1.0 / position
@@ -525,10 +650,43 @@ def evaluate_docs(queries: list[Query], docs: dict[str, list[Chunk]], k: int = 1
     report.rr /= total
     report.recall /= total
     report.ndcg /= total
+    returned = max(report.queries * k, 1)
+    report.precise /= returned
+    report.in_doc /= returned
     return report
 
 
 # ------------------------------------------------------------------------------ main
+
+
+PARITY_FIELDS = (
+    "chunks",
+    "hit@1",
+    "hit@3",
+    "hit@5",
+    "hit@10",
+    "mrr",
+    "integrity",
+    "ndcg10",
+    "recall10",
+    "precision@k",
+    "doc_precision@k",
+)
+
+
+def parity(baseline: dict[str, Any], row: dict[str, Any], tolerance: float) -> bool:
+    """True when a container run reproduced the plain-file run.
+
+    Same bytes in the same chunks must give the same ranking; anything else is the
+    loader changing the text, the units or their order.
+    """
+    for field_name in PARITY_FIELDS:
+        left, right = baseline.get(field_name), row.get(field_name)
+        if left is None or right is None:
+            continue
+        if abs(float(left) - float(right)) > tolerance:
+            return False
+    return True
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -545,6 +703,24 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--corpus", type=int, default=0, help="max documents in the index (0 = all)")
     parser.add_argument("--queries", type=int, default=400, help="max queries per dataset")
     parser.add_argument("--k", type=int, default=10)
+    parser.add_argument(
+        "--containers",
+        nargs="*",
+        default=[],
+        choices=sorted(CONTAINER_SUFFIXES),
+        help="Re-run the corpus through these container formats (one archive per document)",
+    )
+    parser.add_argument(
+        "--suite",
+        action="store_true",
+        help="Also index the whole corpus from a single .tar.gz (doc id = archive_entry)",
+    )
+    parser.add_argument(
+        "--parity",
+        type=float,
+        default=0.001,
+        help="Tolerance when comparing a container run against the plain files",
+    )
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     parser.add_argument("--out", type=Path, default=RESULTS_DIR)
     parser.add_argument("--seed", type=int, default=7)
@@ -586,11 +762,65 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         is_document_task = bool(queries and queries[0].gold_docs)
 
-        for name, split in splitter_fns.items():
+        variants: dict[str, dict[str, Path]] = {}
+        for variant in args.containers:
+            try:
+                variants[f"chunkr@{variant}"] = container_docs(docs_dir, variant)
+            except ImportError as error:  # py7zr missing: a skipped variant, not a crash
+                skipped.append(f"{key}/chunkr@{variant}: {error}")
+        if args.suite:
+            try:
+                archive = suite_archive(docs_dir)
+                # One archive holding the whole corpus needs an entry budget that fits
+                # it; the default 1000 is a bomb guard, not a corpus limit, so it is
+                # raised here and reported rather than hidden.
+                import os
+                import tarfile
+
+                with tarfile.open(archive) as handle:
+                    members = len(handle.getmembers())
+                os.environ["CHUNKR_ARCHIVE_ENTRIES"] = str(max(1000, members))
+                print(f"   suite: {members} members (CHUNKR_ARCHIVE_ENTRIES raised)", file=sys.stderr)
+                variants["chunkr@suite"] = archive
+            except Exception as error:
+                skipped.append(f"{key}/chunkr@suite: {error}")
+
+        runs: list[tuple[str, Callable[[str], list[Chunk]]]] = [
+            (label, lambda name, fn=fn: fn(docs_dir / name))
+            for label, fn in splitter_fns.items()
+        ]
+        for label, mapping in variants.items():
+            if isinstance(mapping, Path):
+                # Whole corpus in one archive: load once, group by member name.
+                import chunkr as chunkr_module
+
+                loaded = chunkr_module.load_documents(str(mapping))
+                per_doc: dict[str, list[Chunk]] = {}
+                for chunk in split_chunkr_units(loaded, args.size, args.overlap):
+                    per_doc.setdefault(chunk.metadata["doc"], []).append(chunk)
+                missing = [name for name in corpus if name not in per_doc]
+                if missing:
+                    skipped.append(
+                        f"{key}/{label}: {len(missing)} files did not come back from the archive"
+                    )
+                per_doc = {name: per_doc[name] for name in corpus if name in per_doc}
+                runs.append((label, lambda _name, fixed=per_doc: fixed[_name]))
+            else:
+                runs.append(
+                    (
+                        label,
+                        lambda name, map_=mapping, s=args.size, o=args.overlap: split_chunkr(
+                            map_[name], s, o, logical_suffix=Path(name).suffix
+                        ),
+                    )
+                )
+
+        baseline: dict[str, Any] | None = None
+        for name, split in runs:
             per_file: dict[str, list[Chunk]] = {}
             try:
                 for file_name in corpus:
-                    per_file[file_name] = split(docs_dir / file_name)
+                    per_file[file_name] = split(file_name)
             except Exception as error:  # a splitter that cannot read a file is a result
                 skipped.append(f"{key}/{name}: {error}")
                 print(f"   [{name}] skipped: {error}", file=sys.stderr)
@@ -616,12 +846,29 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             if is_document_task:
                 row.update(ndcg10=report.ndcg, recall10=report.recall)
+            row["precision@k"] = report.precise
+            row["doc_precision@k"] = report.in_doc
+            if name == "chunkr":
+                baseline = row
+            elif baseline is not None and name.startswith("chunkr@"):
+                row["parity"] = parity(baseline, row, args.parity)
             results.append(row)
             line = "   ".join(
                 f"{field}={row[field]:.3f}"
-                for field in ("hit@1", "hit@5", "mrr", "integrity", "ndcg10", "recall10")
+                for field in (
+                    "hit@1",
+                    "hit@5",
+                    "mrr",
+                    "integrity",
+                    "ndcg10",
+                    "recall10",
+                    "precision@k",
+                    "doc_precision@k",
+                )
                 if isinstance(row.get(field), float)
             )
+            if "parity" in row:
+                line += f"   parity={'EXACT' if row['parity'] else 'DIFFERS'}"
             print(f"   [{name}] {line}  chunks/doc={row['chunks_per_doc']:.1f}", file=sys.stderr)
 
     payload = {
@@ -646,25 +893,31 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def markdown(payload: dict[str, Any]) -> str:
-    head = "| dataset | splitter | hit@1 | hit@5 | MRR | integrity | nDCG@10 | R@10 | chunks/doc | mean chars |"
-    rule = "| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
+    head = (
+        "| dataset | splitter | hit@1 | hit@5 | MRR | integrity | nDCG@10 | R@10 | "
+        "P@k | doc P@k | chunks/doc | mean chars |"
+    )
+    rule = "| :--- | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
     lines = [head, rule]
     for row in payload["results"]:
         def fmt(key: str, digits: int = 3) -> str:
             value = row.get(key)
             return "—" if value is None else f"{value:.{digits}f}"
 
+        label = row["splitter"] + (" ✅" if row.get("parity") else "")
         lines.append(
             "| {dataset} | `{splitter}` | {h1} | {h5} | {mrr} | {integ} | {ndcg} | {rec} | "
-            "{cpd:.1f} | {chars:.0f} |".format(
+            "{prec} | {dprec} | {cpd:.1f} | {chars:.0f} |".format(
                 dataset=row["dataset"],
-                splitter=row["splitter"],
+                splitter=label,
                 h1=fmt("hit@1"),
                 h5=fmt("hit@5"),
                 mrr=fmt("mrr"),
                 integ=fmt("integrity"),
                 ndcg=fmt("ndcg10"),
                 rec=fmt("recall10"),
+                prec=fmt("precision@k"),
+                dprec=fmt("doc_precision@k"),
                 cpd=row["chunks_per_doc"],
                 chars=row["mean_chunk_chars"],
             )
