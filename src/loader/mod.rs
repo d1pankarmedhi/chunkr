@@ -11,8 +11,9 @@
 //! - [`SpreadsheetLoader`], [`OfficeLoader`], [`EpubLoader`], [`EmailLoader`],
 //!   [`MsgLoader`], [`SubtitleLoader`]: one loader per format family, callable
 //!   directly when the extension is known.
-//! - [`expand_zip`]: expands zip archives member by member, dispatching each one
-//!   through the normal extractors with [`ArchiveLimits`] guarding zip bombs.
+//! - [`expand`]: expands zip, 7z, tar and compressed archives member by member
+//!   (and decompresses single compressed files), dispatching each one through the
+//!   normal extractors with [`ArchiveLimits`] guarding decompression bombs.
 //! - [`TableSource`]: registered by an extension package to add tabular formats
 //!   (Parquet, Arrow IPC, ...) — extraction lives in the extension,
 //!   [`documents_from_tables`] keeps the mapping in core.
@@ -25,7 +26,7 @@ pub use pdf::PDFLoader;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod archive;
 #[cfg(not(target_arch = "wasm32"))]
-pub use archive::{expand_zip, ArchiveLimits};
+pub use archive::{expand, ArchiveLimits};
 #[cfg(not(target_arch = "wasm32"))]
 pub mod auto;
 #[cfg(not(target_arch = "wasm32"))]

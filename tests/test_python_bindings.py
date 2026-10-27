@@ -322,5 +322,52 @@ class Worker:
             self.assertEqual(len(docs), 1)
             self.assertEqual(docs[0].metadata["file_extension"], "jsonl")
 
+    def test_archive_containers_expand_from_python(self):
+        """tar.gz members keep their own format and their provenance."""
+        import gzip
+        import io
+        import tarfile
+
+        def tar_gz(members):
+            buffer = io.BytesIO()
+            with tarfile.open(fileobj=buffer, mode="w") as archive:
+                for name, content in members:
+                    info = tarfile.TarInfo(name)
+                    info.size = len(content)
+                    archive.addfile(info, io.BytesIO(content))
+            return gzip.compress(buffer.getvalue())
+
+        payload = tar_gz(
+            [
+                ("notes/readme.md", b"# Title\n\nBody."),
+                ("data/sales.csv", b"region,units\nNorth,120\n"),
+                ("blob.bin", bytes(range(64))),
+            ]
+        )
+        docs = chunkr.load_documents_from_bytes(payload, "gz", "export.tar.gz")
+        self.assertEqual([d.metadata["archive_entry"] for d in docs],
+                         ["notes/readme.md", "data/sales.csv"])
+        self.assertEqual(docs[0].metadata["format"], "text")
+        self.assertEqual(docs[1].metadata["format"], "table")
+        self.assertEqual(docs[0].metadata["source"], "export.tar.gz!notes/readme.md")
+        self.assertEqual(docs[0].metadata["archive_skipped"], 1)
+
+        # A compressed document is one document, named by its inner name.
+        single = chunkr.load_documents_from_bytes(
+            gzip.compress(b"region,units\nNorth,120\n"), "gz", "data/sales.csv.gz"
+        )
+        self.assertEqual(len(single), 1)
+        self.assertEqual(single[0].metadata["archive_entry"], "sales.csv")
+        self.assertEqual(single[0].metadata["file_extension"], "csv")
+
+        extensions = chunkr.supported_extensions()
+        for extension in ("zip", "tar", "7z", "gz", "bz2", "xz", "zst"):
+            self.assertIn(extension, extensions)
+
+        # RAR is named and refused, not silently mangled.
+        with self.assertRaises(Exception) as context:
+            chunkr.load_documents_from_bytes(b"Rar!\x1a\x07\x00" + b"\x00" * 32, "rar", "old.rar")
+        self.assertIn("RAR", str(context.exception))
+
 if __name__ == "__main__":
     unittest.main()

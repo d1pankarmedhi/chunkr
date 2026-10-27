@@ -187,6 +187,7 @@ impl MsgLoader {
                     &extension,
                     Some(&chain),
                     depth,
+                    None,
                 )
             };
 
