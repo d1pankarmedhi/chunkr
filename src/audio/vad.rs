@@ -36,7 +36,9 @@ pub struct VadConfig {
     pub frame_ms: u32,
     /// How far above the noise floor a frame must be to count as speech, in dB.
     pub threshold_db: f32,
-    /// Absolute floor: quieter than this is never speech, in dBFS.
+    /// Absolute floor: quieter than this is never speech, in dBFS. Only digital
+    /// silence and dither sit below it — recordings differ in gain by tens of dB,
+    /// so an absolute gate any higher would call quiet speech "not speech".
     pub silence_db: f32,
     /// Spans shorter than this are dropped (a door slam, a click).
     pub min_speech_s: f64,
@@ -55,8 +57,13 @@ impl Default for VadConfig {
         Self {
             frame_ms: 20,
             threshold_db: 9.0,
-            // -50 dBFS: below this even loud speech in a quiet room is ~-30 dBFS.
-            silence_db: -50.0,
+            // -80 dBFS. This used to be -50, which quietly declared every quiet
+            // recording silent: measured on real FLEURS utterances (peaks 0.005 to
+            // 0.96, speech frames -70 to -30 dBFS) it reported speech_ratio 0.00 for
+            // 11 of 20 clips whose speech is plainly audible. The relative threshold
+            // above the noise floor is what separates speech from silence; this is
+            // only a guard against dither counting as a voice.
+            silence_db: -80.0,
             min_speech_s: 0.25,
             min_silence_s: 0.35,
             padding_s: 0.10,
@@ -257,5 +264,48 @@ mod tests {
         // Speech occupies 2.0-3.0s; padding extends the span by 0.1s each side.
         assert!((spans[0].start_s - 1.9).abs() < 0.15, "{:?}", spans[0]);
         assert!((spans[0].end_s - 3.0).abs() < 0.15, "{:?}", spans[0]);
+    }
+
+    #[test]
+    fn quiet_speech_is_still_speech() {
+        // A room recording 30-40 dB down: hum at -86 dBFS, speech peaking at -58.
+        // An absolute -50 dBFS floor declared recordings like this silent, which is
+        // most of a real speech corpus (FLEURS peaks span 0.005 to 0.96).
+        let rate = 16_000;
+        let hum = 10f32.powf(-86.0 / 20.0);
+        let speech = 10f32.powf(-58.0 / 20.0);
+        let mut samples = Vec::new();
+        for index in 0..rate as usize * 2 {
+            let phase = 2.0 * std::f32::consts::PI * 110.0 * index as f32 / rate as f32;
+            let mut sample = phase.sin() * hum;
+            if (0.5 * rate as f32) as usize <= index && index < (1.5 * rate as f32) as usize {
+                sample += phase.sin() * speech;
+            }
+            samples.push(sample);
+        }
+
+        let spans = speech_spans(&samples, rate, &VadConfig::default());
+        assert!(!spans.is_empty(), "quiet speech was reported as silence");
+        let covered: f64 = spans.iter().map(SpeechSpan::duration_s).sum();
+        assert!(
+            covered > 0.7,
+            "covered only {:.2}s of the 1.0s that is speech",
+            covered
+        );
+    }
+
+    #[test]
+    fn dither_alone_is_not_speech() {
+        // -100 dBFS: nothing to transcribe, and nothing that should be called speech.
+        let rate = 16_000;
+        let amplitude = 10f32.powf(-100.0 / 20.0);
+        let mut state: u32 = 999;
+        let mut samples = Vec::with_capacity(rate as usize * 2);
+        for _ in 0..rate as usize * 2 {
+            state = state.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+            let noise = ((state >> 16) as f32 / 32_768.0) - 1.0;
+            samples.push(noise * amplitude);
+        }
+        assert!(speech_spans(&samples, rate, &VadConfig::default()).is_empty());
     }
 }
