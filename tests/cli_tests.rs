@@ -161,3 +161,34 @@ fn test_cli_asr_offline_with_a_cold_cache_fails_with_instructions() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("chunkr models pull tiny.en"), "{stderr}");
 }
+
+#[test]
+fn test_cli_accepts_a_directory_without_naming_a_strategy() {
+    // `--help` promises "a file or directory path"; a directory must not need
+    // `-s dir`, and must never surface a raw `Is a directory` io error.
+    let dir = std::env::temp_dir().join(format!("chunkr_cli_dir_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+    std::fs::write(dir.join("notes.md"), "# Heading\n\nProse about carrots.\n").unwrap();
+    std::fs::write(dir.join("sales.csv"), "region,units\nNorth,120\n").unwrap();
+
+    let out = Command::new(chunkr_bin())
+        .args(["-f", "text", dir.to_str().unwrap()])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .expect("failed to run chunkr on a directory");
+
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "directory input failed: {stderr}");
+    assert!(!stderr.contains("Is a directory"), "{stderr}");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.contains("notes.md"), "members not listed: {stdout}");
+    assert!(
+        stdout.contains("Prose about carrots"),
+        "markdown missing: {stdout}"
+    );
+    assert!(stdout.contains("region"), "csv missing: {stdout}");
+
+    std::fs::remove_dir_all(&dir).ok();
+}

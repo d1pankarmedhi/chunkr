@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use std::fs;
 use std::io::{self, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use chunkr::prelude::*;
 
@@ -133,8 +133,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("--asr needs a build with `--features audio`".into());
     }
 
+    // A directory input means the directory loader, whatever the strategy says:
+    // reading it as a file would only fail with a raw `Is a directory`.
+    let input_is_dir = matches!(&cli.input, Some(path) if path != "-" && Path::new(path).is_dir());
+
     // 1. If Strategy::Dir, run directory loader directly
-    let mut chunks = if cli.strategy == Strategy::Dir {
+    let mut chunks = if cli.strategy == Strategy::Dir || input_is_dir {
         let dir_path = cli.input.as_deref().unwrap_or(".");
         let loader = DirectoryLoader::new()
             .with_chunk_size(cli.chunk_size)
