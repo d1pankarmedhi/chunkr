@@ -81,7 +81,7 @@ reminder — this is the trap described above.
 Recovery for a failed npm publish is unchanged:
 `gh workflow run release.yml -f dry_run=false -f target=npm`.
 
-### 1c-bis. PyPI — `PYPI_API_TOKEN_PDF`
+### 1c-bis. PyPI — `PYPI_API_TOKEN_PDF`, `PYPI_API_TOKEN_TABULAR`, `PYPI_API_TOKEN_AUDIO`
 
 The `chunkr-pdf` extension is published by the same workflow but with its own
 token, because PyPI tokens only publish the project(s) they are scoped to.
@@ -106,6 +106,26 @@ so the first upload needs a token scoped to **Entire account**. Steps:
    the account-wide token. Rotating is a 2-minute job and shrinks the blast
    radius from "your whole account" to "this one project".
 
+The same holds for the other two extensions, which the base extras point at
+(`chunkr-rs[tabular]`, `chunkr-rs[audio]`):
+
+| package | secret | extra it backs | first-release scope |
+| :--- | :--- | :--- | :--- |
+| `chunkr-pdf` | `PYPI_API_TOKEN_PDF` | `chunkr-rs[pdf]` | Entire account, then project |
+| `chunkr-tabular` | `PYPI_API_TOKEN_TABULAR` | `chunkr-rs[tabular]`, `chunkr-tabular` | Entire account, then project |
+| `chunkr-audio` | `PYPI_API_TOKEN_AUDIO` | `chunkr-rs[audio]` | Entire account, then project |
+
+```bash
+gh secret set PYPI_API_TOKEN_TABULAR
+gh secret set PYPI_API_TOKEN_AUDIO
+```
+
+Both publish after the base package (their `chunkr-rs>=` floor has to resolve),
+skip the upload with a warning when their secret is unset, and use
+`skip-existing` so a base release whose extension did not change keeps the
+version already on PyPI instead of failing. An extension publishes on its own
+with a manual dispatch: `target=tabular` or `target=audio`.
+
 **Better long-term: no token at all.** PyPI supports Trusted Publishing (OIDC),
 including a *pending publisher* that can be registered before the project
 exists: PyPI → Account settings → Publishing → Add pending publisher → project
@@ -113,8 +133,8 @@ exists: PyPI → Account settings → Publishing → Add pending publisher → p
 environment `pypi`. The publish step then drops `password:` and the job gains
 `id-token: write`. The base package and crates.io still use tokens today; moving
 all three to OIDC removes every long-lived upload secret.
-3. Release order inside the pipeline is fixed: `pypi` (base) → `pypi-pdf`
-   (extension), because `chunkr-pdf` pins `chunkr-rs>=<version>`.
+3. Release order inside the pipeline is fixed: `pypi` (base) → `pypi-pdf` and
+   `pypi-extras` (extensions), because each extension pins `chunkr-rs>=<version>`.
 4. Until the secret exists, the `pypi-pdf` job still builds and smoke-tests the
    extension, then skips the upload with a warning — a base release is never
    blocked or half-failed by the extension's token.
@@ -155,10 +175,12 @@ all three to OIDC removes every long-lived upload secret.
 
 `chunkr-rs` / `chunkr` / `chunkr-wasm` share one version and one tag.
 
-`chunkr-pdf` versions independently (currently `0.x`) because it is a thin
-extension: it pins `chunkr-rs>=<base minor>` and the base extra
-(`chunkr-rs[pdf]`) pins `chunkr-pdf>=0.1`. Bump the extension only when its own
-code changes; bump its `chunkr-rs>=` floor when it starts using new core API.
+`chunkr-pdf`, `chunkr-tabular` and `chunkr-audio` version independently (all
+`0.x`) because they are thin extensions: each pins `chunkr-rs>=<base minor>` and
+the matching base extra pins the extension's floor (`chunkr-pdf>=0.1`,
+`chunkr-audio>=0.1.1`). Bump an extension only when its own code changes; bump
+its `chunkr-rs>=` floor when it starts using new core API. Uploads use
+`skip-existing`, so an unchanged extension keeps its published version.
 The two release together anyway — the workflow publishes whichever `chunkr-pdf`
 version is in `packages/chunkr-pdf/pyproject.toml`, and PyPI rejects a
 re-upload of an existing version, so bump it before every base release that

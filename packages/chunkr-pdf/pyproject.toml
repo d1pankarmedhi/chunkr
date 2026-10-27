@@ -22,7 +22,7 @@ classifiers = [
     "Topic :: Text Processing :: Linguistic",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-dependencies = ["chunkr-rs>=1.6", "liteparse>=2.15,<3"]
+dependencies = ["chunkr-rs>=1.7", "liteparse>=2.15,<3"]
 
 [project.urls]
 Homepage = "https://github.com/d1pankarmedhi/chunkr"

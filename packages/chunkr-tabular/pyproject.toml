@@ -23,7 +23,7 @@ classifiers = [
     "Topic :: Text Processing :: Linguistic",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
-dependencies = ["chunkr-rs>=1.6", "pyarrow>=14"]
+dependencies = ["chunkr-rs>=1.7", "pyarrow>=14"]
 
 [project.urls]
 Homepage = "https://github.com/d1pankarmedhi/chunkr"

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "chunkr-audio"
-version = "0.1.0"
+version = "0.1.1"
 description = "Speech-to-text for chunkr: Whisper transcripts with timestamps"
 readme = "README.md"
 license = { text = "MIT" }

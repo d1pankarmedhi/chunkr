@@ -21,11 +21,11 @@ on:
         type: boolean
         default: true
       target:
-        description: "Publish target (all | pypi | pdf | crates | npm | github)"
+        description: "Publish target (all | pypi | pdf | tabular | audio | crates | npm | github)"
         required: false
         type: choice
         default: all
-        options: [all, pypi, pdf, crates, npm, github]
+        options: [all, pypi, pdf, tabular, audio, crates, npm, github]
 
 concurrency:
   group: release-${{ github.ref }}
@@ -427,6 +427,86 @@ jobs:
         with:
           packages-dir: dist-pdf/
           password: ${{ secrets.PYPI_API_TOKEN_PDF }}
+          # The extension ships on its own schedule: when its version is already on
+          # PyPI this release simply keeps that version instead of failing.
+          skip-existing: true
+
+  # ── 5b-ter. PyPI: the `chunkr-tabular` and `chunkr-audio` extensions ─────
+  # Same shape as the pdf job but driven by a matrix, because these two are the
+  # packages the base extras point at (`chunkr-rs[tabular]`, `chunkr-rs[audio]`).
+  # Their tokens are checked per package, so a release proceeds with whichever
+  # extensions are configured and warns about the rest instead of failing.
+  pypi-extras:
+    name: Publish chunkr-${{ matrix.package }} to PyPI
+    needs: [validate, pypi]
+    if: >-
+      always() &&
+      needs.validate.result == 'success' &&
+      needs.pypi.result != 'failure' &&
+      (github.event_name != 'workflow_dispatch' ||
+       inputs.target == 'all' || inputs.target == 'pypi' ||
+       inputs.target == matrix.package)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    environment: pypi
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: tabular
+            module: chunkr_tabular
+            token: PYPI_API_TOKEN_TABULAR
+            extra: pyarrow
+            smoke: |
+              import chunkr, chunkr_tabular
+              print('table loaders:', chunkr.table_loaders())
+              assert 'pyarrow' in chunkr.table_loaders(), 'entry point not discovered'
+          - package: audio
+            module: chunkr_audio
+            token: PYPI_API_TOKEN_AUDIO
+            extra: "faster-whisper av<14"
+            smoke: |
+              import chunkr, chunkr_audio
+              print('transcribers:', chunkr.transcribers())
+              assert 'whisper' in chunkr.transcribers(), 'entry point not discovered'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build wheel + sdist
+        run: |
+          python -m pip install --upgrade build
+          python -m build packages/chunkr-${{ matrix.package }} --outdir dist-${{ matrix.package }}
+          ls -l dist-${{ matrix.package }}
+      - name: Smoke-test the extension against the released base package
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install --upgrade pip ${{ matrix.extra }}
+          /tmp/smoke/bin/pip install --no-deps "chunkr-rs==${{ needs.validate.outputs.version }}"
+          /tmp/smoke/bin/pip install --no-deps dist-${{ matrix.package }}/chunkr_${{ matrix.package }}-*.whl
+          /tmp/smoke/bin/python -c "${{ matrix.smoke }}"
+      - name: Is a chunkr-${{ matrix.package }} PyPI token configured?
+        id: token
+        env:
+          TOKEN: ${{ secrets[matrix.token] }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::${{ matrix.token }} is unset — skipping the chunkr-${{ matrix.package }} publish. See PUBLISHING.md §1c-ter."
+          fi
+      - name: Publish to PyPI
+        if: >-
+          steps.token.outputs.present == 'true' &&
+          (github.event_name != 'workflow_dispatch' || inputs.dry_run == false)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist-${{ matrix.package }}/
+          password: ${{ secrets[matrix.token] }}
+          skip-existing: true
 
   # ── 5b. crates.io via API token ─────────────────────────────────────────
   # Token: crates.io → Account Settings → API Tokens (scope: publish chunkr).

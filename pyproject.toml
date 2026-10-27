@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "chunkr-rs"
-version = "1.6.0"
+version = "1.7.0"
 description = "Blazingly fast document and text chunking library for LLMs, RAG, and AI agents in Rust and Python. High-throughput alternative to LangChain RecursiveCharacterTextSplitter and LlamaIndex."
 authors = [{ name = "Dipankar", email = "dipankarmedhi11@gmail.com" }]
 readme = "README.md"
@@ -74,9 +74,11 @@ pdf = ["chunkr-pdf>=0.1"]
 # Convenience aliases: the same extensions, plus one OCR engine, in one command.
 pdf-rapid = ["chunkr-pdf[ocr-rapid]>=0.1"]
 pdf-paddle = ["chunkr-pdf[ocr-paddle]>=0.1"]
+# Columnar formats (Parquet/Arrow/Feather). The loader is in the extension.
+tabular = ["chunkr-tabular>=0.1"]
 # Speech-to-text for audio files (Whisper). The decoder is in the wheel; this
 # extra adds the transcriber that turns it into text.
-audio = ["chunkr-audio>=0.1"]
+audio = ["chunkr-audio>=0.1.1"]
 
 [tool.maturin]
 # `audio` ships in the wheel: the Rust side decodes and timestamps, the

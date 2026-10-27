@@ -7,10 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-The PDF `Fixed` entry below ships with **`chunkr-pdf` 0.1.1**: the extension is versioned
-independently of the base package, which stays at 1.6.0 until the format-dispatcher entries below
-are released. The `.csv` fix below ships with the crate; the retrieval benchmark that found it is
-repository tooling in `benchmarks/`.
+## [1.7.0] - 2026-10-27
+
+A reach release: the same engine now ingests what corpora actually arrive as — archives,
+compressed files, more office and mail formats, spreadsheets-as-files, audio — without changing the
+unit boundaries or the cite-back metadata that already existed. Every claim below is backed by a
+benchmark in `benchmarks/`, including the two bugs the audio harness found on its first run.
+
+Ships with **`chunkr-audio` 0.1.1** (word timings reach documents; first PyPI publication),
+**`chunkr-tabular` 0.1.0** (first publication) and **`chunkr-pdf` 0.1.1** (the >1000-page truncation
+fix). All three extensions are versioned independently of the base package and are now published by
+the release workflow, so `pip install "chunkr-rs[audio]"` / `[tabular]` / `[pdf]` resolve. The
+published crate is 1.1 MiB instead of 19.6 MiB: the benchmark cache and root-level scratch PDFs are
+excluded from the package.
 
 ### Fixed
 

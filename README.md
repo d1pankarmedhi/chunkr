@@ -25,6 +25,7 @@ Python wheels cover Linux, Windows and macOS (Intel + Apple Silicon), Python 3.8
 pip install chunkr-rs              # text & document chunking
 pip install "chunkr-rs[pdf]"       # + layout-aware PDF parsing (headings, tables, OCR)
 pip install "chunkr-rs[audio]" chunkr-audio   # + Whisper transcripts of audio files
+pip install "chunkr-rs[tabular]"              # + Parquet / Arrow / Feather loaders
 
 cargo add chunkr                   # Rust crate
 cargo add chunkr --features pdf    # + liteparse PDF backend (features: pdf, pdf-ocr, pdf-ocr-ppocr)
