@@ -1,5 +1,7 @@
 /target
 /dist
+# Downloaded benchmark corpora (hundreds of MB) are rebuilt on demand.
+/benchmarks/data
 /scripts/*
 !/scripts/build_wasm.sh
 !/scripts/build_wasm.ps1
